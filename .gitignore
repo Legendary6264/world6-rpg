@@ -1,0 +1,11 @@
+node_modules/
+dist/
+server/generated/
+server/data/
+.env
+.env.*
+server/.env
+server/.env.*
+!.env.example
+!server/.env.example
+*.log

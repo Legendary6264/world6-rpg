@@ -103,6 +103,7 @@ for(const dialect of ['sqlite','postgres'])test('Общая база, досту
   await api('/lobbies/'+lobby.id+'/world',{token:b.token,method:'PUT',body:{world:full,revision:full.revision},status:403})
   await api('/lobbies/'+lobby.id+'/characters/'+attachedId,{token:b.token,method:'PATCH',body:{approved:true},status:403})
   await api('/lobbies/'+lobby.id+'/characters/'+attachedId,{token:a.token,method:'PATCH',body:{approved:true}})
+  full.revision=(await api('/lobbies/'+lobby.id+'/world',{token:a.token})).revision
   full.characters[0].name='Герой кампании'
   await api('/lobbies/'+lobby.id+'/world',{token:a.token,method:'PUT',body:{world:full,revision:full.revision}})
   await api('/lobbies/'+lobby.id+'/world',{token:a.token,method:'PUT',body:{world:full,revision:full.revision},status:409})
@@ -148,7 +149,7 @@ for(const dialect of ['sqlite','postgres'])test('Общая база, досту
  })
  if(dialect==='postgres')await t.test('Приватная схема PostgreSQL не доступна публичной роли',async()=>{
   const row=await server.db.get("SELECT COUNT(*) AS n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='world6' AND c.relkind='r' AND c.relrowsecurity")
-  assert.equal(Number(row.n),13)
+  assert.equal(Number(row.n),14)
   await server.db.run('CREATE ROLE world6_guest NOLOGIN')
   await assert.rejects(server.db.transaction(async tx=>{await tx.run('SET LOCAL ROLE world6_guest');await tx.get('SELECT * FROM world6.users')}),e=>e.code==='42501')
  })

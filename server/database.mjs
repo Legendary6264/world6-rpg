@@ -7,7 +7,9 @@ export async function openDatabase(config,Pool=pg.Pool){
  if(config.databaseUrl){
   pool=new Pool({connectionString:config.databaseUrl,max:8,connectionTimeoutMillis:10000})
   await pool.query(await readFile(new URL('./migrations/001-postgres.sql',import.meta.url),'utf8'))
- }else{await mkdir(dirname(config.sqlitePath),{recursive:true});sqlite=new DatabaseSync(config.sqlitePath);sqlite.function('lower',{deterministic:true},value=>typeof value==='string'?value.toLowerCase():value);sqlite.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');sqlite.exec(await readFile(new URL('./migrations/001-sqlite.sql',import.meta.url),'utf8'))}
+  await pool.query(await readFile(new URL('./migrations/002-community.sql',import.meta.url),'utf8'))
+  await pool.query('ALTER TABLE world6.world_entries ENABLE ROW LEVEL SECURITY; REVOKE ALL ON world6.world_entries FROM PUBLIC;')
+ }else{await mkdir(dirname(config.sqlitePath),{recursive:true});sqlite=new DatabaseSync(config.sqlitePath);sqlite.function('lower',{deterministic:true},value=>typeof value==='string'?value.toLowerCase():value);sqlite.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');sqlite.exec(await readFile(new URL('./migrations/001-sqlite.sql',import.meta.url),'utf8'));sqlite.exec(await readFile(new URL('./migrations/002-community.sql',import.meta.url),'utf8'))}
  let tail=Promise.resolve()
  const serial=fn=>{const result=tail.then(fn);tail=result.catch(()=>{});return result}
  function facade(client){

@@ -11,7 +11,7 @@ import { readConfig } from '../config.mjs'
 
 test('Supabase: доверенная личность, подтверждение email, UUID владельца и MFA',async t=>{
  const tokens=new Map(),ownerId=crypto.randomUUID(),playerId=crypto.randomUUID()
- const token=(user,aal='aal1')=>{const value=Buffer.from(JSON.stringify({alg:'test'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({sub:user.id,aal,role:'OWNER',nonce:crypto.randomUUID()})).toString('base64url')+'.test';tokens.set(value,user);return value}
+ const token=(user,aal='aal1')=>{const value=Buffer.from(JSON.stringify({alg:'test'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({sub:user.id,aal,role:'OWNER',nonce:crypto.randomUUID(),session_id:crypto.randomUUID()})).toString('base64url')+'.test';tokens.set(value,user);return value}
  const owner={id:ownerId,email:'owner@example.test',email_confirmed_at:new Date().toISOString(),user_metadata:{display_name:'Владелец',role:'PLAYER'}}
  const player={id:playerId,email:'player@example.test',email_confirmed_at:new Date().toISOString(),user_metadata:{display_name:'Игрок',role:'OWNER'}}
  const ownerAal1=token(owner),ownerAal2=token(owner,'aal2'),playerToken=token(player)
@@ -29,6 +29,29 @@ test('Supabase: доверенная личность, подтверждени�
  assert.equal((await api('/me',ownerAal1,200,'PATCH',{displayName:'Новое имя'})).mfaRequired,true)
  await api('/me',playerToken.replace(/\.test$/,'.forged'),401)
  await api('/me',token({...player,id:crypto.randomUUID(),email:'unverified@example.test',email_confirmed_at:null}),401)
+ await api('/admin/users/'+playerId,ownerAal2,200,'PATCH',{role:'WORLD_EDITOR'})
+ assert.equal((await api('/me',playerToken)).mfaRequired,true)
+ await api('/world-entries/manage',playerToken,403)
+ await api('/world-entries/manage',token(player,'aal2'))
+ await api('/admin/users',token(player,'aal2'),403)
+ const protectedPlayer={...player,id:crypto.randomUUID(),email:'protected@example.test',factors:[{id:crypto.randomUUID(),factor_type:'totp',status:'verified'}]}
+ const pendingToken=token(protectedPlayer)
+ assert.equal((await api('/me',pendingToken)).mfaRequired,true)
+ await api('/lobbies/mine',pendingToken,403)
+ await api('/me',pendingToken,403,'PATCH',{displayName:'До MFA'})
+ await api('/lobbies/mine',token(protectedPlayer,'aal2'))
+ await api('/auth/logout',pendingToken,200,'POST')
  await api('/auth/register',undefined,400,'POST',{email:'fake@example.test',password:'Strong-password-2026',displayName:'Фальшивый'})
  await api('/auth/login',undefined,400,'POST',{email:'fake@example.test',password:'Strong-password-2026'})
+ // Even a valid unexpired JWT must not outlive its revoked production session.
+ const originalGet=server.db.get
+ let activeSession=true
+ server.db.get=async(sql,args)=>sql.includes('auth.sessions')?(activeSession?{active:1}:undefined):originalGet(sql,args)
+ server.config.production=true
+ await api('/me',ownerAal2)
+ activeSession=false
+ await api('/me',ownerAal2,401)
+ server.config.production=false
+ server.db.get=originalGet
+
 })

@@ -6,7 +6,7 @@ export class NetworkError extends Error {
 export async function fetchApi(path, token = '', options = {}) {
     let response;
     try {
-        response = await fetch(apiBase + '/api' + path, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: 'Bearer ' + token } : {}), ...options.headers }, signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) });
+        response = await fetch(apiBase + '/api' + path, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: 'Bearer ' + token } : {}), ...options.headers }, signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(path === '/config' ? 60000 : 15000)]) : AbortSignal.timeout(path === '/config' ? 60000 : 15000) });
     }
     catch (e) {
         if (e.name === 'AbortError')
