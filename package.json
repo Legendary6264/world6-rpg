@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
+    "lint": "oxlint src server scripts vite.config.ts",
     "preview": "vite preview",
     "test": "node scripts/test-rules.mjs",
     "dev:all": "node --env-file-if-exists=server/.env scripts/dev-all.mjs",
