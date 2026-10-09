@@ -1,0 +1,52 @@
+import type { AnatomyForm } from './anatomyModel'
+import { anatomyForms } from './anatomyModel'
+import { attrKeys, type AttributeKey } from './attributes'
+import { schoolById } from './magicCatalog'
+
+export type RaceTemplate = {
+ id:string; name:string; subtitle:string; parentId?:string; blood:number; form:AnatomyForm;
+ fullForm:AnatomyForm; transform:boolean; affinities:Record<string,number>; traits:string[]; skin:string;
+ bonuses:Partial<Record<AttributeKey,number>>; learning:number; wings:'membrane'|'feathers';
+ gills:boolean; fireBreath:boolean; horns:boolean; tail:boolean
+}
+const race=(id:string,name:string,subtitle:string,patch:Partial<RaceTemplate>={}):RaceTemplate=>({id,name,subtitle,blood:5000,form:'humanoid',fullForm:'humanoid',transform:false,affinities:{},traits:[],skin:'#b98a72',bonuses:{},learning:1,wings:'membrane',gills:false,fireBreath:false,horns:false,tail:false,...patch})
+export const raceTemplates:RaceTemplate[]=[
+ race('human','Человек','Адаптация, обучение и самостоятельный выбор пути',{traits:['Быстрое обучение навыкам +10%','Собранность под давлением','Развитая координация'],bonuses:{selfControl:3,coordination:2,constitution:2},learning:1.1}),
+ race('elf','Аэлири · лесной эльф','Жизнь леса и тонкое восприятие',{blood:4300,affinities:{vegetation:20,wind:10},traits:['Острый слух','Чувство растительности'],bonuses:{hearing:5,vision:3},skin:'#d1b398'}),
+ race('dwarf','Каргар','Подземный народ камня и ремесла',{blood:4500,affinities:{earth:20,metal:15,resonance:10},traits:['Сумеречное зрение','Плотное тело','Чувство материала'],bonuses:{constitution:5,touch:3},skin:'#ad846e'}),
+ race('noctari','Ноктари · тенерождённые','Единый народ с телесными и теневыми линиями',{blood:4600,affinities:{shadows:25,illusion:10,silence:10},traits:['Восприятие в глубокой темноте','Чувствительность к тонким местам','Теневая физиология настраивается отдельно'],bonuses:{energySensitivity:5,hearing:3},skin:'#8d819c'}),
+ race('beastfolk','Зверолюди','Общая группа животных, птичьих и морских линий',{transform:true,fullForm:'quadruped',tail:true,affinities:{beast:20},traits:['Обострённые чувства','Базовая, частичная и полная формы'],bonuses:{smell:4,hearing:2},skin:'#9a795d'}),
+ race('wolfkin','Волчья линия','Выслеживание и выносливость',{parentId:'beastfolk',transform:true,fullForm:'quadruped',tail:true,affinities:{beast:20,wind:10},traits:['Нюх','Слух','Звериная форма'],bonuses:{smell:7,constitution:3},skin:'#87817a'}),
+ race('catkin','Кошачья линия','Баланс и бесшумное движение',{parentId:'beastfolk',transform:true,fullForm:'quadruped',tail:true,affinities:{beast:20},traits:['Сумеречное зрение','Гибкость'],bonuses:{agility:5,coordination:4},skin:'#b38c61'}),
+ race('bearkin','Медвежья линия','Сила и массивное тело',{parentId:'beastfolk',blood:6500,transform:true,fullForm:'quadruped',affinities:{beast:20,earth:10},traits:['Мощные конечности','Плотная мускулатура'],bonuses:{strength:6,constitution:4},skin:'#74583f'}),
+ race('birdkin','Птичья линия','Перья, крылья и полёт',{parentId:'beastfolk',blood:3500,transform:true,fullForm:'bird',wings:'feathers',affinities:{beast:20,wind:20},traits:['Зрение вдаль','Крылья в полной форме'],bonuses:{vision:6,spatialAwareness:4},skin:'#b5ada0'}),
+ race('reptilekin','Чешуйчатая линия','Чешуя и альтернативная терморегуляция',{parentId:'beastfolk',transform:true,fullForm:'quadruped',tail:true,affinities:{beast:20,earth:10},traits:['Чешуйчатый покров','Хвост'],bonuses:{constitution:4},skin:'#89946d'}),
+ race('draconid','Огненный драконид','Подтип зверолюдей с огненной железой',{parentId:'beastfolk',blood:6000,transform:true,fullForm:'winged',tail:true,horns:true,fireBreath:true,affinities:{fire:20,earth:10},traits:['Огненное дыхание без маны','Чешуя','Крылья в полной форме'],bonuses:{constitution:4,energyThroughput:3},skin:'#955a40'}),
+ race('marine','Морская линия','Водные подтипы зверолюдей',{parentId:'beastfolk',blood:4600,gills:true,affinities:{water:25,blood:10},traits:['Жабры','Дыхание в воде'],bonuses:{constitution:3,touch:3},skin:'#79a7ad'}),
+ ...[['nereid','Нереиды'],['thalassar','Талассары'],['krakenid','Кракениды'],['siren','Сирены'],['deepfolk','Безымянные глубинники']].map(([id,name])=>race(id,name,'Линия морских зверолюдей',{parentId:'marine',blood:4600,gills:true,affinities:{water:25},traits:['Водное дыхание','Физиология конкретного вида редактируется'],skin:'#6a969f'})),
+ race('demon','Демон','Демоническая полуформа и крылатая форма',{blood:5600,transform:true,fullForm:'winged',horns:true,tail:true,affinities:{fire:20,curses:15},traits:['Рога','Полуформа','Перепончатые крылья'],bonuses:{courage:4,strength:3},skin:'#965c65'}),
+ race('angel','Ангел','Крылатая линия света',{form:'winged',fullForm:'winged',wings:'feathers',affinities:{light:25},traits:['Перистые крылья','Чувство энергии'],bonuses:{energySensitivity:5},skin:'#d1baa3'}),
+ race('nephalem','Нефалем','Потомок ангела и демона',{blood:5400,form:'winged',fullForm:'winged',transform:true,horns:true,tail:true,wings:'feathers',affinities:{fire:20,light:20},traits:['Предрасположенность к адскому пламени','Свет','Крылья'],bonuses:{channelStability:4,courage:3},skin:'#c4a78f'}),
+ race('dragon','Дракон','Древняя магическая раса',{blood:12000,form:'quadruped',fullForm:'quadruped',horns:true,tail:true,affinities:{fire:20,beast:15},traits:['Драконья физиология','Возрастная стадия не равна магическому рангу'],bonuses:{strength:8,constitution:6},skin:'#86634b'}),
+ race('spirit','Дух','Энергетическое ядро вместо крови',{blood:0,affinities:{soul:20,spirits:25},traits:['Без крови','Энергетическое ядро'],bonuses:{energySensitivity:5},skin:'#a4cad3'}),
+ race('echo','Эхо','Отпечаток события или явления',{parentId:'spirit',blood:0,affinities:{soul:20},traits:['Энергетическая структура','Память события'],bonuses:{memory:5},skin:'#91abb5'}),
+ race('revenant','Неупокоенный','Сущность Загробья',{blood:0,affinities:{necromancy:20,soul:15},traits:['Связь с памятью и душой','Жизнь ядра'],skin:'#9f9997'}),
+ race('artificial','Искусственное существо','Конструкция вместо обычных органов',{blood:0,affinities:{metal:20,resonance:20},traits:['Без крови','Опорное ядро'],bonuses:{constitution:5},skin:'#929b9b'}),
+ race('golem','Голем','Минеральная конструкция',{parentId:'artificial',blood:0,affinities:{earth:20,resonance:20},traits:['Минеральное тело','Опорное ядро'],bonuses:{strength:5},skin:'#929080'}),
+ race('chimera','Химера','Созданный или изменённый организм',{parentId:'artificial',blood:5000,transform:true,fullForm:'quadruped',traits:['Составная физиология','Изменяемые части тела'],skin:'#958575'}),
+ race('cursed','Проклятый','Состояние происхождения и изменения тела',{blood:4800,affinities:{curses:20,decay:15},traits:['Индивидуальная мутация','Условия проклятия задаёт мастер'],skin:'#8c9580'}),
+ race('lightborn','Светлорождённый','Народ Горнего Предела',{affinities:{light:20},traits:['Происхождение Горнего Предела'],bonuses:{energySensitivity:3},skin:'#d6c9ac'}),
+ race('branded','Клеймённый','Носитель Клейма Полымя',{affinities:{fire:15},traits:['Клеймо — отдельный эффект','Память и привязанности требуют учёта'],skin:'#a47466'}),
+ race('rememberer','Помнящий','Народ иных планет',{traits:['Развитая память'],bonuses:{memory:6},skin:'#b49d91'}),
+ race('giant','Исполин','Крупное телесное существо',{blood:18000,traits:['Крупное тело','Индивидуальный масштаб физиологии'],bonuses:{strength:8,constitution:5},skin:'#9f9481'}),
+ race('ancient','Древний','Живой многослойный покров и память тела',{blood:30000,affinities:{resonance:15},traits:['Память состояний тела','Адаптивный покров','Размер задаётся физиологией'],bonuses:{memory:8,constitution:6},skin:'#8d8976'}),
+ race('primordial','Первозданный','Происхождение у фундаментальных процессов мира',{blood:0,traits:['Индивидуальное ядро','Природа определяется мастером'],skin:'#aca69b'}),
+ race('rootborn','Сущность Корней','Нематериальная или изменённая жизнь',{blood:0,affinities:{spirits:20},traits:['Связь с Корнями','Индивидуальная физиология'],skin:'#a0aa88'}),
+]
+export const canonicalRaceId=(id:string)=>id==='shadowborn'?'noctari':id
+export function raceById(id:string,custom:RaceTemplate[]=[]):RaceTemplate{return custom.find(r=>r.id===canonicalRaceId(id))??raceTemplates.find(r=>r.id===canonicalRaceId(id))??raceTemplates[0]}
+export function isRaceTemplate(v:unknown):v is RaceTemplate{
+ if(!v||typeof v!=='object'||Array.isArray(v))return false
+ const r=v as RaceTemplate,number=(v:unknown,max:number)=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=max
+ return typeof r.id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(r.id)&&!['__proto__','constructor','prototype'].includes(r.id)&&typeof r.name==='string'&&r.name.trim().length>0&&r.name.length<=100&&typeof r.subtitle==='string'&&r.subtitle.length<=500&&(r.parentId===undefined||typeof r.parentId==='string'&&r.parentId!==r.id)&&number(r.blood,1e7)&&Object.hasOwn(anatomyForms,r.form)&&Object.hasOwn(anatomyForms,r.fullForm)&&typeof r.transform==='boolean'&&['membrane','feathers'].includes(r.wings)&&['gills','fireBreath','horns','tail'].every(k=>typeof r[k as keyof RaceTemplate]==='boolean')&&/^#[\da-f]{6}$/i.test(r.skin)&&number(r.learning,2)&&r.learning>=.5&&Array.isArray(r.traits)&&r.traits.length<=20&&r.traits.every(t=>typeof t==='string'&&t.length<=300)&&!!r.affinities&&typeof r.affinities==='object'&&!Array.isArray(r.affinities)&&Object.entries(r.affinities).length<=50&&Object.entries(r.affinities).every(([k,v])=>!!schoolById(k)&&number(v,50))&&!!r.bonuses&&typeof r.bonuses==='object'&&!Array.isArray(r.bonuses)&&Object.entries(r.bonuses).every(([k,v])=>attrKeys.includes(k as AttributeKey)&&number(v,20))
+}
