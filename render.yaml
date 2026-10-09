@@ -3,6 +3,7 @@ services:
   - type: web
     name: world6-api
     runtime: node
+    plan: free
     buildCommand: npm ci --include=dev && npm run server:build
     startCommand: npm start
     healthCheckPath: /api/health
