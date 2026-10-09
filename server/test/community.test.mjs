@@ -138,7 +138,9 @@ for(const dialect of ['sqlite','postgres'])test('Общая база, досту
  })
  await t.test('Владелец, роли, блокировка и отзыв сессии',async()=>{
   await api('/admin/users',{token:b.token,status:403})
+  const roleEvent=once(sockets[0],'accountChanged')
   await api('/admin/users/'+b.user.id,{token:a.token,method:'PATCH',body:{role:'ADMIN'}})
+  assert.equal((await roleEvent)[0].id,b.user.id);assert.equal(sockets[0].connected,true)
   await api('/admin/users/'+c.user.id,{token:b.token,method:'PATCH',body:{role:'OWNER'},status:403})
   await api('/admin/users/'+a.user.id,{token:b.token,method:'PATCH',body:{disabled:true},status:403})
   await api('/admin/users/'+c.user.id,{token:b.token,method:'PATCH',body:{disabled:true}})
