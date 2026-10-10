@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import type { Actor } from './rpgEngine'
-import type { Scene, SceneObject, SceneObjectKind, ScenePosition, SceneState, SceneSupport } from './sceneTypes'
+import type { Scene, SceneActor, SceneObject, SceneObjectKind, ScenePosition, SceneState, SceneSupport } from './sceneTypes'
 import { addSceneObject, createScene, deleteScene, emptyScenes, MAX_SCENES, moveSceneObject,
   placeSceneToken, removeSceneObject, replaceScene, sceneObject, sceneObjectLabels } from './scenes'
 import { ArtworkPicker } from './VisualElements'
@@ -9,7 +8,7 @@ import SceneViewport, { SceneGlyph } from './SceneViewport'
 import type { SceneSelection } from './SceneViewport'
 import './sceneStyle.css'
 
-type Props = { value?: SceneState; actors: Actor[]; disabled?: boolean;
+type Props = { value?: SceneState; actors: SceneActor[]; disabled?: boolean;
   onChange: (value: SceneState) => { ok: boolean; message: string } }
 type Tool = 'select' | 'move' | 'character' | SceneObjectKind
 function Label({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {

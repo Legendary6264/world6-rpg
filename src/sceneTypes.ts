@@ -14,3 +14,4 @@ export type Scene = {
   objects: SceneObject[]; tokens: SceneToken[]
 }
 export type SceneState = { version: 1; activeSceneId: string | null; scenes: Scene[] }
+export type SceneActor = { id: string; name: string; profile: { portrait?: string } }

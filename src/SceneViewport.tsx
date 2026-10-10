@@ -1,11 +1,10 @@
 import type { PointerEvent } from 'react'
-import type { Actor } from './rpgEngine'
-import type { Scene, SceneObjectKind, ScenePosition } from './sceneTypes'
+import type { Scene, SceneActor, SceneObjectKind, ScenePosition } from './sceneTypes'
 import { artworkSource } from './visualMedia'
 
 type Selection = { kind: 'object'; id: string } | { kind: 'token'; id: string } | null
 export type SceneSelection = Selection
-type Props = { scene: Scene; actors: Actor[]; selection: Selection;
+type Props = { scene: Scene; actors: SceneActor[]; selection: Selection;
   onPoint: (point: ScenePosition) => void; onSelect: (value: Selection) => void; selecting: boolean }
 
 // Small original SVG tiles. They remain sharp at any zoom and need no asset service.

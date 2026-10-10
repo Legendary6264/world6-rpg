@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApplication } from '../app.mjs'
 import { readConfig } from '../config.mjs'
+import { lobbyPermissions } from '../generated/lobbyAccess.mjs'
 
 for(const dialect of ['sqlite','postgres'])test('Роли сайта, редактор и управление лобби: '+dialect,async t=>{
  const directory=await mkdtemp(join(tmpdir(),'world6-server-'))
@@ -38,6 +39,8 @@ for(const dialect of ['sqlite','postgres'])test('Роли сайта, редак
   await api('/lobbies/'+special.id+'/transfer',{token:c.token,method:'POST',body:{userId:a.user.id},status:403})
   await api('/lobbies/'+special.id+'/members/'+c.user.id,{token:b.token,method:'PATCH',body:{role:'ASSISTANT'}})
   assert.equal((await api('/lobbies/'+special.id,{token:c.token})).myRole,'ASSISTANT')
+  const permissionBase=await api('/lobbies/'+special.id,{token:b.token})
+  await api('/lobbies/'+special.id+'/members/'+c.user.id+'/permissions',{token:b.token,method:'PATCH',body:{permissions:[...lobbyPermissions],revision:permissionBase.revision}})
   const world=await api('/lobbies/'+special.id+'/world',{token:c.token})
   assert.equal(world.revision>=0,true);assert.equal(world.characters.length,0)
   await api('/lobbies/'+special.id+'/world',{token:c.token,method:'PUT',body:{world,revision:world.revision}})

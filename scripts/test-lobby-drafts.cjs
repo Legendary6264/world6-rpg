@@ -63,6 +63,7 @@ const { createDefaultCharacter } = load('characterModel')
 const { writeCharacters } = load('characterStorage')
 const { serializeLobbyBackup, parseLobbyBackup } = load('lobbyBackup')
 const storage = load('lobbyDraftStorage')
+const { lobbyPermissions } = load('lobbyAccess')
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 async function flush(fn = () => {}) { await act(async () => { fn(); await new Promise(r => setTimeout(r, 5)) }) }
 async function input(selector, value) {
@@ -83,11 +84,11 @@ async function click(text) {
 async function fixture() {
   const tree = createRoot(document.getElementById('root'))
   const accountId = crypto.randomUUID(), writes = []
-  const members = [{ id: accountId, displayName: 'GM' }, { id: 'friend-id', displayName: 'Friend' }]
+  const members = [{ id: accountId, displayName: 'GM', lobbyRole: 'GM', permissions: [...lobbyPermissions] }, { id: 'friend-id', displayName: 'Friend', lobbyRole: 'ASSISTANT', permissions: [] }]
   const worlds = Object.fromEntries(['a', 'b'].map(id => [id, {
     characters: [{ ...createDefaultCharacter(), id: 'hero-' + id, name: 'Hero ' + id }], campaign: emptyCampaign(), revision: 7,
   }]))
-  let mounted = true, role = 'GM', failLobby = false, intercept = null
+  let mounted = true, role = 'GM', permissions = [...lobbyPermissions], failLobby = false, intercept = null
   const context = { user: { id: accountId }, events: 0, socket: null, refresh: () => {} }
   const request = async (url, options) => {
     if (intercept) {
@@ -100,8 +101,10 @@ async function fixture() {
     if (url === '/characters') return []
     if (url === '/lobbies/a' || url === '/lobbies/b') {
       if (failLobby) throw Error('Temporary lobby failure')
-      return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, status: 'open', visibility: 'public', members, slots: 4 }
+      return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, myPermissions: permissions, revision: worlds[url.at(-1)].revision, status: 'open', visibility: 'public', members, slots: 4 }
     }
+    const sceneMatch = url.match(/^\/lobbies\/([ab])\/scenes$/)
+    if(sceneMatch)return {revision:worlds[sceneMatch[1]].revision,scenes:worlds[sceneMatch[1]].campaign.scenes??{version:1,activeSceneId:null,scenes:[]},actors:worlds[sceneMatch[1]].characters.map(c=>({id:c.id,name:c.name,profile:{portrait:c.profile.portrait}}))}
     const match = url.match(/^\/lobbies\/([ab])\/world/)
     if (match) return structuredClone(worlds[match[1]])
     return { items: [], hasMore: false }
@@ -113,6 +116,7 @@ async function fixture() {
   return { accountId, context, writes, worlds, request, members,
     render: () => flush(render),
     role: async value => { role = value; context.events++; await flush(render) },
+    permissions: async value => { permissions = value; context.events++; await flush(render) },
     fail: async value => { failLobby = value; context.events++; await flush(render) },
     intercept: value => { intercept = value },
     mount: async value => { mounted = value; await flush(render) },
@@ -425,3 +429,74 @@ test('Сцены: клик не привязывается к сетке; уда
 })
 
 test.after(() => dom.window.close())
+
+test('Права: ограниченный помощник не открывает полный черновик; отдельные сцены сохраняются по лобби', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await f.load();await input('[data-name]','Секретный черновик')
+  await f.permissions(['scenes']);await f.role('ASSISTANT');await flush()
+  assert.equal(name(),undefined)
+  assert.equal([...document.querySelectorAll('button')].some(b=>b.textContent.includes('Открыть кампанию в редакторе')),false)
+  assert.equal(document.querySelector('input[type="file"]'),null,'Scene-only access has no campaign backup UI')
+  await click('Открыть сцены в редакторе');await input('[name="sceneName"]','Ограниченная сцена');await click('Создать сцену')
+  await f.open('b');await click('Открыть сцены в редакторе')
+  assert.equal(document.querySelector('.gb-scene-viewport'),null)
+  await f.open('a');assert(document.body.textContent.includes('Ограниченная сцена'))
+  await click('Сохранить сцены на сервер')
+  const write=f.writes.at(-1)
+  assert.equal(write.url,'/lobbies/a/scenes');assert.equal(write.revision,7);assert.equal(write.world,undefined)
+  assert.equal(write.scenes.scenes[0].name,'Ограниченная сцена')
+  assert.equal(storage.readLobbyDraft(f.accountId,'a').world.characters[0].name,'Секретный черновик')
+  await f.permissions([]);assert.equal(document.querySelector('[aria-label="Конструктор сцен мастера"]'),null)
+  await f.permissions([...lobbyPermissions]);assert.equal(name(),'Секретный черновик')
+ } finally {await f.close()}
+})
+
+test('A7 и права: поздняя загрузка отдельных сцен не смешивает лобби или аккаунты', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  await f.permissions(['scenes']);await f.role('ASSISTANT');await f.open('a');await flush()
+  f.intercept(url=>url==='/lobbies/a/scenes'?waiting.promise:undefined)
+  await click('Открыть сцены в редакторе');await f.open('b');await click('Открыть сцены в редакторе')
+  await input('[name="sceneName"]','Своя сцена B');await click('Создать сцену')
+  await flush(()=>waiting.resolve({revision:7,scenes:load('scenes').createScene(load('scenes').emptyScenes(),'late-a','Чужая сцена A','top'),actors:[]}))
+  assert.equal(document.body.textContent.includes('Чужая сцена A'),false)
+  assert(document.body.textContent.includes('Своя сцена B'))
+  const other=crypto.randomUUID();f.context.user={id:other};await f.render();await flush()
+  assert.equal(document.querySelector('.gb-scene-viewport'),null,'Другой аккаунт не видит предыдущий черновик')
+  f.context.user={id:f.accountId};await f.render();await flush()
+  assert(document.body.textContent.includes('Своя сцена B'))
+  assert.equal(f.writes.length,0)
+ } finally {await f.close()}
+})
+
+test('Права: главный ГМ сохраняет явный набор разрешений помощника', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a')
+  f.intercept((url,options)=>{if(options?.method==='PATCH'&&url.endsWith('/permissions')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({ok:true})}})
+  const label=[...document.querySelectorAll('label')].find(l=>l.textContent==='Управлять сценами')
+  assert(label);await flush(()=>label.querySelector('input').click())
+  await click('Сохранить разрешения помощника')
+  assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/members/friend-id/permissions',permissions:['scenes'],revision:7})
+ } finally {await f.close()}
+})
+
+test('Передача: явное согласие и возврат отправляются в исходное лобби, поздний ответ не меняет другое', async () => {
+ const f=await fixture(),waiting=deferred(),confirmed=window.confirm
+ try {
+  f.worlds.a.characters[0].ownerId=f.accountId
+  f.worlds.a.characters[0].control={delegated:false,controllerId:f.accountId}
+  await f.permissions([]);await f.role('PLAYER');await f.open('a')
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/control')){f.writes.push({url,...JSON.parse(options.body)});return waiting.promise}})
+  window.confirm=()=>false;await click('Передать героя мастеру');assert.equal(f.writes.length,0)
+  window.confirm=()=>true;await click('Передать героя мастеру')
+  assert.deepEqual(f.writes[0],{url:'/lobbies/a/characters/hero-a/control',delegated:true,revision:7})
+  await f.open('b');await flush(()=>waiting.resolve({revision:8}))
+  assert.equal(document.body.textContent.includes('Управление обновлено'),false)
+  f.worlds.a.characters[0].control={delegated:true,controllerId:'friend-id'}
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/control')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({revision:8})}})
+  await f.open('a');await click('Вернуть себе управление')
+  assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/characters/hero-a/control',delegated:false,revision:7})
+ } finally {window.confirm=confirmed;await f.close()}
+})
