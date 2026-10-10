@@ -13,6 +13,7 @@ global.window = dom.window
 global.document = dom.window.document
 global.location = dom.window.location
 global.localStorage = dom.window.localStorage
+global.FormData = dom.window.FormData
 global.IS_REACT_ACT_ENVIRONMENT = true
 const { createRoot } = require('react-dom/client')
 const { act } = React
@@ -25,7 +26,7 @@ const stubs = {
   NetworkCommon: { CommunityShell: Wrap, RemoteStatus: ({ error }) => React.createElement('p', null, error), formatDate: String },
   RpgControls: { TextField: () => null, NumberField: () => null, Field: Wrap },
   ActionReview: { __esModule: true, default: () => null },
-  VisualElements: { Illustration: () => null },
+  VisualElements: { Illustration: () => null, ArtworkPicker: () => null },
   CampaignPanel: { __esModule: true, default: () => null },
   CharacterErrorBoundary: { __esModule: true, default: Wrap },
   CharacterImportPanel: { __esModule: true, default: () => null },
@@ -62,14 +63,17 @@ const { createDefaultCharacter } = load('characterModel')
 const { writeCharacters } = load('characterStorage')
 const { serializeLobbyBackup, parseLobbyBackup } = load('lobbyBackup')
 const storage = load('lobbyDraftStorage')
+const { lobbyPermissions } = load('lobbyAccess')
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 async function flush(fn = () => {}) { await act(async () => { fn(); await new Promise(r => setTimeout(r, 5)) }) }
 async function input(selector, value) {
   const field = document.querySelector(selector)
   assert(field, 'Missing field ' + selector)
   await flush(() => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(field, value)
+    const prototype = field.tagName === 'TEXTAREA' ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(field, value)
     field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    field.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
   })
 }
 async function click(text) {
@@ -81,26 +85,41 @@ async function click(text) {
 
 async function fixture() {
   const tree = createRoot(document.getElementById('root'))
-  const accountId = crypto.randomUUID(), writes = []
-  const members = [{ id: accountId, displayName: 'GM' }, { id: 'friend-id', displayName: 'Friend' }]
+  const accountId = crypto.randomUUID(), writes = [], cloud = [], perceptions = {}
+  const members = [{ id: accountId, displayName: 'GM', lobbyRole: 'GM', permissions: [...lobbyPermissions] }, { id: 'friend-id', displayName: 'Friend', lobbyRole: 'ASSISTANT', permissions: [] }]
+  const declarations = Object.fromEntries(['a','b'].map(id => [id, {collection:null,participating:false,canSubmit:false,entry:null,options:null,readiness:[],controlStamp:'0'}]))
   const worlds = Object.fromEntries(['a', 'b'].map(id => [id, {
     characters: [{ ...createDefaultCharacter(), id: 'hero-' + id, name: 'Hero ' + id }], campaign: emptyCampaign(), revision: 7,
   }]))
-  let mounted = true, role = 'GM', failLobby = false, intercept = null
+  let mounted = true, role = 'GM', permissions = [...lobbyPermissions], failLobby = false, intercept = null
   const context = { user: { id: accountId }, events: 0, socket: null, refresh: () => {} }
   const request = async (url, options) => {
     if (intercept) {
       const intercepted = intercept(url, options)
       if (intercepted !== undefined) return intercepted
     }
+    if (options?.method === 'PUT' && url.endsWith('/declarations')) { const body=JSON.parse(options.body); writes.push({url,...body}); return {entryVersion:body.baseVersion+1} }
+    if (['POST','PATCH'].includes(options?.method) && /declarations(?:\/return)?$/.test(url)) { writes.push({url,...JSON.parse(options.body)}); return {ok:true} }
     if (options?.method === 'PUT') { writes.push({ url, ...JSON.parse(options.body) }); return { revision: 8 } }
     if (options?.method === 'POST' && url.endsWith('/restore')) { const body = JSON.parse(options.body); writes.push({ url, ...body }); return { world: body.world, revision: body.revision + 1 } }
     if (url === '/lobbies/mine') return ['a', 'b'].map(id => ({ id, title: 'Room ' + id, role }))
-    if (url === '/characters') return []
+    if (url === '/characters') return cloud
     if (url === '/lobbies/a' || url === '/lobbies/b') {
       if (failLobby) throw Error('Temporary lobby failure')
-      return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, status: 'open', visibility: 'public', members, slots: 4 }
+      return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, myPermissions: permissions, revision: worlds[url.at(-1)].revision, rank:'mortal',energy:'any', creationConditions:load('heroReview').defaultCreationConditions(), status: 'open', visibility: 'public', members, slots: 4 }
     }
+    const submissionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/submission$/)
+    if(submissionMatch){const world=worlds[submissionMatch[1]];return {revision:world.revision,sourceId:cloud[0]?.id,review:world.characters[0].review??{status:'pending',locked:false},sheet:structuredClone(world.characters[0]),changedSinceSubmission:false,conditionErrors:[],canResubmit:world.characters[0].ownerId===context.user.id}}
+    const declarationMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/declarations$/)
+    if(declarationMatch) return structuredClone(declarations[declarationMatch[1]])
+    const masterMatch=url.match(/^\/lobbies\/([ab])\/declarations$/)
+    if(masterMatch) { const w=worlds[masterMatch[1]]; return {revision:w.revision,declarations:{version:1,active:null,archive:[]},scenes:(w.campaign.scenes?.scenes??[]).map(s=>({id:s.id,name:s.name,objects:s.objects.map(o=>({id:o.id,name:o.name}))})),actors:w.characters.map(c=>({id:c.id,name:c.name,approved:true,items:[],abilities:[]}))} }
+    const perceptionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/perception$/)
+    if(perceptionMatch){const world=worlds[perceptionMatch[1]];return {revision:world.revision,hero:world.characters[0],map:perceptions[perceptionMatch[1]]??null,knowledge:{journal:[],knownEffects:[]},inventory:[],canWriteNotes:world.characters[0].ownerId===context.user.id}}
+    const disclosureMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/disclosure$/)
+    if(disclosureMatch){const world=worlds[disclosureMatch[1]];return {revision:world.revision,draft:{activeSceneId:null,scenes:[]},scenes:world.campaign.scenes??load('scenes').emptyScenes(),actors:world.characters.map(c=>({id:c.id,name:c.name})),preview:perceptions[disclosureMatch[1]]??null}}
+    const sceneMatch = url.match(/^\/lobbies\/([ab])\/scenes$/)
+    if(sceneMatch)return {revision:worlds[sceneMatch[1]].revision,scenes:worlds[sceneMatch[1]].campaign.scenes??{version:1,activeSceneId:null,scenes:[]},actors:worlds[sceneMatch[1]].characters.map(c=>({id:c.id,name:c.name,profile:{portrait:c.profile.portrait}}))}
     const match = url.match(/^\/lobbies\/([ab])\/world/)
     if (match) return structuredClone(worlds[match[1]])
     return { items: [], hasMore: false }
@@ -109,9 +128,10 @@ async function fixture() {
   const render = () => tree.render(React.createElement(OnlineContext.Provider, { value: { ...context } },
     mounted ? React.createElement(Panel, { onAccount: () => {} }) : null))
   await flush(render)
-  return { accountId, context, writes, worlds, request, members,
+  return { accountId, context, writes, worlds, request, members, cloud, perceptions, declarations,
     render: () => flush(render),
     role: async value => { role = value; context.events++; await flush(render) },
+    permissions: async value => { permissions = value; context.events++; await flush(render) },
     fail: async value => { failLobby = value; context.events++; await flush(render) },
     intercept: value => { intercept = value },
     mount: async value => { mounted = value; await flush(render) },
@@ -315,6 +335,8 @@ test('A5: deleting and re-uploading a cloud hero sends creation revision -1', as
   context.refresh = () => { context.events++; render() }
   context.request = async (url, options) => {
     if (options?.method === 'DELETE') { exists = false; return { ok: true } }
+    if (options?.method === 'PUT' && url.endsWith('/declarations')) { const body=JSON.parse(options.body); writes.push({url,...body}); return {entryVersion:body.baseVersion+1} }
+    if (['POST','PATCH'].includes(options?.method) && /declarations(?:\/return)?$/.test(url)) { writes.push({url,...JSON.parse(options.body)}); return {ok:true} }
     if (options?.method === 'PUT') { writtenRevision = JSON.parse(options.body).revision; return { revision: 0 } }
     return exists ? [{ id, name: hero.name, revision: 3 }] : []
   }
@@ -357,4 +379,371 @@ test('A7: delayed backup file read is ignored after switching to another lobby',
   } finally { await f.close() }
 })
 
+
+test('Сцены: расстановка сохраняется отдельно по лобби и не теряет незавершённый лист', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await f.load();await input('[data-name]','');await input('[data-attribute]','-')
+  await input('[name="sceneName"]','Площадь');await click('Создать сцену');await click('Стена');await click('Разместить в центре')
+  const draft=storage.readLobbyDraft(f.accountId,'a')
+  assert.equal(draft.world.characters[0].name,'');assert.equal(draft.world.characters[0].attributes.strength,'-')
+  assert.equal(draft.world.campaign.scenes.scenes[0].objects.length,1)
+  assert.equal(draft.world.campaign.scenes.scenes[0].objects[0].x,15)
+  assert.equal(f.writes.length,0,'Scene autosave must not publish')
+  await f.open('b');await f.load();assert.equal(document.querySelector('.gb-scene-viewport'),null)
+  await f.open('a');assert(document.body.textContent.includes('Площадь'));assert(document.querySelector('.gb-scene-viewport'))
+  await f.mount(false);await f.mount(true);await f.open('a')
+  assert.equal(storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0].objects.length,1)
+ } finally {await f.close()}
+})
+test('Сцены: полёт и боковой вид сохраняют координаты, ресурсы и время',async()=>{
+ const f=await fixture()
+ try {
+  await f.open('a');await f.load();await input('[name="sceneName"]','Высота');await click('Создать сцену')
+  await flush(()=>{const el=document.querySelector('[aria-label="Персонаж для размещения"]');el.value='hero-a';el.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+  await click('Поставить персонажа');await click('Разместить в центре')
+  await input('[name="z"]','12.5')
+  document.querySelector('[name="support"]').value='air'
+  await click('Сохранить положение')
+  let draft=storage.readLobbyDraft(f.accountId,'a'),position=structuredClone(draft.world.campaign.scenes.scenes[0].tokens[0])
+  assert.equal(position.z,12.5);assert.equal(position.support.kind,'air')
+  document.querySelector('[name="view"]').value='side'
+  await click('Сохранить параметры сцены')
+  draft=storage.readLobbyDraft(f.accountId,'a')
+  assert.equal(draft.world.campaign.scenes.scenes[0].view,'side');assert.deepEqual(draft.world.campaign.scenes.scenes[0].tokens[0],position)
+  assert.equal(draft.world.campaign.seconds,0);assert.deepEqual(draft.world.characters[0].resources,f.worlds.a.characters[0].resources)
+  await click('Опубликовать изменения кампании');assert.equal(f.writes[0].world.campaign.scenes.scenes[0].tokens[0].z,12.5)
+  await f.role('PLAYER');assert.equal(document.querySelector('[aria-label="Конструктор сцен мастера"]'),null)
+ }finally{await f.close()}
+})
+
+
+test('Сцены: клик не привязывается к сетке; удаление опоры не назначает падение',async()=>{
+ const f=await fixture()
+ try{
+  await f.open('a');await f.load();await input('[name="sceneName"]','Опора');await click('Создать сцену');await click('Платформа')
+  const svg=document.querySelector('.gb-scene-viewport > svg')
+  svg.getScreenCTM=()=>({inverse:()=>({})})
+  svg.createSVGPoint=()=>({x:0,y:0,matrixTransform(){return {x:this.x,y:this.y}}})
+  await flush(()=>svg.dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,clientX:4.125,clientY:7.75})))
+  let scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0],platform=scene.objects[0]
+  assert.equal(platform.x,4.125);assert.equal(platform.y,7.75)
+  await flush(()=>{const el=document.querySelector('[aria-label="Персонаж для размещения"]');el.value='hero-a';el.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+  await click('Поставить персонажа')
+  await flush(()=>svg.dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,clientX:4.125,clientY:7.75})))
+  document.querySelector('[name="support"]').value='object:'+platform.id
+  await click('Сохранить положение')
+  scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0]
+  assert.equal(scene.tokens[0].support.objectId,platform.id);assert.equal(scene.tokens[0].z,1)
+  await flush(()=>[...document.querySelectorAll('.gb-scene-sidebar button')].find(b=>b.textContent.includes('Платформа')).click())
+  await input('[name="x"]','8.25');await input('[name="height"]','3.5');await click('Сохранить параметры объекта')
+  scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0]
+  assert.equal(scene.tokens[0].x,8.25);assert.equal(scene.tokens[0].z,3.5)
+  await click('Убрать объект')
+  const after=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0]
+  assert.deepEqual(after,scene);assert(document.body.textContent.includes('стоит персонаж'))
+ }finally{await f.close()}
+})
+
 test.after(() => dom.window.close())
+
+test('Права: ограниченный помощник не открывает полный черновик; отдельные сцены сохраняются по лобби', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await f.load();await input('[data-name]','Секретный черновик')
+  await f.permissions(['scenes']);await f.role('ASSISTANT');await flush()
+  assert.equal(name(),undefined)
+  assert.equal([...document.querySelectorAll('button')].some(b=>b.textContent.includes('Открыть кампанию в редакторе')),false)
+  assert.equal(document.querySelector('input[type="file"]'),null,'Scene-only access has no campaign backup UI')
+  await click('Открыть сцены в редакторе');await input('[name="sceneName"]','Ограниченная сцена');await click('Создать сцену')
+  await f.open('b');await click('Открыть сцены в редакторе')
+  assert.equal(document.querySelector('.gb-scene-viewport'),null)
+  await f.open('a');assert(document.body.textContent.includes('Ограниченная сцена'))
+  await click('Сохранить сцены на сервер')
+  const write=f.writes.at(-1)
+  assert.equal(write.url,'/lobbies/a/scenes');assert.equal(write.revision,7);assert.equal(write.world,undefined)
+  assert.equal(write.scenes.scenes[0].name,'Ограниченная сцена')
+  assert.equal(storage.readLobbyDraft(f.accountId,'a').world.characters[0].name,'Секретный черновик')
+  await f.permissions([]);assert.equal(document.querySelector('[aria-label="Конструктор сцен мастера"]'),null)
+  await f.permissions([...lobbyPermissions]);assert.equal(name(),'Секретный черновик')
+ } finally {await f.close()}
+})
+
+test('A7 и права: поздняя загрузка отдельных сцен не смешивает лобби или аккаунты', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  await f.permissions(['scenes']);await f.role('ASSISTANT');await f.open('a');await flush()
+  f.intercept(url=>url==='/lobbies/a/scenes'?waiting.promise:undefined)
+  await click('Открыть сцены в редакторе');await f.open('b');await click('Открыть сцены в редакторе')
+  await input('[name="sceneName"]','Своя сцена B');await click('Создать сцену')
+  await flush(()=>waiting.resolve({revision:7,scenes:load('scenes').createScene(load('scenes').emptyScenes(),'late-a','Чужая сцена A','top'),actors:[]}))
+  assert.equal(document.body.textContent.includes('Чужая сцена A'),false)
+  assert(document.body.textContent.includes('Своя сцена B'))
+  const other=crypto.randomUUID();f.context.user={id:other};await f.render();await flush()
+  assert.equal(document.querySelector('.gb-scene-viewport'),null,'Другой аккаунт не видит предыдущий черновик')
+  f.context.user={id:f.accountId};await f.render();await flush()
+  assert(document.body.textContent.includes('Своя сцена B'))
+  assert.equal(f.writes.length,0)
+ } finally {await f.close()}
+})
+
+test('Права: главный ГМ сохраняет явный набор разрешений помощника', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a')
+  f.intercept((url,options)=>{if(options?.method==='PATCH'&&url.endsWith('/permissions')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({ok:true})}})
+  const label=[...document.querySelectorAll('label')].find(l=>l.textContent==='Управлять сценами')
+  assert(label);await flush(()=>label.querySelector('input').click())
+  await click('Сохранить разрешения помощника')
+  assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/members/friend-id/permissions',permissions:['scenes'],revision:7})
+ } finally {await f.close()}
+})
+
+test('Передача: явное согласие и возврат отправляются в исходное лобби, поздний ответ не меняет другое', async () => {
+ const f=await fixture(),waiting=deferred(),confirmed=window.confirm
+ try {
+  f.worlds.a.characters[0].ownerId=f.accountId
+  f.worlds.a.characters[0].control={delegated:false,controllerId:f.accountId}
+  await f.permissions([]);await f.role('PLAYER');await f.open('a')
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/control')){f.writes.push({url,...JSON.parse(options.body)});return waiting.promise}})
+  window.confirm=()=>false;await click('Передать героя мастеру');assert.equal(f.writes.length,0)
+  window.confirm=()=>true;await click('Передать героя мастеру')
+  assert.deepEqual(f.writes[0],{url:'/lobbies/a/characters/hero-a/control',delegated:true,revision:7})
+  await f.open('b');await flush(()=>waiting.resolve({revision:8}))
+  assert.equal(document.body.textContent.includes('Управление обновлено'),false)
+  f.worlds.a.characters[0].control={delegated:true,controllerId:'friend-id'}
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/control')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({revision:8})}})
+  await f.open('a');await click('Вернуть себе управление')
+  assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/characters/hero-a/control',delegated:false,revision:7})
+ } finally {window.confirm=confirmed;await f.close()}
+})
+
+test('Проверка героя: замечания сохраняются отдельно по лобби и аккаунту, отправка требует свежую заявку', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await click('Открыть заявку и проверяемый лист')
+  await input('[aria-label="Замечание к герою Hero a"]','Исправь историю A')
+  await f.open('b');await click('Открыть заявку и проверяемый лист')
+  await input('[aria-label="Замечание к герою Hero b"]','Замечание B')
+  await f.open('a');await click('Открыть заявку и проверяемый лист')
+  assert.equal(document.querySelector('[aria-label="Замечание к герою Hero a"]').value,'Исправь историю A')
+  f.worlds.a.revision=8;f.context.events++;await f.render();await flush()
+  const returned=()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Вернуть лист с замечанием'))
+  assert(returned().closest('fieldset').disabled)
+  await click('Обновить заявку')
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/review')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({revision:9})}})
+  await click('Вернуть лист с замечанием')
+  assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/characters/hero-a/review',decision:'return',note:'Исправь историю A',revision:8})
+  f.context.user={id:crypto.randomUUID()};await f.render();await flush();await click('Открыть заявку и проверяемый лист')
+  assert.equal(document.querySelector('[aria-label="Замечание к герою Hero a"]').value,'')
+ }finally{await f.close()}
+})
+
+test('A7: поздняя заявка не раскрывается в другом лобби или после отзыва права проверки', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  await f.role('ASSISTANT');await f.permissions(['approveHeroes']);await f.open('a')
+  f.intercept(url=>url.endsWith('/hero-a/submission')?waiting.promise:undefined)
+  await click('Открыть заявку и проверяемый лист');await f.open('b')
+  await flush(()=>waiting.resolve({revision:7,sheet:{...f.worlds.a.characters[0],name:'Поздний лист A'},review:{status:'pending',locked:false},conditionErrors:[],canResubmit:false}))
+  assert.equal(document.body.textContent.includes('Поздний лист A'),false)
+  await click('Открыть заявку и проверяемый лист');assert(document.querySelector('[aria-label="Отправленный лист"]'))
+  await f.permissions([])
+  assert.equal(document.querySelector('[aria-label="Отправленный лист"]'),null)
+  assert.equal([...document.querySelectorAll('button')].some(b=>b.textContent.includes('Принять героя')),false)
+ }finally{await f.close()}
+})
+
+test('Условия создания: черновик переживает навигацию и сохраняет исходную ревизию', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await input('[aria-label="Требования и пояснения для игроков"]','Наши условия A')
+  await f.open('b');await input('[aria-label="Требования и пояснения для игроков"]','Наши условия B')
+  f.worlds.a.revision=12
+  await f.open('a')
+  assert.equal(document.querySelector('[aria-label="Требования и пояснения для игроков"]').value,'Наши условия A')
+  f.intercept((url,options)=>{if(options?.method==='PATCH'&&url.endsWith('/creation-conditions')){f.writes.push({url,...JSON.parse(options.body)});return Promise.reject(Error('Кампания изменилась.'))}})
+  await click('Сохранить условия создания')
+  assert.equal(f.writes.at(-1).revision,7);assert.equal(f.writes.at(-1).conditions.instructions,'Наши условия A')
+  assert.equal(document.querySelector('[aria-label="Требования и пояснения для игроков"]').value,'Наши условия A')
+ }finally{await f.close()}
+})
+
+test('Исправленная заявка: только владелец явно выбирает облачный исходник и подтверждает замену', async () => {
+ const f=await fixture(),confirmed=window.confirm
+ try {
+  f.worlds.a.characters[0].ownerId=f.accountId
+  f.worlds.a.characters[0].review={status:'returned',locked:false,note:'Исправь биографию.'}
+  f.cloud.push({id:'cloud-source',name:'Исправленный исходник',revision:3})
+  await f.role('PLAYER');await f.permissions([]);await f.open('a');await click('Открыть заявку и проверяемый лист')
+  assert.equal(document.querySelector('[aria-label="Исправленный исходник Hero a"]').value,'cloud-source')
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/resubmit')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({revision:8})}})
+  window.confirm=()=>false;await click('Отправить исправленный лист');assert.equal(f.writes.length,0)
+  window.confirm=()=>true;await click('Отправить исправленный лист')
+  assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/characters/hero-a/resubmit',characterId:'cloud-source',sourceRevision:3,revision:7})
+ }finally{window.confirm=confirmed;await f.close()}
+})
+
+test('Экран игрока: поздняя сцена не попадает в другую комнату или аккаунт', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  f.worlds.a.characters[0].ownerId=f.accountId;f.worlds.b.characters[0].ownerId=f.accountId
+  await f.role('PLAYER');await f.permissions([]);await f.open('a')
+  f.intercept(url=>url.endsWith('/hero-a/perception')?waiting.promise:undefined)
+  await click('Открыть экран героя');await f.open('b');await click('Открыть экран героя')
+  await flush(()=>waiting.resolve({revision:7,hero:f.worlds.a.characters[0],map:{title:'Поздняя сцена A',description:'Не должна показаться',frame:{id:'a',view:'top',palette:'forest',width:30,depth:20,groundZ:0,minZ:-5,maxZ:20},areas:[],objects:[],contacts:[]},knowledge:{journal:[],knownEffects:[]},inventory:[],canWriteNotes:true}))
+  assert.equal(document.body.textContent.includes('Поздняя сцена A'),false)
+  f.context.user={id:crypto.randomUUID()};await f.render();await flush()
+  assert.equal([...document.querySelectorAll('button')].some(b=>b.textContent.includes('Свернуть экран героя')),false)
+ }finally{await f.close()}
+})
+
+test('Экран игрока: черновики заметок разделены, устаревшая версия требует проверки и поздний ответ сохраняет другую заметку', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  f.worlds.a.characters[0].ownerId=f.accountId;f.worlds.b.characters[0].ownerId=f.accountId
+  await f.role('PLAYER');await f.permissions([]);await f.open('a');await click('Открыть экран героя')
+  await input('[aria-label="Заголовок заметки"]','Моя заметка A');await input('[aria-label="Текст личной заметки"]','Незавершённый текст A')
+  await f.open('b');await click('Открыть экран героя');await input('[aria-label="Заголовок заметки"]','Моя заметка B');await input('[aria-label="Текст личной заметки"]','Незавершённый текст B')
+  await f.open('a');await click('Открыть экран героя')
+  assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'Незавершённый текст A')
+  f.worlds.a.revision=9;f.context.events++;await f.render();await flush()
+  assert([...document.querySelectorAll('button')].find(b=>b.textContent.includes('Записать личную заметку')).disabled)
+  await click('Заметка проверена с текущей версией')
+  f.intercept((url,options)=>{if(url.endsWith('/knowledge')&&options?.method==='POST'){f.writes.push({url,...JSON.parse(options.body)});return waiting.promise}})
+  await click('Записать личную заметку');await f.open('b');await click('Открыть экран героя')
+  await flush(()=>waiting.resolve({revision:10}))
+  assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'Незавершённый текст B')
+  assert.equal(document.body.textContent.includes('Личная заметка записана.'),false)
+  assert.equal(f.writes[0].url,'/lobbies/a/characters/hero-a/knowledge');assert.equal(f.writes[0].revision,9)
+ }finally{await f.close()}
+})
+
+test('Раскрытие: черновик не теряет пустой заголовок и незавершённую координату; отправляет только выбранному герою', async () => {
+ const f=await fixture()
+ try {
+  f.worlds.a.campaign.scenes=load('scenes').createScene(load('scenes').emptyScenes(),'scene-a','Тайная сцена A','top')
+  await f.open('a');await click('Настроить видимость героя')
+  await flush(()=>{const field=document.querySelector('[aria-label="Сцена раскрытия"]');field.value='scene-a';field.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+  await click('Открыть выбранную сцену герою');await input('[aria-label="Название сцены для героя"]','')
+  await input('[aria-label="x области"]','-');await f.open('b');await f.open('a')
+  assert.equal(document.querySelector('[aria-label="Название сцены для героя"]').value,'')
+  assert.equal(document.querySelector('[aria-label="x области"]').value,'-')
+  await input('[aria-label="Название сцены для героя"]','Площадь');await click('Раскрыть всю местность');await click('Сохранить раскрытие героя')
+  const write=f.writes.at(-1)
+  assert.equal(write.url,'/lobbies/a/characters/hero-a/disclosure');assert.equal(write.revision,7)
+  assert.equal(write.draft.scenes[0].title,'Площадь');assert.deepEqual(write.draft.scenes[0].contacts,[])
+  assert.equal(write.scenes,undefined);assert.equal(write.world,undefined)
+ }finally{await f.close()}
+})
+
+test('Права раскрытия: отдельного права сцен недостаточно; отзыв секретов убирает прежний черновик и просмотр', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  await f.role('ASSISTANT');await f.permissions(['scenes']);await f.open('a')
+  assert.equal([...document.querySelectorAll('button')].some(b=>b.textContent.includes('Настроить видимость героя')),false)
+  await f.permissions(['scenes','viewSecrets'])
+  f.intercept(url=>url.endsWith('/hero-a/disclosure')?waiting.promise:undefined)
+  await click('Настроить видимость героя');await f.permissions(['scenes'])
+  await flush(()=>waiting.resolve({revision:7,draft:{activeSceneId:null,scenes:[]},scenes:load('scenes').emptyScenes(),actors:[],preview:{title:'Закрытый просмотр'}}))
+  assert.equal(document.body.textContent.includes('Закрытый просмотр'),false)
+  assert.equal(document.querySelector('[aria-label="Сцена раскрытия"]'),null)
+ }finally{await f.close()}
+})
+
+test('Сведение мастера: текст переживает смену комнаты и отправляется адресно с исходной версией', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await input('[aria-label="Заголовок раскрываемого сведения"]','Известный путь');await input('[aria-label="Текст раскрываемого сведения"]','Только для первого героя.')
+  await f.open('b');await f.open('a')
+  assert.equal(document.querySelector('[aria-label="Текст раскрываемого сведения"]').value,'Только для первого героя.')
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({revision:8})}})
+  await click('Раскрыть сведение выбранному герою')
+  assert.equal(f.writes[0].url,'/lobbies/a/characters/hero-a/knowledge');assert.equal(f.writes[0].disclosure,true);assert.equal(f.writes[0].revision,7)
+ }finally{await f.close()}
+})
+
+function readyDeclarations(id) {
+  return {collection:{id:'collection-'+id,epoch:1,phase:'open',durationSeconds:5,allowReplace:true},participating:true,canSubmit:true,entry:null,controlStamp:'0',readiness:[],
+    options:{sceneId:'scene-'+id,width:20,depth:20,minZ:-5,maxZ:20,targets:[],items:[],abilities:[]}}
+}
+async function selectValue(selector,value) {
+  const field=document.querySelector(selector);assert(field,'Missing select '+selector)
+  await flush(()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype,'value').set.call(field,value);field.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+}
+async function ownActions(f,id) {
+  f.worlds[id].characters[0].ownerId=f.accountId;f.declarations[id]=readyDeclarations(id)
+  await f.open(id);await click('Открыть экран героя');await flush()
+}
+async function waitAction(seconds,note='') {
+  await selectValue('[aria-label="Категория действия"]','wait');await input('[aria-label="Ожидание, с"]',seconds)
+  if(note)await input('[aria-label="Пояснение действия"]',note)
+  await click('Добавить действие в последовательность')
+}
+test('Заявления: последовательность и незавершённые координаты разделены по лобби; поздняя отправка не очищает новый черновик',async()=>{
+  const f=await fixture(),pending=deferred()
+  try {
+    await ownActions(f,'a');await input('[aria-label="Действие X"]','-');await waitAction('1','План первого лобби')
+    await ownActions(f,'b');await waitAction('2','План второго лобби')
+    await f.open('a');await click('Открыть экран героя');await selectValue('[aria-label="Категория действия"]','move')
+    assert.equal(document.querySelector('[aria-label="Действие X"]').value,'-');assert(document.body.textContent.includes('План первого лобби'))
+    f.intercept((url,options)=>options?.method==='PUT'&&url==='/lobbies/a/characters/hero-a/declarations'?pending.promise:undefined)
+    await click('Отправить заявление');await f.open('b');await click('Открыть экран героя')
+    pending.resolve({entryVersion:1});await flush()
+    assert(document.body.textContent.includes('План второго лобби'));assert(!document.body.textContent.includes('План первого лобби'))
+    await f.open('a');await click('Открыть экран героя');assert(document.body.textContent.includes('План первого лобби'))
+    assert.equal(f.writes.length,0,'Navigation and aborted replies never publish or erase another plan')
+  }finally{await f.close()}
+})
+test('Заявления: чужая готовность не меняет мою базу; закрытие и передача управления требуют явной сверки',async()=>{
+  const f=await fixture()
+  try {
+    await ownActions(f,'a');await waitAction('1')
+    f.declarations.a.readiness=[{userId:'other',ready:true}];f.context.events++;await f.render();await flush()
+    assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Отправить заявление').disabled,false)
+    f.declarations.a.collection.epoch=3;f.context.events++;await f.render();await flush()
+    assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Отправить заявление').disabled,true)
+    await click('Последовательность проверена с текущей версией')
+    f.declarations.a.controlStamp='2';f.context.events++;await f.render();await flush()
+    assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Отправить заявление').disabled,true)
+    await click('Последовательность проверена с текущей версией');await click('Отправить заявление')
+    assert.equal(f.writes.length,1);assert.equal(f.writes[0].epoch,3);assert.equal(f.writes[0].baseVersion,0);assert.equal(f.writes[0].controlStamp,'2')
+    assert.deepEqual(f.writes[0].actions,[{kind:'wait',seconds:1,note:''}])
+  }finally{await f.close()}
+})
+test('Заявления: поздняя загрузка плана не раскрывается в другом лобби или аккаунте',async()=>{
+  const f=await fixture(),late=deferred()
+  try {
+    f.worlds.a.characters[0].ownerId=f.accountId;f.worlds.b.characters[0].ownerId=f.accountId;f.declarations.b=readyDeclarations('b')
+    f.intercept((url,options)=>url==='/lobbies/a/characters/hero-a/declarations'&&(!options?.method||options.method==='GET')?late.promise:undefined)
+    await f.open('a');await click('Открыть экран героя');await f.open('b');await click('Открыть экран героя')
+    f.context.user={id:'another-account'};f.context.events++;await f.render()
+    late.resolve({...readyDeclarations('a'),entry:{revision:1,status:'submitted',actions:[{kind:'wait',seconds:1,note:'ЧУЖОЙ СЕКРЕТНЫЙ ПЛАН'}],submittedAt:'',note:''}});await flush()
+    assert(!document.body.textContent.includes('ЧУЖОЙ СЕКРЕТНЫЙ ПЛАН'));assert.equal(f.writes.length,0)
+  }finally{await f.close()}
+})
+test('Приём мастера: настройки и частичная длительность сохраняются; устаревшая версия не публикуется автоматически',async()=>{
+  const f=await fixture(),scenes=load('scenes')
+  try {
+    for(const id of ['a','b'])f.worlds[id].campaign.scenes=scenes.createScene(scenes.emptyScenes(),'scene-'+id,'Сцена '+id,'top')
+    await f.open('a');await click('Открыть инструменты заявлений');await selectValue('[aria-label="Сцена приёма"]','scene-a');await input('[aria-label="Длительность раунда, с"]','-')
+    await flush(()=>document.querySelector('[aria-label="Участник сбора Hero a"]').click())
+    await f.open('b');await click('Открыть инструменты заявлений');await input('[aria-label="Длительность раунда, с"]','7')
+    await f.open('a');await click('Открыть инструменты заявлений');assert.equal(document.querySelector('[aria-label="Длительность раунда, с"]').value,'-')
+    f.worlds.a.revision=8;f.context.events++;await f.render();await flush();await input('[aria-label="Длительность раунда, с"]','5')
+    assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Начать приём заявлений').disabled,true)
+    await click('Настройки приёма проверены');await click('Начать приём заявлений')
+    assert.equal(f.writes.length,1);assert.equal(f.writes[0].url,'/lobbies/a/declarations');assert.equal(f.writes[0].revision,8);assert.equal(f.writes[0].durationSeconds,5);assert.deepEqual(f.writes[0].participantIds,['hero-a']);assert.equal(f.writes[0].allowReplace,true)
+  }finally{await f.close()}
+})
+test('Приём мастера: неполные права не открывают планы; отзыв секретов во время загрузки убирает инструмент',async()=>{
+  const f=await fixture(),late=deferred()
+  try {
+    await f.role('ASSISTANT');await f.permissions(['rounds']);await f.open('a')
+    assert(!document.body.textContent.includes('Открыть инструменты заявлений'))
+    await f.permissions(['rounds','viewSecrets']);f.intercept((url,options)=>url==='/lobbies/a/declarations'&&(!options?.method||options.method==='GET')?late.promise:undefined)
+    await click('Открыть инструменты заявлений');await f.permissions(['rounds'])
+    late.resolve({revision:7,declarations:{version:1,active:null,archive:[]},actors:[],scenes:[{id:'secret',name:'СКРЫТОЕ ПЛАНИРОВАНИЕ',objects:[]}]});await flush()
+    assert(!document.body.textContent.includes('СКРЫТОЕ ПЛАНИРОВАНИЕ'));assert(!document.body.textContent.includes('Открыть инструменты заявлений'));assert.equal(f.writes.length,0)
+  }finally{await f.close()}
+})

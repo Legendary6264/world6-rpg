@@ -151,9 +151,11 @@ for(const dialect of ['sqlite','postgres'])test('Общая база, досту
  })
  if(dialect==='postgres')await t.test('Приватная схема PostgreSQL не доступна публичной роли',async()=>{
   const row=await server.db.get("SELECT COUNT(*) AS n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='world6' AND c.relkind='r' AND c.relrowsecurity")
-  assert.equal(Number(row.n),14)
+  assert.equal(Number(row.n),19)
   await server.db.run('CREATE ROLE world6_guest NOLOGIN')
   await assert.rejects(server.db.transaction(async tx=>{await tx.run('SET LOCAL ROLE world6_guest');await tx.get('SELECT * FROM world6.users')}),e=>e.code==='42501')
+  for(const table of ['lobby_permissions','character_delegations','character_control_events','lobby_creation_conditions','character_submissions'])
+   await assert.rejects(server.db.transaction(async tx=>{await tx.run('SET LOCAL ROLE world6_guest');await tx.get('SELECT * FROM world6.'+table)}),e=>e.code==='42501')
  })
  await t.test('Перезапуск сохраняет аккаунты, форум, лобби и поддержку',async()=>{
   sockets.forEach(s=>s.disconnect());await server.close();server=await createApplication(config,{Pool});await start()

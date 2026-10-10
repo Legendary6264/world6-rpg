@@ -2,6 +2,9 @@ import type { HitLocation, DetailedAnatomy } from './anatomyModel'
 import type { StatisticKey } from './characterStatistics'
 import type { AttributeKey } from './characterModel'
 import type { BodyPart } from './characterBody'
+import type { SceneState } from './sceneTypes'
+import type { ScenePerceptions } from './scenePerception'
+import type { ActionDeclarations } from './actionDeclarations'
 export type ParameterKey = StatisticKey | 'maximumHealth' | 'maximumMana' | 'maximumShadow' | 'maximumStamina'
 export type Cost = { mana: number; shadow: number; stamina: number }
 export type Modifier = { parameter: ParameterKey; flat: number; percent: number }
@@ -68,4 +71,4 @@ export type RpgState = {
   physiology: Physiology; impact: Record<string, ImpactProfile>; casts: Cast[]; logs: ActionLog[]; dead: boolean
 }
 export type AnatomyTemplate = { id: string; name: string; parts: Record<string, BodyPart>; anatomy?: DetailedAnatomy; physiology?: Physiology }
-export type Campaign = { seconds: number; revision: number; items: ItemTemplate[]; abilities: AbilityTemplate[]; anatomies: AnatomyTemplate[]; logs: ActionLog[] }
+export type Campaign = { seconds: number; revision: number; items: ItemTemplate[]; abilities: AbilityTemplate[]; anatomies: AnatomyTemplate[]; logs: ActionLog[]; scenes?: SceneState; perceptions?: ScenePerceptions; declarations?: ActionDeclarations }

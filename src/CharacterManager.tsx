@@ -1,8 +1,14 @@
+import { declarationReferencesValid, pruneDeclarations } from './actionDeclarations'
 import ActionReview from './ActionReview'
 import { Illustration } from './VisualElements'
 import { recalculateLife, applyAutomaticLife } from './rpgEngine'
 import './atlasStyle.css'
 import CampaignPanel from './CampaignPanel'
+import SceneEditor from './SceneEditor'
+import { pruneSceneActors, sceneReferencesValid } from './scenes'
+import { prunePerceptions, perceptionReferencesValid } from './scenePerception'
+import type { SceneState } from './sceneTypes'
+import { assertCampaignSize } from './campaignLimits'
 import CharacterErrorBoundary from './CharacterErrorBoundary'
 import { emptyCampaign, emptyItem, emptyAbility, emptyPhysiology, isCampaign } from './rpgSchema'
 import type { Campaign } from './rpgTypes'
@@ -44,7 +50,7 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
 
   function commitWorld(next:World) {
     if(initial.blocked)throw new Error('Запись заблокирована.')
-    if(next.characters.length>200 || !isCampaign(next.campaign))throw new Error('Проверь состав кампании.')
+    if(!declarationReferencesValid(next.campaign.declarations,next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('Проверь заявления и участников.');if(!perceptionReferencesValid(next.campaign.perceptions,next.campaign.scenes,next.characters.map(c=>c.id)) || next.characters.length>200 || !isCampaign(next.campaign) || !sceneReferencesValid(next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('Проверь состав кампании и персонажей на сценах.')
     // Перед записью ограничиваем текущие запасы, не переписывая ручные максимумы.
     for(const c of next.characters){
       if(!isCharacterDraft(c))throw new Error('Исправь незавершённые поля всех героев перед сохранением.')
@@ -55,7 +61,20 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
     if(!onRemotePublish)writeCharacters(window.localStorage,next.characters,next.campaign)
     setCharacters(next.characters);setCampaign(next.campaign);setDirty(false)
   }
-  function persistCharacters(next:SavedCharacter[]) {commitWorld({characters:next.map(c=>({...normalizeCharacterDraft(c),id:c.id})),campaign:{...campaign,revision:campaign.revision+1}})}
+  function persistCharacters(next:SavedCharacter[]) {commitWorld({characters:next.map(c=>({...normalizeCharacterDraft(c),id:c.id})),campaign:{...campaign,revision:campaign.revision+1,...(campaign.declarations?{declarations:pruneDeclarations(campaign.declarations,campaign.scenes,next.map(c=>c.id))}:{}),...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,campaign.scenes,next.map(c=>c.id))}:{}),...(campaign.scenes?{scenes:pruneSceneActors(campaign.scenes,next.map(c=>c.id))}:{})}})}
+  function changeScenes(scenes:SceneState){
+    try{
+      if(initial.blocked)throw new Error('Сначала восстанови доступ к сохранению.')
+      const next={...campaign,revision:campaign.revision+1,scenes,...(campaign.declarations?{declarations:pruneDeclarations(campaign.declarations,scenes,characters.map(c=>c.id))}:{}),...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,scenes,characters.map(c=>c.id))}:{})}
+      if(!isCampaign(next)||!sceneReferencesValid(scenes,characters.map(c=>c.id)))throw new Error('Проверь сцену и персонажей.')
+      assertCampaignSize({characters,campaign:next})
+      // Scene setup must not recalculate physiology, heal or advance game time.
+      if(!onRemotePublish)writeCharacters(window.localStorage,characters,next)
+      setCampaign(next)
+      setDirty(!!onRemotePublish)
+      return {ok:true,message:onRemotePublish?'Расстановка сохранена в черновике этого лобби.':'Расстановка сохранена на устройстве.'}
+    }catch(e){return {ok:false,message:(e as Error).message}}
+  }
   function changeCharacter(actor:Actor){
     if(isCharacterDraft(actor)){try{const capped=effectiveActor(actor,campaign.seconds);actor=recalculateLife({...normalizeCharacterDraft(actor),id:actor.id},campaign.seconds,crypto.randomUUID());for(const k of ['health','mana','shadow','stamina'] as const)actor.resources[k].current=capped.resources[k].current}catch{/* Незавершённую формулу можно исправить в редакторе. */}}
     setCharacters(previous=>previous.map(c=>c.id===actor.id?actor:c));setCampaign(previous=>({...previous,revision:previous.revision+1}));setDirty(true)}
@@ -146,6 +165,7 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
     <div className="character-manager"><header className="w6-atlas-banner"><div><p className="w6-eyebrow">Летопись персонажей</p><h1>Мир 6</h1><p>Тело, магия и история твоего героя</p></div></header>
       {onRemotePublish&&<section className="panel w6-remote-publish"><h2>Редактор общей кампании</h2><p className="w6-copy">Изменения готовятся в этом черновике. Публикация отправляет их участникам и проверяет версию кампании на сервере.</p><button className="w6-button w6-primary" disabled={publishing||remotePublishDisabled} onClick={async()=>{setPublishing(true);try{setMessage(await onRemotePublish(world));setDirty(false)}catch(e){setMessage((e as Error).message)}finally{setPublishing(false)}}}>{publishing?'Публикуем…':'Опубликовать изменения кампании'}</button></section>}
       <details className="panel w6-world-settings"><summary>Игра и настройки лобби / мира</summary><CampaignPanel remote={!!onRemotePublish} world={world} onPlan={showPlan} onRestore={applyWorld} onExamples={examples}/></details>
+      <SceneEditor value={campaign.scenes} actors={characters} onChange={changeScenes} disabled={initial.blocked}/>
       <p className="w6-notice">{dirty?'Есть несохранённые изменения листов.':onRemotePublish?'Черновик кампании подготовлен. Публикация выполняется отдельной кнопкой.':'Текущие изменения сохранены.'}</p>
       {plan&&<div className="w6-modal-backdrop"><section className="w6-modal" role="dialog" aria-modal="true" aria-labelledby="plan-title"><h2 id="plan-title">Предварительный результат</h2><h3>{plan.text}</h3><ActionReview before={world} after={plan.world}/><details className="w6-fieldset"><summary>Подробный расчёт и основания</summary><p className="w6-prose">{plan.details}</p></details><p className="w6-copy">До подтверждения ресурсы и цель не изменяются. При изменении листов расчёт потребуется повторить.</p><div className="w6-buttons"><button className="w6-button w6-primary" type="button" onClick={confirmPlan}>Подтвердить и сохранить результат</button><button className="w6-button" type="button" onClick={()=>setPlan(null)}>Отмена расчёта</button></div></section></div>}
       <section className="panel">
