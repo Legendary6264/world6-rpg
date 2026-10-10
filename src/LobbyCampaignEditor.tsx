@@ -3,13 +3,16 @@ import { useOnline } from './onlineContext'
 import { readLobbyDraft, writeLobbyDraft } from './lobbyDraftStorage'
 import type { LobbyDraft } from './lobbyDraftStorage'
 import type { World } from './rpgEngine'
+import { assertCampaignSize } from './campaignLimits'
+import LobbyBackupPanel from './LobbyBackupPanel'
 
 const CharacterManager = lazy(() => import('./CharacterManager'))
-type Props = { accountId: string; lobbyId: string; remoteRevision?: number; checkingAccess: boolean }
+type Props = { accountId: string; lobbyId: string; remoteRevision?: number; checkingAccess: boolean;
+  members: { id: string; displayName: string; disabled?: boolean }[] }
 
 // The parent mounts this component only with confirmed GM/ASSISTANT access and keys
 // it by account and lobby. An async continuation can never target a different room.
-export default function LobbyCampaignEditor({ accountId, lobbyId, remoteRevision, checkingAccess }: Props) {
+export default function LobbyCampaignEditor({ accountId, lobbyId, remoteRevision, checkingAccess, members }: Props) {
   const { request, refresh } = useOnline()
   const [draft, setDraft] = useState<LobbyDraft | null>(() => readLobbyDraft(accountId, lobbyId))
   const current = useRef(draft)
@@ -73,6 +76,7 @@ export default function LobbyCampaignEditor({ accountId, lobbyId, remoteRevision
     if (!active.current || checkingAccess || !source || source.accountId !== accountId || source.lobbyId !== lobbyId) {
       throw new Error('Сначала подтверди доступ к исходному лобби и открой его редактор.')
     }
+    assertCampaignSize(world)
     setPublishing(true)
     try {
       const result = await request<{ revision: number }>('/lobbies/' + source.lobbyId + '/world', {
@@ -101,6 +105,10 @@ export default function LobbyCampaignEditor({ accountId, lobbyId, remoteRevision
     </button>
     {storageWarning && <p className="w6-notice" role="alert">{storageWarning}</p>}
     {message && <p className="w6-notice" role="status">{message}</p>}
+    <LobbyBackupPanel lobbyId={lobbyId} revision={remoteRevision} checkingAccess={checkingAccess || loading || publishing}
+      members={members} onRestored={result => {
+        remember({ accountId, lobbyId, revision: result.revision, world: result.world }); setEditorKey(key => key + 1)
+      }} />
     {draft && <>
       <p className={remoteRevision !== undefined && draft.revision !== remoteRevision ? 'w6-notice' : 'w6-copy'}>
         {remoteRevision === undefined ? 'Проверяем текущую версию кампании. Черновик сохранён.' :

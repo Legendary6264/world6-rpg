@@ -10,12 +10,13 @@ import { createApplication } from '../app.mjs'
 import { readConfig } from '../config.mjs'
 
 test('Supabase: доверенная личность, подтверждение email, UUID владельца и MFA',async t=>{
+ let authUnavailable=false
  const tokens=new Map(),ownerId=crypto.randomUUID(),playerId=crypto.randomUUID()
  const token=(user,aal='aal1')=>{const value=Buffer.from(JSON.stringify({alg:'test'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({sub:user.id,aal,role:'OWNER',nonce:crypto.randomUUID(),session_id:crypto.randomUUID()})).toString('base64url')+'.test';tokens.set(value,user);return value}
  const owner={id:ownerId,email:'owner@example.test',email_confirmed_at:new Date().toISOString(),user_metadata:{display_name:'Владелец',role:'PLAYER'}}
  const player={id:playerId,email:'player@example.test',email_confirmed_at:new Date().toISOString(),user_metadata:{display_name:'Игрок',role:'OWNER'}}
  const ownerAal1=token(owner),ownerAal2=token(owner,'aal2'),playerToken=token(player)
- const authServer=createServer((req,res)=>{res.setHeader('Content-Type','application/json');const user=tokens.get(req.headers.authorization?.slice(7));if(req.url!=='/auth/v1/user'||!user){res.statusCode=401;res.end(JSON.stringify({message:'invalid token',code:'bad_jwt'}))}else res.end(JSON.stringify(user))})
+ const authServer=createServer((req,res)=>{res.setHeader('Content-Type','application/json');if(authUnavailable){res.statusCode=503;res.end(JSON.stringify({message:'Temporary Auth outage'}));return}const user=tokens.get(req.headers.authorization?.slice(7));if(req.url!=='/auth/v1/user'||!user){res.statusCode=401;res.end(JSON.stringify({message:'invalid token',code:'bad_jwt'}))}else res.end(JSON.stringify(user))})
  const address=await new Promise(resolve=>authServer.listen(0,'127.0.0.1',()=>resolve(authServer.address())))
  const dir=await mkdtemp(join(tmpdir(),'world6-supabase-')),server=await createApplication(readConfig({AUTH_MODE:'supabase',SUPABASE_URL:'http://127.0.0.1:'+address.port,SUPABASE_PUBLISHABLE_KEY:'sb_publishable_test',OWNER_USER_ID:ownerId,SQLITE_PATH:join(dir,'test.sqlite'),PORT:'0'}))
  const port=(await server.listen()).port
@@ -23,6 +24,10 @@ test('Supabase: доверенная личность, подтверждени�
  async function api(path,auth,status=200,method='GET',body){const response=await fetch('http://127.0.0.1:'+port+'/api'+path,{method,headers:{...(auth?{Authorization:'Bearer '+auth}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const data=await response.json();assert.equal(response.status,status,path+': '+JSON.stringify(data));return data}
  const a=await api('/me',ownerAal1);assert.equal(a.role,'OWNER');assert.equal(a.mfaRequired,true)
  assert.equal((await api('/me',playerToken)).role,'PLAYER')
+ authUnavailable=true
+ const transientLogger=console.error;console.error=()=>{}
+ try{await api('/me',ownerAal2,503)}finally{authUnavailable=false;console.error=transientLogger}
+ assert.equal((await api('/me',ownerAal2)).role,'OWNER')
  await api('/admin/users',ownerAal1,403);await api('/admin/users',ownerAal2)
  await api('/publications/news',ownerAal1,403,'POST',{title:'Новость',body:'Без MFA нельзя'})
  await api('/publications/news',ownerAal2,201,'POST',{title:'Новость',body:'После второго фактора'})
@@ -45,10 +50,13 @@ test('Supabase: доверенная личность, подтверждени�
  await api('/auth/login',undefined,400,'POST',{email:'fake@example.test',password:'Strong-password-2026'})
  // Even a valid unexpired JWT must not outlive its revoked production session.
  const originalGet=server.db.get
- let activeSession=true
- server.db.get=async(sql,args)=>sql.includes('auth.sessions')?(activeSession?{active:1}:undefined):originalGet(sql,args)
+ let activeSession=true,sessionStorageUnavailable=false
+ server.db.get=async(sql,args)=>{if(sql.includes('auth.sessions')){if(sessionStorageUnavailable)throw Error('Session database temporarily unavailable');return activeSession?{active:1}:undefined}return originalGet(sql,args)}
  server.config.production=true
  await api('/me',ownerAal2)
+ sessionStorageUnavailable=true
+ const logger=console.error;console.error=()=>{}
+ try{await api('/me',ownerAal2,500)}finally{console.error=logger;sessionStorageUnavailable=false}
  activeSession=false
  await api('/me',ownerAal2,401)
  server.config.production=false

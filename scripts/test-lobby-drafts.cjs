@@ -12,6 +12,7 @@ const dom = new JSDOM('<div id="root"></div>', { url: 'https://world6.example.te
 global.window = dom.window
 global.document = dom.window.document
 global.location = dom.window.location
+global.localStorage = dom.window.localStorage
 global.IS_REACT_ACT_ENVIRONMENT = true
 const { createRoot } = require('react-dom/client')
 const { act } = React
@@ -22,7 +23,7 @@ const Wrap = ({ children }) => React.createElement('div', null, children)
 // Replace visual descendants only; these controls invoke the real manager callbacks.
 const stubs = {
   NetworkCommon: { CommunityShell: Wrap, RemoteStatus: ({ error }) => React.createElement('p', null, error), formatDate: String },
-  RpgControls: { TextField: () => null, Field: Wrap },
+  RpgControls: { TextField: () => null, NumberField: () => null, Field: Wrap },
   ActionReview: { __esModule: true, default: () => null },
   VisualElements: { Illustration: () => null },
   CampaignPanel: { __esModule: true, default: () => null },
@@ -58,6 +59,8 @@ const load = modules(), Panel = load('LobbiesPanel').default
 const { OnlineContext } = load('onlineContext')
 const { emptyCampaign } = load('rpgSchema')
 const { createDefaultCharacter } = load('characterModel')
+const { writeCharacters } = load('characterStorage')
+const { serializeLobbyBackup, parseLobbyBackup } = load('lobbyBackup')
 const storage = load('lobbyDraftStorage')
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 async function flush(fn = () => {}) { await act(async () => { fn(); await new Promise(r => setTimeout(r, 5)) }) }
@@ -79,6 +82,7 @@ async function click(text) {
 async function fixture() {
   const tree = createRoot(document.getElementById('root'))
   const accountId = crypto.randomUUID(), writes = []
+  const members = [{ id: accountId, displayName: 'GM' }, { id: 'friend-id', displayName: 'Friend' }]
   const worlds = Object.fromEntries(['a', 'b'].map(id => [id, {
     characters: [{ ...createDefaultCharacter(), id: 'hero-' + id, name: 'Hero ' + id }], campaign: emptyCampaign(), revision: 7,
   }]))
@@ -90,11 +94,12 @@ async function fixture() {
       if (intercepted !== undefined) return intercepted
     }
     if (options?.method === 'PUT') { writes.push({ url, ...JSON.parse(options.body) }); return { revision: 8 } }
+    if (options?.method === 'POST' && url.endsWith('/restore')) { const body = JSON.parse(options.body); writes.push({ url, ...body }); return { world: body.world, revision: body.revision + 1 } }
     if (url === '/lobbies/mine') return ['a', 'b'].map(id => ({ id, title: 'Room ' + id, role }))
     if (url === '/characters') return []
     if (url === '/lobbies/a' || url === '/lobbies/b') {
       if (failLobby) throw Error('Temporary lobby failure')
-      return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, status: 'open', visibility: 'public', members: [], slots: 4 }
+      return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, status: 'open', visibility: 'public', members, slots: 4 }
     }
     const match = url.match(/^\/lobbies\/([ab])\/world/)
     if (match) return structuredClone(worlds[match[1]])
@@ -104,7 +109,7 @@ async function fixture() {
   const render = () => tree.render(React.createElement(OnlineContext.Provider, { value: { ...context } },
     mounted ? React.createElement(Panel, { onAccount: () => {} }) : null))
   await flush(render)
-  return { accountId, context, writes, worlds, request,
+  return { accountId, context, writes, worlds, request, members,
     render: () => flush(render),
     role: async value => { role = value; context.events++; await flush(render) },
     fail: async value => { failLobby = value; context.events++; await flush(render) },
@@ -253,6 +258,103 @@ test('corrupt or foreign storage content is not used as a lobby draft', () => {
   const fresh = modules()('lobbyDraftStorage')
   assert.equal(fresh.readLobbyDraft('user', 'lobby', () => ({ getItem: () => '{broken' })), null)
   assert.equal(fresh.readLobbyDraft('user', 'lobby', () => ({ getItem: () => JSON.stringify({ version: 1, accountId: 'someone-else', lobbyId: 'lobby' }) })), null)
+})
+
+async function backupFile(text) {
+  const field = document.querySelector('input[type="file"]')
+  assert(field)
+  await flush(() => {
+    Object.defineProperty(field, 'files', { configurable: true, value: [{ size: Buffer.byteLength(text), text: async () => text }] })
+    field.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+  })
+}
+
+test('A4: legacy copy needs explicit owners; restore is bound to the current lobby', async () => {
+  const f = await fixture(), confirm = window.confirm
+  window.confirm = () => true
+  try {
+    await f.open('b')
+    await backupFile(JSON.stringify({ format: 'world6-campaign-backup', version: 1, ...f.worlds.a }))
+    const button = [...document.querySelectorAll('button')].find(b => b.textContent.includes('Восстановить мир и владельцев'))
+    assert.equal(button.disabled, true)
+    assert(document.body.textContent.includes('В прежней копии нет владельцев'))
+    await flush(() => {
+      const select = document.querySelector('[aria-label="Владелец героя Hero a"]')
+      select.value = 'friend-id'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
+    await click('Восстановить мир и владельцев')
+    assert.equal(f.writes[0].url, '/lobbies/b/restore')
+    assert.equal(f.writes[0].bindings[0].ownerId, 'friend-id')
+    assert.equal(name(), 'Hero a')
+  } finally { window.confirm = confirm; await f.close() }
+})
+
+test('A4: new backup retains owners; unknown owners cannot be silently reassigned', async () => {
+  const f = await fixture()
+  try {
+    await f.open('a')
+    const raw = serializeLobbyBackup(f.worlds.a, [{ characterId: 'hero-a', ownerId: 'missing-friend', approved: false }], [{ id: 'missing-friend', displayName: 'Missing friend' }])
+    const parsed = parseLobbyBackup(raw)
+    assert.equal(parsed.bindings[0].ownerId, 'missing-friend')
+    assert.equal(parsed.bindings[0].approved, false)
+    await backupFile(raw)
+    assert.equal(document.querySelector('[aria-label="Владелец героя Hero a"]').value, '')
+    const button = [...document.querySelectorAll('button')].find(b => b.textContent.includes('Восстановить мир и владельцев'))
+    assert.equal(button.disabled, true)
+    assert.equal(f.writes.length, 0)
+  } finally { await f.close() }
+})
+
+test('A5: deleting and re-uploading a cloud hero sends creation revision -1', async () => {
+  const tree = createRoot(document.getElementById('root')), Cloud = load('CloudLibraryPanel').default
+  const id = crypto.randomUUID(), accountId = crypto.randomUUID(), hero = { ...createDefaultCharacter(), id, name: 'Cloud hero' }
+  writeCharacters(window.localStorage, [hero], emptyCampaign())
+  window.localStorage.setItem('world6.cloud-versions.' + accountId, JSON.stringify({ [id]: 3 }))
+  let exists = true, writtenRevision, context = { user: { id: accountId }, events: 0 }
+  const render = () => tree.render(React.createElement(OnlineContext.Provider, { value: { ...context } }, React.createElement(Cloud, { onImported: () => {} })))
+  context.refresh = () => { context.events++; render() }
+  context.request = async (url, options) => {
+    if (options?.method === 'DELETE') { exists = false; return { ok: true } }
+    if (options?.method === 'PUT') { writtenRevision = JSON.parse(options.body).revision; return { revision: 0 } }
+    return exists ? [{ id, name: hero.name, revision: 3 }] : []
+  }
+  const confirm = window.confirm; window.confirm = () => true
+  try {
+    await flush(render); await click('Удалить из аккаунта'); await flush()
+    assert.equal(JSON.parse(window.localStorage.getItem('world6.cloud-versions.' + accountId))[id], undefined)
+    await click('Сохранить локальных героев в аккаунт')
+    assert.equal(writtenRevision, -1)
+  } finally { window.confirm = confirm; await flush(() => tree.unmount()) }
+})
+
+test('A4: remote campaign cannot use the legacy blind restore path', async () => {
+  const old = stubs.CampaignPanel; delete stubs.CampaignPanel
+  const Campaign = modules()('CampaignPanel').default, tree = createRoot(document.getElementById('root'))
+  stubs.CampaignPanel = old
+  const props = { world: { characters: [], campaign: emptyCampaign() }, onPlan: () => {}, onRestore: () => ({ ok: true }), onExamples: () => ({ ok: true }) }
+  try {
+    await flush(() => tree.render(React.createElement(Campaign, { ...props, remote: true })))
+    assert.equal(document.querySelector('input[type="file"]'), null)
+    assert(document.body.textContent.includes('восстановление владельцев'))
+    await flush(() => tree.render(React.createElement(Campaign, { ...props, remote: false })))
+    assert(document.querySelector('input[type="file"]'), 'Offline campaign restore remains available')
+  } finally { await flush(() => tree.unmount()) }
+})
+
+test('A7: delayed backup file read is ignored after switching to another lobby', async () => {
+  const f = await fixture(), waiting = deferred()
+  try {
+    await f.open('a')
+    await flush(() => {
+      const field = document.querySelector('input[type="file"]')
+      Object.defineProperty(field, 'files', { configurable: true, value: [{ size: 10, text: () => waiting.promise }] })
+      field.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
+    await f.open('b')
+    await flush(() => waiting.resolve(JSON.stringify({ format: 'world6-campaign-backup', version: 1, ...f.worlds.a })))
+    assert.equal(document.querySelector('[aria-label="Владелец героя Hero a"]'), null)
+    assert.equal(f.writes.length, 0)
+  } finally { await f.close() }
 })
 
 test.after(() => dom.window.close())

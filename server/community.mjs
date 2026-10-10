@@ -15,6 +15,30 @@ export function communityRoutes(app,{db,auth,io}){
  app.post('/api/support/:id/replies',auth.middleware,async(req,res)=>{const ticket=await ticketAccess(req.params.id,req.user);if(ticket.status==='closed')fail(409,'Обращение закрыто.');await db.run('INSERT INTO ticket_replies(id,ticket_id,author_id,body,created_at) VALUES(?,?,?,?,?)',[id(),ticket.id,req.user.id,text(req.body.body),now()]);await db.run('UPDATE tickets SET updated_at=? WHERE id=?',[now(),ticket.id]);res.status(201).json({ok:true})})
  app.patch('/api/support/:id',auth.middleware,async(req,res)=>{const ticket=await ticketAccess(req.params.id,req.user);auth.moderator(req.user);await db.run('UPDATE tickets SET status=?,updated_at=? WHERE id=?',[choice(req.body.status,['open','working','closed']),now(),ticket.id]);res.json({ok:true})})
  app.get('/api/admin/users',auth.middleware,async(req,res)=>{auth.moderator(req.user);res.json((await db.all('SELECT id,display_name,email,role,disabled,created_at FROM users ORDER BY created_at DESC LIMIT 500')).map(u=>({...publicUser(u),email:u.email,createdAt:u.created_at})))})
- app.patch('/api/admin/users/:id',auth.middleware,async(req,res)=>{auth.moderator(req.user);const target=await db.get('SELECT * FROM users WHERE id=?',[req.params.id]);if(!target)fail(404,'Аккаунт не найден.');if(target.role==='OWNER'||target.id===req.user.id)fail(403,'Нельзя менять владельца или свой доступ через эту форму.');if(target.role==='ADMIN'&&req.user.role!=='OWNER')fail(403,'Администратора изменяет владелец.');let role=target.role;if(req.body.role!==undefined){if(req.user.role!=='OWNER')fail(403,'Назначать роли может владелец.');role=choice(req.body.role,['PLAYER','WORLD_EDITOR','ADMIN'])}if(req.body.disabled!==undefined&&typeof req.body.disabled!=='boolean')fail(400,'Проверь настройку блокировки.');const disabled=req.body.disabled===undefined?target.disabled:req.body.disabled?1:0;await db.run('UPDATE users SET role=?,disabled=? WHERE id=?',[role,disabled,target.id]);await db.run('INSERT INTO audit(id,actor_id,action,target_id,created_at) VALUES(?,?,?,?,?)',[id(),req.user.id,'change-user',target.id,now()]);io.to('user:'+target.id).emit('accountChanged',{id:target.id});if(disabled)io.in('user:'+target.id).disconnectSockets(true);res.json({ok:true})})
+ app.patch('/api/admin/users/:id',auth.middleware,async(req,res)=>{
+  auth.moderator(req.user)
+  const assignments=[],values=[]
+  if(req.body.role!==undefined){assignments.push('role=?');values.push(req.body.role)}
+  if(req.body.disabled!==undefined){if(typeof req.body.disabled!=='boolean')fail(400,'Проверь настройку блокировки.');assignments.push('disabled=?');values.push(req.body.disabled?1:0)}
+  if(!assignments.length)fail(400,'Укажи изменение роли или блокировки.')
+  const target=await db.transaction(async tx=>{
+   // Lock actor and target in a stable order. Authorization must use current rows,
+   // not the account snapshots read earlier by the HTTP auth middleware.
+   const rows=await tx.all('SELECT * FROM users WHERE id IN (?,?) ORDER BY id'+tx.lock,[req.user.id,req.params.id])
+   const actor=rows.find(row=>row.id===req.user.id),target=rows.find(row=>row.id===req.params.id)
+   if(!actor||actor.disabled)fail(403,'Аккаунт недоступен.')
+   auth.moderator({...req.user,...actor})
+   if(!target)fail(404,'Аккаунт не найден.')
+   if(target.role==='OWNER'||target.id===actor.id)fail(403,'Нельзя менять владельца или свой доступ через эту форму.')
+   if(target.role==='ADMIN'&&actor.role!=='OWNER')fail(403,'Администратора изменяет владелец.')
+   if(req.body.role!==undefined){if(actor.role!=='OWNER')fail(403,'Назначать роли может владелец.');values[0]=choice(req.body.role,['PLAYER','WORLD_EDITOR','ADMIN'])}
+   await tx.run('UPDATE users SET '+assignments.join(',')+' WHERE id=?',[...values,target.id])
+   await tx.run('INSERT INTO audit(id,actor_id,action,target_id,created_at) VALUES(?,?,?,?,?)',[id(),actor.id,'change-user',target.id,now()])
+   return {id:target.id,disabled:req.body.disabled===undefined?!!target.disabled:req.body.disabled}
+  })
+  io.to('user:'+target.id).emit('accountChanged',{id:target.id})
+  if(target.disabled)io.in('user:'+target.id).disconnectSockets(true)
+  res.json({ok:true})
+ })
  app.get('/api/admin/audit',auth.middleware,async(req,res)=>{auth.moderator(req.user);res.json(await db.all('SELECT a.*,u.display_name AS actor FROM audit a JOIN users u ON u.id=a.actor_id ORDER BY a.created_at DESC LIMIT 200'))})
 }
