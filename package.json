@@ -9,6 +9,7 @@
     "lint": "oxlint src server scripts vite.config.ts",
     "preview": "vite preview",
     "test": "node scripts/test-rules.mjs",
+    "test:ui": "node --test scripts/test-lobby-drafts.cjs",
     "dev:all": "node --env-file-if-exists=server/.env scripts/dev-all.mjs",
     "server:build": "node scripts/build-server-rules.mjs",
     "server": "node --env-file-if-exists=server/.env server/index.mjs",
@@ -35,6 +36,7 @@
     "@types/react-dom": "^19.2.7",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^30.1.2",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
