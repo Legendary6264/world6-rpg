@@ -8,7 +8,7 @@ import { emptyCampaign, emptyItem, emptyAbility, emptyPhysiology, isCampaign } f
 import type { Campaign } from './rpgTypes'
 import { effectiveActor, instantiateItem, worldFingerprint } from './rpgEngine'
 import type { Actor, Plan, PlanResult, World } from './rpgEngine'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import CharacterWorkspace from './CharacterWorkspace'
 import CharacterImportPanel from './CharacterImportPanel'
 import { createDefaultCharacter, isCharacterDraft, normalizeCharacterDraft } from './characterModel'
@@ -26,8 +26,8 @@ function loadCharacters(): LoadResult {
   }
 }
 
-type ManagerProps={initialWorld?:World;onRemotePublish?:(world:World)=>Promise<string>}
-function CharacterManager({initialWorld,onRemotePublish}:ManagerProps) {
+type ManagerProps={initialWorld?:World;onRemotePublish?:(world:World)=>Promise<string>;onDraftChange?:(world:World)=>void;remotePublishDisabled?:boolean}
+function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePublishDisabled}:ManagerProps) {
   const [initial] = useState<LoadResult>(()=>initialWorld?{characters:initialWorld.characters,campaign:initialWorld.campaign,message:'Кампания загружена с сервера.',blocked:false}:loadCharacters())
   const [publishing,setPublishing]=useState(false)
   const [characters, setCharacters] = useState<Actor[]>(()=>initial.characters.map(c=>({...normalizeCharacterDraft(c),id:c.id})))
@@ -39,6 +39,8 @@ function CharacterManager({initialWorld,onRemotePublish}:ManagerProps) {
   const [activeId, setActiveId] = useState<string | null>(initial.characters[0]?.id ?? null)
   const [newName, setNewName] = useState('')
   const [message, setMessage] = useState(initial.message)
+
+  useEffect(()=>{onDraftChange?.({characters,campaign})},[characters,campaign,onDraftChange])
 
   function commitWorld(next:World) {
     if(initial.blocked)throw new Error('Запись заблокирована.')
@@ -142,8 +144,8 @@ function CharacterManager({initialWorld,onRemotePublish}:ManagerProps) {
 
   return (
     <div className="character-manager"><header className="w6-atlas-banner"><div><p className="w6-eyebrow">Летопись персонажей</p><h1>Мир 6</h1><p>Тело, магия и история твоего героя</p></div></header>
-      {onRemotePublish&&<section className="panel w6-remote-publish"><h2>Редактор общей кампании</h2><p className="w6-copy">Изменения готовятся в этом черновике. Публикация отправляет их участникам и проверяет версию кампании на сервере.</p><button className="w6-button w6-primary" disabled={publishing} onClick={async()=>{setPublishing(true);try{setMessage(await onRemotePublish(world));setDirty(false)}catch(e){setMessage((e as Error).message)}finally{setPublishing(false)}}}>{publishing?'Публикуем…':'Опубликовать изменения кампании'}</button></section>}
-      <details className="panel w6-world-settings"><summary>Игра и настройки лобби / мира</summary><CampaignPanel world={world} onPlan={showPlan} onRestore={applyWorld} onExamples={examples}/></details>
+      {onRemotePublish&&<section className="panel w6-remote-publish"><h2>Редактор общей кампании</h2><p className="w6-copy">Изменения готовятся в этом черновике. Публикация отправляет их участникам и проверяет версию кампании на сервере.</p><button className="w6-button w6-primary" disabled={publishing||remotePublishDisabled} onClick={async()=>{setPublishing(true);try{setMessage(await onRemotePublish(world));setDirty(false)}catch(e){setMessage((e as Error).message)}finally{setPublishing(false)}}}>{publishing?'Публикуем…':'Опубликовать изменения кампании'}</button></section>}
+      <details className="panel w6-world-settings"><summary>Игра и настройки лобби / мира</summary><CampaignPanel remote={!!onRemotePublish} world={world} onPlan={showPlan} onRestore={applyWorld} onExamples={examples}/></details>
       <p className="w6-notice">{dirty?'Есть несохранённые изменения листов.':onRemotePublish?'Черновик кампании подготовлен. Публикация выполняется отдельной кнопкой.':'Текущие изменения сохранены.'}</p>
       {plan&&<div className="w6-modal-backdrop"><section className="w6-modal" role="dialog" aria-modal="true" aria-labelledby="plan-title"><h2 id="plan-title">Предварительный результат</h2><h3>{plan.text}</h3><ActionReview before={world} after={plan.world}/><details className="w6-fieldset"><summary>Подробный расчёт и основания</summary><p className="w6-prose">{plan.details}</p></details><p className="w6-copy">До подтверждения ресурсы и цель не изменяются. При изменении листов расчёт потребуется повторить.</p><div className="w6-buttons"><button className="w6-button w6-primary" type="button" onClick={confirmPlan}>Подтвердить и сохранить результат</button><button className="w6-button" type="button" onClick={()=>setPlan(null)}>Отмена расчёта</button></div></section></div>}
       <section className="panel">
