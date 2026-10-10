@@ -1,3 +1,4 @@
+import { declarationReferencesValid } from './actionDeclarations'
 import { isCampaign, emptyCampaign } from './rpgSchema'
 import type { Campaign } from './rpgTypes'
 import { sceneReferencesValid } from './scenes'
@@ -46,6 +47,7 @@ export function readCharacters(storage: StorageReader): LoadResult {
         throw new Error('Неверные персонажи.')
       }
       if (parsed.campaign !== undefined && !isCampaign(parsed.campaign)) throw new Error('Некорректная кампания.')
+      if (parsed.campaign !== undefined && !declarationReferencesValid((parsed.campaign as Campaign).declarations,(parsed.campaign as Campaign).scenes,(characters as SavedCharacter[]).map(c=>c.id))) throw new Error('В заявлениях сохранения неизвестные герои или сцены.');
       if (parsed.campaign !== undefined && !perceptionReferencesValid((parsed.campaign as Campaign).perceptions,(parsed.campaign as Campaign).scenes,(characters as SavedCharacter[]).map(c=>c.id))) throw new Error('В раскрытии сохранения неизвестные персонажи или сцены.');
       if (parsed.campaign !== undefined && !sceneReferencesValid((parsed.campaign as Campaign).scenes,(characters as SavedCharacter[]).map(c=>c.id))) throw new Error('В сохранении сцены с неизвестными персонажами.')
       return { characters, campaign: parsed.campaign === undefined ? emptyCampaign() : structuredClone(parsed.campaign as Campaign), message: 'Список персонажей загружен.', blocked: false }
@@ -84,6 +86,7 @@ export function writeCharacters(storage: StorageWriter, characters: SavedCharact
     throw new Error('Неверный список персонажей.')
   }
   if (campaign !== undefined && !isCampaign(campaign)) throw new Error('Некорректная кампания.')
+  if (campaign !== undefined && !declarationReferencesValid(campaign.declarations,campaign.scenes,characters.map(c=>c.id))) throw new Error('Проверь заявления.');
   if (campaign !== undefined && !perceptionReferencesValid(campaign.perceptions,campaign.scenes,characters.map(c=>c.id))) throw new Error('Проверь индивидуальное раскрытие.');
   if (campaign !== undefined && !sceneReferencesValid(campaign.scenes,characters.map(c=>c.id))) throw new Error('Проверь персонажей на сценах.')
   storage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, characters, ...(campaign ? {campaign}: {}) }))

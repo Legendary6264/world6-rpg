@@ -1,20 +1,22 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useOnline } from './onlineContext'
 import { useRemote } from './onlineHooks'
 import type { PlayerCharacter } from './onlineTypes'
+import type { ScenePosition } from './sceneTypes'
 import type { PerceivedMap } from './scenePerception'
 import type { JournalEntry, KnownEffect } from './characterKnowledge'
 import { journalCategories, certaintyOptions } from './characterKnowledge'
 import PerceivedScene from './PerceivedScene'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
+const LobbyActionDeclarations = lazy(() => import('./LobbyActionDeclarations'))
 type PlayerView = { revision: number; hero: PlayerCharacter; map: PerceivedMap | null; canWriteNotes: boolean;
   knowledge: { journal: Omit<JournalEntry, 'artwork' | 'eventKey'>[]; knownEffects: Omit<KnownEffect, 'createdAt' | 'updatedAt' | 'artwork'>[] }; inventory: { id: string; name: string; description: string; quantity: number }[] }
 type Note = { title: string; text: string; revision?: number }
 const valid = (v: unknown): v is Note => !!v && typeof v === 'object' && typeof (v as Note).title === 'string' && (v as Note).title.length <= 120 && typeof (v as Note).text === 'string' && (v as Note).text.length <= 8000 && ((v as Note).revision === undefined || Number.isSafeInteger((v as Note).revision))
-export default function LobbyPlayerScreen({ accountId, lobbyId, character, checkingAccess }: { accountId: string; lobbyId: string; character: PlayerCharacter; checkingAccess: boolean }) {
+export default function LobbyPlayerScreen({ accountId, lobbyId, character, checkingAccess, members }: { accountId: string; lobbyId: string; character: PlayerCharacter; checkingAccess: boolean; members: {id:string;displayName:string}[] }) {
   const { request, refresh } = useOnline(), key = lobbyFormKey('player-note', accountId, lobbyId, character.id)
   const [opened, setOpened] = useState(false), [note, setNote] = useState(() => readLobbyForm(key, valid) ?? { title: '', text: '' }), [selected, setSelected] = useState('')
-  const [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [warning, setWarning] = useState(''), [query, setQuery] = useState('')
+  const [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [warning, setWarning] = useState(''), [query, setQuery] = useState(''), [pickedPoint, setPickedPoint] = useState<ScenePosition | null>(null)
   const active = useRef(false), pending = useRef<AbortController | null>(null)
   useEffect(() => { active.current = true; return () => { active.current = false; pending.current?.abort() } }, [])
   useEffect(() => () => pending.current?.abort(), [request])
@@ -33,7 +35,8 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
   return <section className="w6-fieldset gb-player-screen"><h4>Экран героя</h4><button className="w6-button" disabled={checkingAccess || busy} onClick={() => setOpened(!opened)}>{opened ? 'Свернуть экран героя' : 'Открыть экран героя'}</button>
     {opened && <><p role="status">{remote.loading ? 'Загружаем доступные герою сведения…' : remote.error}</p>{value && <>
       <p className="w6-copy">Сведения героя индивидуальны. Мастер управляет раскрытием; выбор отметки не перемещает героя и не тратит время.</p>
-      {value.map ? <PerceivedScene map={value.map} selected={selected} onSelect={setSelected}/> : <p className="gb-scene-empty">Мастер ещё не открыл этому герою сцену.</p>}
+      {value.map ? <PerceivedScene map={value.map} selected={selected} onSelect={setSelected} onPoint={setPickedPoint}/> : <p className="gb-scene-empty">Мастер ещё не открыл этому герою сцену.</p>}
+      <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading} selectedContact={selected} pickedPoint={pickedPoint} members={members}/></Suspense>
       <div className="gb-player-tabs"><details open><summary>Состояние и возможности</summary>
         {value.hero.resources && <p>{Object.entries(value.hero.resources).map(([k, r]) => <span key={k}>{k === 'mana' ? 'Мана' : k === 'shadow' ? 'Тень' : 'Выносливость'}: {r.current} / {r.maximum} · </span>)}</p>}
         {value.hero.sensations?.map((s, i) => <div key={i}><strong>{s.label}</strong>{s.symptoms.map(x => <p key={x}>{x}</p>)}{s.diagnoses.map(x => <p key={x}>Известный диагноз: {x}</p>)}</div>)}

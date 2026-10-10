@@ -87,6 +87,7 @@ async function fixture() {
   const tree = createRoot(document.getElementById('root'))
   const accountId = crypto.randomUUID(), writes = [], cloud = [], perceptions = {}
   const members = [{ id: accountId, displayName: 'GM', lobbyRole: 'GM', permissions: [...lobbyPermissions] }, { id: 'friend-id', displayName: 'Friend', lobbyRole: 'ASSISTANT', permissions: [] }]
+  const declarations = Object.fromEntries(['a','b'].map(id => [id, {collection:null,participating:false,canSubmit:false,entry:null,options:null,readiness:[],controlStamp:'0'}]))
   const worlds = Object.fromEntries(['a', 'b'].map(id => [id, {
     characters: [{ ...createDefaultCharacter(), id: 'hero-' + id, name: 'Hero ' + id }], campaign: emptyCampaign(), revision: 7,
   }]))
@@ -97,6 +98,8 @@ async function fixture() {
       const intercepted = intercept(url, options)
       if (intercepted !== undefined) return intercepted
     }
+    if (options?.method === 'PUT' && url.endsWith('/declarations')) { const body=JSON.parse(options.body); writes.push({url,...body}); return {entryVersion:body.baseVersion+1} }
+    if (['POST','PATCH'].includes(options?.method) && /declarations(?:\/return)?$/.test(url)) { writes.push({url,...JSON.parse(options.body)}); return {ok:true} }
     if (options?.method === 'PUT') { writes.push({ url, ...JSON.parse(options.body) }); return { revision: 8 } }
     if (options?.method === 'POST' && url.endsWith('/restore')) { const body = JSON.parse(options.body); writes.push({ url, ...body }); return { world: body.world, revision: body.revision + 1 } }
     if (url === '/lobbies/mine') return ['a', 'b'].map(id => ({ id, title: 'Room ' + id, role }))
@@ -107,6 +110,10 @@ async function fixture() {
     }
     const submissionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/submission$/)
     if(submissionMatch){const world=worlds[submissionMatch[1]];return {revision:world.revision,sourceId:cloud[0]?.id,review:world.characters[0].review??{status:'pending',locked:false},sheet:structuredClone(world.characters[0]),changedSinceSubmission:false,conditionErrors:[],canResubmit:world.characters[0].ownerId===context.user.id}}
+    const declarationMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/declarations$/)
+    if(declarationMatch) return structuredClone(declarations[declarationMatch[1]])
+    const masterMatch=url.match(/^\/lobbies\/([ab])\/declarations$/)
+    if(masterMatch) { const w=worlds[masterMatch[1]]; return {revision:w.revision,declarations:{version:1,active:null,archive:[]},scenes:(w.campaign.scenes?.scenes??[]).map(s=>({id:s.id,name:s.name,objects:s.objects.map(o=>({id:o.id,name:o.name}))})),actors:w.characters.map(c=>({id:c.id,name:c.name,approved:true,items:[],abilities:[]}))} }
     const perceptionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/perception$/)
     if(perceptionMatch){const world=worlds[perceptionMatch[1]];return {revision:world.revision,hero:world.characters[0],map:perceptions[perceptionMatch[1]]??null,knowledge:{journal:[],knownEffects:[]},inventory:[],canWriteNotes:world.characters[0].ownerId===context.user.id}}
     const disclosureMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/disclosure$/)
@@ -121,7 +128,7 @@ async function fixture() {
   const render = () => tree.render(React.createElement(OnlineContext.Provider, { value: { ...context } },
     mounted ? React.createElement(Panel, { onAccount: () => {} }) : null))
   await flush(render)
-  return { accountId, context, writes, worlds, request, members, cloud, perceptions,
+  return { accountId, context, writes, worlds, request, members, cloud, perceptions, declarations,
     render: () => flush(render),
     role: async value => { role = value; context.events++; await flush(render) },
     permissions: async value => { permissions = value; context.events++; await flush(render) },
@@ -328,6 +335,8 @@ test('A5: deleting and re-uploading a cloud hero sends creation revision -1', as
   context.refresh = () => { context.events++; render() }
   context.request = async (url, options) => {
     if (options?.method === 'DELETE') { exists = false; return { ok: true } }
+    if (options?.method === 'PUT' && url.endsWith('/declarations')) { const body=JSON.parse(options.body); writes.push({url,...body}); return {entryVersion:body.baseVersion+1} }
+    if (['POST','PATCH'].includes(options?.method) && /declarations(?:\/return)?$/.test(url)) { writes.push({url,...JSON.parse(options.body)}); return {ok:true} }
     if (options?.method === 'PUT') { writtenRevision = JSON.parse(options.body).revision; return { revision: 0 } }
     return exists ? [{ id, name: hero.name, revision: 3 }] : []
   }
@@ -652,4 +661,89 @@ test('Сведение мастера: текст переживает смен�
   await click('Раскрыть сведение выбранному герою')
   assert.equal(f.writes[0].url,'/lobbies/a/characters/hero-a/knowledge');assert.equal(f.writes[0].disclosure,true);assert.equal(f.writes[0].revision,7)
  }finally{await f.close()}
+})
+
+function readyDeclarations(id) {
+  return {collection:{id:'collection-'+id,epoch:1,phase:'open',durationSeconds:5,allowReplace:true},participating:true,canSubmit:true,entry:null,controlStamp:'0',readiness:[],
+    options:{sceneId:'scene-'+id,width:20,depth:20,minZ:-5,maxZ:20,targets:[],items:[],abilities:[]}}
+}
+async function selectValue(selector,value) {
+  const field=document.querySelector(selector);assert(field,'Missing select '+selector)
+  await flush(()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype,'value').set.call(field,value);field.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+}
+async function ownActions(f,id) {
+  f.worlds[id].characters[0].ownerId=f.accountId;f.declarations[id]=readyDeclarations(id)
+  await f.open(id);await click('Открыть экран героя');await flush()
+}
+async function waitAction(seconds,note='') {
+  await selectValue('[aria-label="Категория действия"]','wait');await input('[aria-label="Ожидание, с"]',seconds)
+  if(note)await input('[aria-label="Пояснение действия"]',note)
+  await click('Добавить действие в последовательность')
+}
+test('Заявления: последовательность и незавершённые координаты разделены по лобби; поздняя отправка не очищает новый черновик',async()=>{
+  const f=await fixture(),pending=deferred()
+  try {
+    await ownActions(f,'a');await input('[aria-label="Действие X"]','-');await waitAction('1','План первого лобби')
+    await ownActions(f,'b');await waitAction('2','План второго лобби')
+    await f.open('a');await click('Открыть экран героя');await selectValue('[aria-label="Категория действия"]','move')
+    assert.equal(document.querySelector('[aria-label="Действие X"]').value,'-');assert(document.body.textContent.includes('План первого лобби'))
+    f.intercept((url,options)=>options?.method==='PUT'&&url==='/lobbies/a/characters/hero-a/declarations'?pending.promise:undefined)
+    await click('Отправить заявление');await f.open('b');await click('Открыть экран героя')
+    pending.resolve({entryVersion:1});await flush()
+    assert(document.body.textContent.includes('План второго лобби'));assert(!document.body.textContent.includes('План первого лобби'))
+    await f.open('a');await click('Открыть экран героя');assert(document.body.textContent.includes('План первого лобби'))
+    assert.equal(f.writes.length,0,'Navigation and aborted replies never publish or erase another plan')
+  }finally{await f.close()}
+})
+test('Заявления: чужая готовность не меняет мою базу; закрытие и передача управления требуют явной сверки',async()=>{
+  const f=await fixture()
+  try {
+    await ownActions(f,'a');await waitAction('1')
+    f.declarations.a.readiness=[{userId:'other',ready:true}];f.context.events++;await f.render();await flush()
+    assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Отправить заявление').disabled,false)
+    f.declarations.a.collection.epoch=3;f.context.events++;await f.render();await flush()
+    assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Отправить заявление').disabled,true)
+    await click('Последовательность проверена с текущей версией')
+    f.declarations.a.controlStamp='2';f.context.events++;await f.render();await flush()
+    assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Отправить заявление').disabled,true)
+    await click('Последовательность проверена с текущей версией');await click('Отправить заявление')
+    assert.equal(f.writes.length,1);assert.equal(f.writes[0].epoch,3);assert.equal(f.writes[0].baseVersion,0);assert.equal(f.writes[0].controlStamp,'2')
+    assert.deepEqual(f.writes[0].actions,[{kind:'wait',seconds:1,note:''}])
+  }finally{await f.close()}
+})
+test('Заявления: поздняя загрузка плана не раскрывается в другом лобби или аккаунте',async()=>{
+  const f=await fixture(),late=deferred()
+  try {
+    f.worlds.a.characters[0].ownerId=f.accountId;f.worlds.b.characters[0].ownerId=f.accountId;f.declarations.b=readyDeclarations('b')
+    f.intercept((url,options)=>url==='/lobbies/a/characters/hero-a/declarations'&&(!options?.method||options.method==='GET')?late.promise:undefined)
+    await f.open('a');await click('Открыть экран героя');await f.open('b');await click('Открыть экран героя')
+    f.context.user={id:'another-account'};f.context.events++;await f.render()
+    late.resolve({...readyDeclarations('a'),entry:{revision:1,status:'submitted',actions:[{kind:'wait',seconds:1,note:'ЧУЖОЙ СЕКРЕТНЫЙ ПЛАН'}],submittedAt:'',note:''}});await flush()
+    assert(!document.body.textContent.includes('ЧУЖОЙ СЕКРЕТНЫЙ ПЛАН'));assert.equal(f.writes.length,0)
+  }finally{await f.close()}
+})
+test('Приём мастера: настройки и частичная длительность сохраняются; устаревшая версия не публикуется автоматически',async()=>{
+  const f=await fixture(),scenes=load('scenes')
+  try {
+    for(const id of ['a','b'])f.worlds[id].campaign.scenes=scenes.createScene(scenes.emptyScenes(),'scene-'+id,'Сцена '+id,'top')
+    await f.open('a');await click('Открыть инструменты заявлений');await selectValue('[aria-label="Сцена приёма"]','scene-a');await input('[aria-label="Длительность раунда, с"]','-')
+    await flush(()=>document.querySelector('[aria-label="Участник сбора Hero a"]').click())
+    await f.open('b');await click('Открыть инструменты заявлений');await input('[aria-label="Длительность раунда, с"]','7')
+    await f.open('a');await click('Открыть инструменты заявлений');assert.equal(document.querySelector('[aria-label="Длительность раунда, с"]').value,'-')
+    f.worlds.a.revision=8;f.context.events++;await f.render();await flush();await input('[aria-label="Длительность раунда, с"]','5')
+    assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Начать приём заявлений').disabled,true)
+    await click('Настройки приёма проверены');await click('Начать приём заявлений')
+    assert.equal(f.writes.length,1);assert.equal(f.writes[0].url,'/lobbies/a/declarations');assert.equal(f.writes[0].revision,8);assert.equal(f.writes[0].durationSeconds,5);assert.deepEqual(f.writes[0].participantIds,['hero-a']);assert.equal(f.writes[0].allowReplace,true)
+  }finally{await f.close()}
+})
+test('Приём мастера: неполные права не открывают планы; отзыв секретов во время загрузки убирает инструмент',async()=>{
+  const f=await fixture(),late=deferred()
+  try {
+    await f.role('ASSISTANT');await f.permissions(['rounds']);await f.open('a')
+    assert(!document.body.textContent.includes('Открыть инструменты заявлений'))
+    await f.permissions(['rounds','viewSecrets']);f.intercept((url,options)=>url==='/lobbies/a/declarations'&&(!options?.method||options.method==='GET')?late.promise:undefined)
+    await click('Открыть инструменты заявлений');await f.permissions(['rounds'])
+    late.resolve({revision:7,declarations:{version:1,active:null,archive:[]},actors:[],scenes:[{id:'secret',name:'СКРЫТОЕ ПЛАНИРОВАНИЕ',objects:[]}]});await flush()
+    assert(!document.body.textContent.includes('СКРЫТОЕ ПЛАНИРОВАНИЕ'));assert(!document.body.textContent.includes('Открыть инструменты заявлений'));assert.equal(f.writes.length,0)
+  }finally{await f.close()}
 })

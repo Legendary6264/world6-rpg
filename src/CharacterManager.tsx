@@ -1,3 +1,4 @@
+import { declarationReferencesValid, pruneDeclarations } from './actionDeclarations'
 import ActionReview from './ActionReview'
 import { Illustration } from './VisualElements'
 import { recalculateLife, applyAutomaticLife } from './rpgEngine'
@@ -49,7 +50,7 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
 
   function commitWorld(next:World) {
     if(initial.blocked)throw new Error('Запись заблокирована.')
-    if(!perceptionReferencesValid(next.campaign.perceptions,next.campaign.scenes,next.characters.map(c=>c.id)) || next.characters.length>200 || !isCampaign(next.campaign) || !sceneReferencesValid(next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('Проверь состав кампании и персонажей на сценах.')
+    if(!declarationReferencesValid(next.campaign.declarations,next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('Проверь заявления и участников.');if(!perceptionReferencesValid(next.campaign.perceptions,next.campaign.scenes,next.characters.map(c=>c.id)) || next.characters.length>200 || !isCampaign(next.campaign) || !sceneReferencesValid(next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('Проверь состав кампании и персонажей на сценах.')
     // Перед записью ограничиваем текущие запасы, не переписывая ручные максимумы.
     for(const c of next.characters){
       if(!isCharacterDraft(c))throw new Error('Исправь незавершённые поля всех героев перед сохранением.')
@@ -60,11 +61,11 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
     if(!onRemotePublish)writeCharacters(window.localStorage,next.characters,next.campaign)
     setCharacters(next.characters);setCampaign(next.campaign);setDirty(false)
   }
-  function persistCharacters(next:SavedCharacter[]) {commitWorld({characters:next.map(c=>({...normalizeCharacterDraft(c),id:c.id})),campaign:{...campaign,revision:campaign.revision+1,...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,campaign.scenes,next.map(c=>c.id))}:{}),...(campaign.scenes?{scenes:pruneSceneActors(campaign.scenes,next.map(c=>c.id))}:{})}})}
+  function persistCharacters(next:SavedCharacter[]) {commitWorld({characters:next.map(c=>({...normalizeCharacterDraft(c),id:c.id})),campaign:{...campaign,revision:campaign.revision+1,...(campaign.declarations?{declarations:pruneDeclarations(campaign.declarations,campaign.scenes,next.map(c=>c.id))}:{}),...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,campaign.scenes,next.map(c=>c.id))}:{}),...(campaign.scenes?{scenes:pruneSceneActors(campaign.scenes,next.map(c=>c.id))}:{})}})}
   function changeScenes(scenes:SceneState){
     try{
       if(initial.blocked)throw new Error('Сначала восстанови доступ к сохранению.')
-      const next={...campaign,revision:campaign.revision+1,scenes,...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,scenes,characters.map(c=>c.id))}:{})}
+      const next={...campaign,revision:campaign.revision+1,scenes,...(campaign.declarations?{declarations:pruneDeclarations(campaign.declarations,scenes,characters.map(c=>c.id))}:{}),...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,scenes,characters.map(c=>c.id))}:{})}
       if(!isCampaign(next)||!sceneReferencesValid(scenes,characters.map(c=>c.id)))throw new Error('Проверь сцену и персонажей.')
       assertCampaignSize({characters,campaign:next})
       // Scene setup must not recalculate physiology, heal or advance game time.

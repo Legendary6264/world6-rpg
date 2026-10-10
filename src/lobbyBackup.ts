@@ -1,3 +1,4 @@
+import { declarationReferencesValid } from './actionDeclarations'
 import { isRecord, isSavedCharacter } from './characterModel'
 import { portableCharacter, MAX_IMPORT_BYTES } from './characterTransfer'
 import { isCampaign, copyCampaign } from './rpgSchema'
@@ -28,6 +29,7 @@ export function parseLobbyBackup(text: string): LobbyBackupPreview {
       !world.characters.every(isSavedCharacter) || !isCampaign(world.campaign)) throw new Error('Некорректная кампания в копии.')
   const ids = world.characters.map((c: { id: string }) => c.id)
   if (new Set(ids).size !== ids.length) throw new Error('В копии повторяются герои.')
+  if (!declarationReferencesValid(world.campaign.declarations,world.campaign.scenes,world.characters.map((c: World['characters'][number])=>c.id))) throw new Error('Проверь заявления и участников.');
   if (!perceptionReferencesValid(world.campaign.perceptions,world.campaign.scenes,ids)) throw new Error('В раскрытии копии неизвестные персонажи или сцены.');
   if (!sceneReferencesValid(world.campaign.scenes,ids)) throw new Error('В копии сцены с неизвестными героями.')
   if (world.characters.some((c: World['characters'][number]) => c.rpg.casts.some(k => ['preparing','ready','maintaining'].includes(k.status) && !ids.includes(k.targetId)))) throw new Error('В копии не хватает целей действующих применений.')
@@ -40,6 +42,7 @@ export function parseLobbyBackup(text: string): LobbyBackupPreview {
 }
 
 export function serializeLobbyBackup(world: World, bindings: OwnerBinding[], owners: BackupOwner[]): string {
+  if (!declarationReferencesValid(world.campaign.declarations,world.campaign.scenes,world.characters.map((c: World['characters'][number])=>c.id))) throw new Error('Проверь заявления и участников.');
   if (!perceptionReferencesValid(world.campaign.perceptions,world.campaign.scenes,world.characters.map(c=>c.id))) throw new Error('Проверь индивидуальное раскрытие.');
   if (!isCampaign(world.campaign) || !sceneReferencesValid(world.campaign.scenes,world.characters.map(c=>c.id))) throw new Error('Проверь сцены и персонажей перед экспортом.')
   assertCampaignSize(world)
