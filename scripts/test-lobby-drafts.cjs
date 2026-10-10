@@ -13,6 +13,7 @@ global.window = dom.window
 global.document = dom.window.document
 global.location = dom.window.location
 global.localStorage = dom.window.localStorage
+global.FormData = dom.window.FormData
 global.IS_REACT_ACT_ENVIRONMENT = true
 const { createRoot } = require('react-dom/client')
 const { act } = React
@@ -25,7 +26,7 @@ const stubs = {
   NetworkCommon: { CommunityShell: Wrap, RemoteStatus: ({ error }) => React.createElement('p', null, error), formatDate: String },
   RpgControls: { TextField: () => null, NumberField: () => null, Field: Wrap },
   ActionReview: { __esModule: true, default: () => null },
-  VisualElements: { Illustration: () => null },
+  VisualElements: { Illustration: () => null, ArtworkPicker: () => null },
   CampaignPanel: { __esModule: true, default: () => null },
   CharacterErrorBoundary: { __esModule: true, default: Wrap },
   CharacterImportPanel: { __esModule: true, default: () => null },
@@ -355,6 +356,72 @@ test('A7: delayed backup file read is ignored after switching to another lobby',
     assert.equal(document.querySelector('[aria-label="Владелец героя Hero a"]'), null)
     assert.equal(f.writes.length, 0)
   } finally { await f.close() }
+})
+
+
+test('Сцены: расстановка сохраняется отдельно по лобби и не теряет незавершённый лист', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await f.load();await input('[data-name]','');await input('[data-attribute]','-')
+  await input('[name="sceneName"]','Площадь');await click('Создать сцену');await click('Стена');await click('Разместить в центре')
+  const draft=storage.readLobbyDraft(f.accountId,'a')
+  assert.equal(draft.world.characters[0].name,'');assert.equal(draft.world.characters[0].attributes.strength,'-')
+  assert.equal(draft.world.campaign.scenes.scenes[0].objects.length,1)
+  assert.equal(draft.world.campaign.scenes.scenes[0].objects[0].x,15)
+  assert.equal(f.writes.length,0,'Scene autosave must not publish')
+  await f.open('b');await f.load();assert.equal(document.querySelector('.gb-scene-viewport'),null)
+  await f.open('a');assert(document.body.textContent.includes('Площадь'));assert(document.querySelector('.gb-scene-viewport'))
+  await f.mount(false);await f.mount(true);await f.open('a')
+  assert.equal(storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0].objects.length,1)
+ } finally {await f.close()}
+})
+test('Сцены: полёт и боковой вид сохраняют координаты, ресурсы и время',async()=>{
+ const f=await fixture()
+ try {
+  await f.open('a');await f.load();await input('[name="sceneName"]','Высота');await click('Создать сцену')
+  await flush(()=>{const el=document.querySelector('[aria-label="Персонаж для размещения"]');el.value='hero-a';el.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+  await click('Поставить персонажа');await click('Разместить в центре')
+  await input('[name="z"]','12.5')
+  document.querySelector('[name="support"]').value='air'
+  await click('Сохранить положение')
+  let draft=storage.readLobbyDraft(f.accountId,'a'),position=structuredClone(draft.world.campaign.scenes.scenes[0].tokens[0])
+  assert.equal(position.z,12.5);assert.equal(position.support.kind,'air')
+  document.querySelector('[name="view"]').value='side'
+  await click('Сохранить параметры сцены')
+  draft=storage.readLobbyDraft(f.accountId,'a')
+  assert.equal(draft.world.campaign.scenes.scenes[0].view,'side');assert.deepEqual(draft.world.campaign.scenes.scenes[0].tokens[0],position)
+  assert.equal(draft.world.campaign.seconds,0);assert.deepEqual(draft.world.characters[0].resources,f.worlds.a.characters[0].resources)
+  await click('Опубликовать изменения кампании');assert.equal(f.writes[0].world.campaign.scenes.scenes[0].tokens[0].z,12.5)
+  await f.role('PLAYER');assert.equal(document.querySelector('[aria-label="Конструктор сцен мастера"]'),null)
+ }finally{await f.close()}
+})
+
+
+test('Сцены: клик не привязывается к сетке; удаление опоры не назначает падение',async()=>{
+ const f=await fixture()
+ try{
+  await f.open('a');await f.load();await input('[name="sceneName"]','Опора');await click('Создать сцену');await click('Платформа')
+  const svg=document.querySelector('.gb-scene-viewport > svg')
+  svg.getScreenCTM=()=>({inverse:()=>({})})
+  svg.createSVGPoint=()=>({x:0,y:0,matrixTransform(){return {x:this.x,y:this.y}}})
+  await flush(()=>svg.dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,clientX:4.125,clientY:7.75})))
+  let scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0],platform=scene.objects[0]
+  assert.equal(platform.x,4.125);assert.equal(platform.y,7.75)
+  await flush(()=>{const el=document.querySelector('[aria-label="Персонаж для размещения"]');el.value='hero-a';el.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+  await click('Поставить персонажа')
+  await flush(()=>svg.dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,clientX:4.125,clientY:7.75})))
+  document.querySelector('[name="support"]').value='object:'+platform.id
+  await click('Сохранить положение')
+  scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0]
+  assert.equal(scene.tokens[0].support.objectId,platform.id);assert.equal(scene.tokens[0].z,1)
+  await flush(()=>[...document.querySelectorAll('.gb-scene-sidebar button')].find(b=>b.textContent.includes('Платформа')).click())
+  await input('[name="x"]','8.25');await input('[name="height"]','3.5');await click('Сохранить параметры объекта')
+  scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0]
+  assert.equal(scene.tokens[0].x,8.25);assert.equal(scene.tokens[0].z,3.5)
+  await click('Убрать объект')
+  const after=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0]
+  assert.deepEqual(after,scene);assert(document.body.textContent.includes('стоит персонаж'))
+ }finally{await f.close()}
 })
 
 test.after(() => dom.window.close())

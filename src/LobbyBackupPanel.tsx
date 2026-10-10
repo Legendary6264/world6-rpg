@@ -65,7 +65,7 @@ export default function LobbyBackupPanel({ lobbyId, revision, checkingAccess, me
   const validOwners = bindings.every(b => members.some(m => m.id === b.ownerId && !m.disabled))
   return <details className="w6-fieldset">
     <summary>Копия лобби и восстановление владельцев</summary>
-    <p className="w6-copy">Копия включает опубликованные листы, каталог, часы и владельцев героев. Перед восстановлением добавь нужных участников в целевое лобби.</p>
+    <p className="w6-copy">Копия включает опубликованные листы, каталог, сцены, часы и владельцев героев. Перед восстановлением добавь нужных участников в целевое лобби.</p>
     <button className="w6-button" disabled={busy || checkingAccess} onClick={() => void act(backup)}>Скачать копию лобби с владельцами</button>
     <label className="w6-field"><span>Копия лобби или прежняя копия кампании</span>
       <input type="file" accept=".json,application/json" disabled={busy || checkingAccess} onChange={e => void read(e.currentTarget.files?.[0])} />
