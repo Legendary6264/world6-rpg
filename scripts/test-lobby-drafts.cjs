@@ -85,7 +85,7 @@ async function click(text) {
 
 async function fixture() {
   const tree = createRoot(document.getElementById('root'))
-  const accountId = crypto.randomUUID(), writes = [], cloud = []
+  const accountId = crypto.randomUUID(), writes = [], cloud = [], perceptions = {}
   const members = [{ id: accountId, displayName: 'GM', lobbyRole: 'GM', permissions: [...lobbyPermissions] }, { id: 'friend-id', displayName: 'Friend', lobbyRole: 'ASSISTANT', permissions: [] }]
   const worlds = Object.fromEntries(['a', 'b'].map(id => [id, {
     characters: [{ ...createDefaultCharacter(), id: 'hero-' + id, name: 'Hero ' + id }], campaign: emptyCampaign(), revision: 7,
@@ -107,6 +107,10 @@ async function fixture() {
     }
     const submissionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/submission$/)
     if(submissionMatch){const world=worlds[submissionMatch[1]];return {revision:world.revision,sourceId:cloud[0]?.id,review:world.characters[0].review??{status:'pending',locked:false},sheet:structuredClone(world.characters[0]),changedSinceSubmission:false,conditionErrors:[],canResubmit:world.characters[0].ownerId===context.user.id}}
+    const perceptionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/perception$/)
+    if(perceptionMatch){const world=worlds[perceptionMatch[1]];return {revision:world.revision,hero:world.characters[0],map:perceptions[perceptionMatch[1]]??null,knowledge:{journal:[],knownEffects:[]},inventory:[],canWriteNotes:world.characters[0].ownerId===context.user.id}}
+    const disclosureMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/disclosure$/)
+    if(disclosureMatch){const world=worlds[disclosureMatch[1]];return {revision:world.revision,draft:{activeSceneId:null,scenes:[]},scenes:world.campaign.scenes??load('scenes').emptyScenes(),actors:world.characters.map(c=>({id:c.id,name:c.name})),preview:perceptions[disclosureMatch[1]]??null}}
     const sceneMatch = url.match(/^\/lobbies\/([ab])\/scenes$/)
     if(sceneMatch)return {revision:worlds[sceneMatch[1]].revision,scenes:worlds[sceneMatch[1]].campaign.scenes??{version:1,activeSceneId:null,scenes:[]},actors:worlds[sceneMatch[1]].characters.map(c=>({id:c.id,name:c.name,profile:{portrait:c.profile.portrait}}))}
     const match = url.match(/^\/lobbies\/([ab])\/world/)
@@ -117,7 +121,7 @@ async function fixture() {
   const render = () => tree.render(React.createElement(OnlineContext.Provider, { value: { ...context } },
     mounted ? React.createElement(Panel, { onAccount: () => {} }) : null))
   await flush(render)
-  return { accountId, context, writes, worlds, request, members, cloud,
+  return { accountId, context, writes, worlds, request, members, cloud, perceptions,
     render: () => flush(render),
     role: async value => { role = value; context.events++; await flush(render) },
     permissions: async value => { permissions = value; context.events++; await flush(render) },
@@ -569,4 +573,83 @@ test('Исправленная заявка: только владелец яв�
   window.confirm=()=>true;await click('Отправить исправленный лист')
   assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/characters/hero-a/resubmit',characterId:'cloud-source',sourceRevision:3,revision:7})
  }finally{window.confirm=confirmed;await f.close()}
+})
+
+test('Экран игрока: поздняя сцена не попадает в другую комнату или аккаунт', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  f.worlds.a.characters[0].ownerId=f.accountId;f.worlds.b.characters[0].ownerId=f.accountId
+  await f.role('PLAYER');await f.permissions([]);await f.open('a')
+  f.intercept(url=>url.endsWith('/hero-a/perception')?waiting.promise:undefined)
+  await click('Открыть экран героя');await f.open('b');await click('Открыть экран героя')
+  await flush(()=>waiting.resolve({revision:7,hero:f.worlds.a.characters[0],map:{title:'Поздняя сцена A',description:'Не должна показаться',frame:{id:'a',view:'top',palette:'forest',width:30,depth:20,groundZ:0,minZ:-5,maxZ:20},areas:[],objects:[],contacts:[]},knowledge:{journal:[],knownEffects:[]},inventory:[],canWriteNotes:true}))
+  assert.equal(document.body.textContent.includes('Поздняя сцена A'),false)
+  f.context.user={id:crypto.randomUUID()};await f.render();await flush()
+  assert.equal([...document.querySelectorAll('button')].some(b=>b.textContent.includes('Свернуть экран героя')),false)
+ }finally{await f.close()}
+})
+
+test('Экран игрока: черновики заметок разделены, устаревшая версия требует проверки и поздний ответ сохраняет другую заметку', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  f.worlds.a.characters[0].ownerId=f.accountId;f.worlds.b.characters[0].ownerId=f.accountId
+  await f.role('PLAYER');await f.permissions([]);await f.open('a');await click('Открыть экран героя')
+  await input('[aria-label="Заголовок заметки"]','Моя заметка A');await input('[aria-label="Текст личной заметки"]','Незавершённый текст A')
+  await f.open('b');await click('Открыть экран героя');await input('[aria-label="Заголовок заметки"]','Моя заметка B');await input('[aria-label="Текст личной заметки"]','Незавершённый текст B')
+  await f.open('a');await click('Открыть экран героя')
+  assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'Незавершённый текст A')
+  f.worlds.a.revision=9;f.context.events++;await f.render();await flush()
+  assert([...document.querySelectorAll('button')].find(b=>b.textContent.includes('Записать личную заметку')).disabled)
+  await click('Заметка проверена с текущей версией')
+  f.intercept((url,options)=>{if(url.endsWith('/knowledge')&&options?.method==='POST'){f.writes.push({url,...JSON.parse(options.body)});return waiting.promise}})
+  await click('Записать личную заметку');await f.open('b');await click('Открыть экран героя')
+  await flush(()=>waiting.resolve({revision:10}))
+  assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'Незавершённый текст B')
+  assert.equal(document.body.textContent.includes('Личная заметка записана.'),false)
+  assert.equal(f.writes[0].url,'/lobbies/a/characters/hero-a/knowledge');assert.equal(f.writes[0].revision,9)
+ }finally{await f.close()}
+})
+
+test('Раскрытие: черновик не теряет пустой заголовок и незавершённую координату; отправляет только выбранному герою', async () => {
+ const f=await fixture()
+ try {
+  f.worlds.a.campaign.scenes=load('scenes').createScene(load('scenes').emptyScenes(),'scene-a','Тайная сцена A','top')
+  await f.open('a');await click('Настроить видимость героя')
+  await flush(()=>{const field=document.querySelector('[aria-label="Сцена раскрытия"]');field.value='scene-a';field.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+  await click('Открыть выбранную сцену герою');await input('[aria-label="Название сцены для героя"]','')
+  await input('[aria-label="x области"]','-');await f.open('b');await f.open('a')
+  assert.equal(document.querySelector('[aria-label="Название сцены для героя"]').value,'')
+  assert.equal(document.querySelector('[aria-label="x области"]').value,'-')
+  await input('[aria-label="Название сцены для героя"]','Площадь');await click('Раскрыть всю местность');await click('Сохранить раскрытие героя')
+  const write=f.writes.at(-1)
+  assert.equal(write.url,'/lobbies/a/characters/hero-a/disclosure');assert.equal(write.revision,7)
+  assert.equal(write.draft.scenes[0].title,'Площадь');assert.deepEqual(write.draft.scenes[0].contacts,[])
+  assert.equal(write.scenes,undefined);assert.equal(write.world,undefined)
+ }finally{await f.close()}
+})
+
+test('Права раскрытия: отдельного права сцен недостаточно; отзыв секретов убирает прежний черновик и просмотр', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  await f.role('ASSISTANT');await f.permissions(['scenes']);await f.open('a')
+  assert.equal([...document.querySelectorAll('button')].some(b=>b.textContent.includes('Настроить видимость героя')),false)
+  await f.permissions(['scenes','viewSecrets'])
+  f.intercept(url=>url.endsWith('/hero-a/disclosure')?waiting.promise:undefined)
+  await click('Настроить видимость героя');await f.permissions(['scenes'])
+  await flush(()=>waiting.resolve({revision:7,draft:{activeSceneId:null,scenes:[]},scenes:load('scenes').emptyScenes(),actors:[],preview:{title:'Закрытый просмотр'}}))
+  assert.equal(document.body.textContent.includes('Закрытый просмотр'),false)
+  assert.equal(document.querySelector('[aria-label="Сцена раскрытия"]'),null)
+ }finally{await f.close()}
+})
+
+test('Сведение мастера: текст переживает смену комнаты и отправляется адресно с исходной версией', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await input('[aria-label="Заголовок раскрываемого сведения"]','Известный путь');await input('[aria-label="Текст раскрываемого сведения"]','Только для первого героя.')
+  await f.open('b');await f.open('a')
+  assert.equal(document.querySelector('[aria-label="Текст раскрываемого сведения"]').value,'Только для первого героя.')
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({revision:8})}})
+  await click('Раскрыть сведение выбранному герою')
+  assert.equal(f.writes[0].url,'/lobbies/a/characters/hero-a/knowledge');assert.equal(f.writes[0].disclosure,true);assert.equal(f.writes[0].revision,7)
+ }finally{await f.close()}
 })

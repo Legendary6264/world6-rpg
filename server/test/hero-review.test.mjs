@@ -39,7 +39,7 @@ for (const dialect of ['sqlite', 'postgres']) {
         const view = await api(root + '/world?view=player', u.token)
         assert.equal(view.characters[0].review.note, 'Уточни происхождение.')
       }
-      assert.equal((await api(root + '/world?view=player', observer.token)).characters[0].review.note, undefined)
+      assert.deepEqual((await api(root + '/world?view=player', observer.token)).characters, [])
       await f.grant(['viewSecrets'])
       assert.equal((await api(root + '/world', helper.token)).bindings[0].review.note, undefined)
       await f.grant(['controlDelegated'])

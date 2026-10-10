@@ -26,7 +26,7 @@ for (const dialect of ['sqlite', 'postgres']) test('Разрешения и до
   await t.test('Роль помощника не выдаёт разрешений и не открывает секреты', async () => {
     assert.deepEqual((await api(root, helper.token)).myPermissions, [])
     const view = await api(root + '/world', helper.token)
-    assert.equal(view.campaign.items, undefined); assert.equal(view.characters[0].rpg, undefined)
+    assert.equal(view.campaign.items, undefined); assert.deepEqual(view.characters, [])
     assert.equal((await request(root + '/backup', helper.token)).status, 403)
     assert.equal((await request(root + '/scenes', helper.token)).status, 403)
     assert.equal((await request(root + '/world', helper.token, 'PUT', { world: original, revision: await revision() })).status, 403)
@@ -103,7 +103,7 @@ for (const dialect of ['sqlite', 'postgres']) test('Разрешения и до
     await assign(helper.user.id)
     assert.equal((await projection(helper.token)).control.controllerId, helper.user.id)
     assert.ok((await projection(helper.token)).resources)
-    assert.equal((await projection(observer.token)).resources, undefined)
+    assert.equal(await projection(observer.token), undefined)
     assert.ok((await projection(player.token)).resources, 'Владелец продолжает видеть своё состояние')
     const events = await api(route + '/control-history', player.token)
     assert.equal(events.find(e => e.action === 'delegate').actorId, player.user.id)
@@ -114,8 +114,8 @@ for (const dialect of ['sqlite', 'postgres']) test('Разрешения и до
   await t.test('Отзыв разрешения, понижение и удаление помощника возвращают управление главному ГМ', async () => {
     const before = await revision()
     await grant([])
-    assert.equal((await projection(helper.token)).control.controllerId, gm.user.id)
-    assert.equal((await projection(helper.token)).resources, undefined)
+    assert.equal((await projection(player.token)).control.controllerId, gm.user.id)
+    assert.equal(await projection(helper.token), undefined)
     assert.equal((await request(route + '/control-history', helper.token)).status, 403)
     assert.equal((await request(route + '/control', player.token, 'POST', { delegated: false, revision: before })).status, 409)
     await grant(['controlDelegated']); await assign(helper.user.id)

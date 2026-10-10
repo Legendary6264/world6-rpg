@@ -4,6 +4,7 @@ import { isCampaign, copyCampaign } from './rpgSchema'
 import { assertCampaignSize, jsonBytes } from './campaignLimits'
 import type { World } from './rpgEngine'
 import { sceneReferencesValid } from './scenes'
+import { perceptionReferencesValid } from './scenePerception'
 
 export type OwnerBinding = { characterId: string; ownerId: string; approved: boolean; acceptedOnce?: boolean }
 export type BackupOwner = { id: string; displayName: string }
@@ -27,6 +28,7 @@ export function parseLobbyBackup(text: string): LobbyBackupPreview {
       !world.characters.every(isSavedCharacter) || !isCampaign(world.campaign)) throw new Error('Некорректная кампания в копии.')
   const ids = world.characters.map((c: { id: string }) => c.id)
   if (new Set(ids).size !== ids.length) throw new Error('В копии повторяются герои.')
+  if (!perceptionReferencesValid(world.campaign.perceptions,world.campaign.scenes,ids)) throw new Error('В раскрытии копии неизвестные персонажи или сцены.');
   if (!sceneReferencesValid(world.campaign.scenes,ids)) throw new Error('В копии сцены с неизвестными героями.')
   if (world.characters.some((c: World['characters'][number]) => c.rpg.casts.some(k => ['preparing','ready','maintaining'].includes(k.status) && !ids.includes(k.targetId)))) throw new Error('В копии не хватает целей действующих применений.')
   if (world.characters.some((c: World['characters'][number]) => c.rpg.effects.some(e => e.ownerId && (!ids.includes(e.ownerId) || !world.characters.find((x: World['characters'][number]) => x.id === e.ownerId)?.rpg.casts.some((k: { id: string }) => k.id === e.castId))))) throw new Error('В копии не хватает источников поддерживаемых эффектов.')
@@ -38,6 +40,7 @@ export function parseLobbyBackup(text: string): LobbyBackupPreview {
 }
 
 export function serializeLobbyBackup(world: World, bindings: OwnerBinding[], owners: BackupOwner[]): string {
+  if (!perceptionReferencesValid(world.campaign.perceptions,world.campaign.scenes,world.characters.map(c=>c.id))) throw new Error('Проверь индивидуальное раскрытие.');
   if (!isCampaign(world.campaign) || !sceneReferencesValid(world.campaign.scenes,world.characters.map(c=>c.id))) throw new Error('Проверь сцены и персонажей перед экспортом.')
   assertCampaignSize(world)
   if (!validOwnerBindings(bindings, world.characters.map(c => c.id))) throw new Error('Для каждого героя нужен владелец.')

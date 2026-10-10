@@ -1,3 +1,4 @@
+import { prunePerceptions } from './generated/scenePerception.mjs'
 import { fail, id, integer, now, text, worldSize } from './validation.mjs'
 import { requireChief, requireLobbyPermission } from './permissions.mjs'
 import { hasLobbyPermission, validLobbyPermissions } from './generated/lobbyAccess.mjs'
@@ -62,7 +63,7 @@ export function lobbyAccessRoutes(app, { db, auth, updated, lockedMembership, re
       const { lobby, member } = await lockedMembership(tx, req); requireLobbyPermission(member, 'scenes'); checkRevision(lobby, revision)
       const state = JSON.parse(lobby.world_json)
       if (!sceneReferencesValid(scenes, state.characters.map(c => c.id))) fail(400, 'В сценах есть неизвестные персонажи.')
-      state.campaign.scenes = scenes; worldSize(state)
+      state.campaign.scenes = scenes; if(state.campaign.perceptions)state.campaign.perceptions=prunePerceptions(state.campaign.perceptions,scenes,state.characters.map(c=>c.id)); worldSize(state)
       await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?', [JSON.stringify(state), now(), lobby.id])
       await record(tx, req, 'publish-scenes')
     }); updated(req.params.id); res.json({ revision: revision + 1 })

@@ -18,6 +18,13 @@ export async function submissionBindings(db, lobbyId, bindings, userId, canRevie
     return { ...b, review: b.owner_id === userId || canReview ? review : { status: review.status, locked: review.locked } }
   })
 }
+export async function reviewableCharacters(db, lobby) {
+  const rows = await db.all('SELECT b.character_id FROM character_bindings b LEFT JOIN character_submissions s ON s.lobby_id=b.lobby_id AND s.character_id=b.character_id WHERE b.lobby_id=? AND (b.owner_id<>? OR s.source_character_id IS NOT NULL)', [lobby.id, lobby.owner_id])
+  return rows.map(r => r.character_id)
+}
+function requireReviewable(member, lobby, binding, row) {
+  if (binding.owner_id === lobby.owner_id && !row?.source_character_id && !hasLobbyPermission(member.role, member.permissions, 'viewSecrets')) fail(403, 'Проверка этого героя требует доступа к текущему листу мастера.')
+}
 export function sourceActor(data, actorId) {
   const actor = character(data); actor.id = actorId
   actor.rpg.casts = []; actor.rpg.effects = actor.rpg.effects.filter(e => !e.ownerId && !e.castId); actor.rpg.logs = []
@@ -44,6 +51,7 @@ export async function reviewHero(tx, req, lobby, member, decision, note, revisio
   const binding = await tx.get('SELECT * FROM character_bindings WHERE lobby_id=? AND character_id=?', [lobby.id, req.params.characterId])
   if (!binding) fail(404, 'Герой не найден.')
   const row = await tx.get('SELECT * FROM character_submissions WHERE lobby_id=? AND character_id=?', [lobby.id, binding.character_id])
+  requireReviewable(member, lobby, binding, row)
   const state = JSON.parse(lobby.world_json), actor = state.characters.find(c => c.id === binding.character_id)
   if (!actor) fail(404, 'Лист героя не найден.')
   if (decision === 'approve') {
@@ -92,6 +100,7 @@ export function heroReviewRoutes(app, { db, auth, updated, lockedMembership, rec
       const owner = binding.owner_id === req.user.id
       if (!owner) requireLobbyPermission(member, 'approveHeroes')
       const row = await tx.get('SELECT * FROM character_submissions WHERE lobby_id=? AND character_id=?', [lobby.id, binding.character_id])
+      if (!owner) requireReviewable(member, lobby, binding, row)
       const state = JSON.parse(lobby.world_json), actor = state.characters.find(c => c.id === binding.character_id), sheet = row?.submitted_json ? JSON.parse(row.submitted_json) : null
       if (!actor) fail(404, 'Лист героя не найден.')
       const delegated = await tx.get('SELECT 1 AS n FROM character_delegations WHERE lobby_id=? AND character_id=?', [lobby.id, binding.character_id])
