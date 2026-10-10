@@ -70,8 +70,10 @@ async function input(selector, value) {
   const field = document.querySelector(selector)
   assert(field, 'Missing field ' + selector)
   await flush(() => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(field, value)
+    const prototype = field.tagName === 'TEXTAREA' ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(field, value)
     field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    field.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
   })
 }
 async function click(text) {
@@ -83,7 +85,7 @@ async function click(text) {
 
 async function fixture() {
   const tree = createRoot(document.getElementById('root'))
-  const accountId = crypto.randomUUID(), writes = []
+  const accountId = crypto.randomUUID(), writes = [], cloud = []
   const members = [{ id: accountId, displayName: 'GM', lobbyRole: 'GM', permissions: [...lobbyPermissions] }, { id: 'friend-id', displayName: 'Friend', lobbyRole: 'ASSISTANT', permissions: [] }]
   const worlds = Object.fromEntries(['a', 'b'].map(id => [id, {
     characters: [{ ...createDefaultCharacter(), id: 'hero-' + id, name: 'Hero ' + id }], campaign: emptyCampaign(), revision: 7,
@@ -98,11 +100,13 @@ async function fixture() {
     if (options?.method === 'PUT') { writes.push({ url, ...JSON.parse(options.body) }); return { revision: 8 } }
     if (options?.method === 'POST' && url.endsWith('/restore')) { const body = JSON.parse(options.body); writes.push({ url, ...body }); return { world: body.world, revision: body.revision + 1 } }
     if (url === '/lobbies/mine') return ['a', 'b'].map(id => ({ id, title: 'Room ' + id, role }))
-    if (url === '/characters') return []
+    if (url === '/characters') return cloud
     if (url === '/lobbies/a' || url === '/lobbies/b') {
       if (failLobby) throw Error('Temporary lobby failure')
-      return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, myPermissions: permissions, revision: worlds[url.at(-1)].revision, status: 'open', visibility: 'public', members, slots: 4 }
+      return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, myPermissions: permissions, revision: worlds[url.at(-1)].revision, rank:'mortal',energy:'any', creationConditions:load('heroReview').defaultCreationConditions(), status: 'open', visibility: 'public', members, slots: 4 }
     }
+    const submissionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/submission$/)
+    if(submissionMatch){const world=worlds[submissionMatch[1]];return {revision:world.revision,sourceId:cloud[0]?.id,review:world.characters[0].review??{status:'pending',locked:false},sheet:structuredClone(world.characters[0]),changedSinceSubmission:false,conditionErrors:[],canResubmit:world.characters[0].ownerId===context.user.id}}
     const sceneMatch = url.match(/^\/lobbies\/([ab])\/scenes$/)
     if(sceneMatch)return {revision:worlds[sceneMatch[1]].revision,scenes:worlds[sceneMatch[1]].campaign.scenes??{version:1,activeSceneId:null,scenes:[]},actors:worlds[sceneMatch[1]].characters.map(c=>({id:c.id,name:c.name,profile:{portrait:c.profile.portrait}}))}
     const match = url.match(/^\/lobbies\/([ab])\/world/)
@@ -113,7 +117,7 @@ async function fixture() {
   const render = () => tree.render(React.createElement(OnlineContext.Provider, { value: { ...context } },
     mounted ? React.createElement(Panel, { onAccount: () => {} }) : null))
   await flush(render)
-  return { accountId, context, writes, worlds, request, members,
+  return { accountId, context, writes, worlds, request, members, cloud,
     render: () => flush(render),
     role: async value => { role = value; context.events++; await flush(render) },
     permissions: async value => { permissions = value; context.events++; await flush(render) },
@@ -499,4 +503,70 @@ test('Передача: явное согласие и возврат отпра
   await f.open('a');await click('Вернуть себе управление')
   assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/characters/hero-a/control',delegated:false,revision:7})
  } finally {window.confirm=confirmed;await f.close()}
+})
+
+test('Проверка героя: замечания сохраняются отдельно по лобби и аккаунту, отправка требует свежую заявку', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await click('Открыть заявку и проверяемый лист')
+  await input('[aria-label="Замечание к герою Hero a"]','Исправь историю A')
+  await f.open('b');await click('Открыть заявку и проверяемый лист')
+  await input('[aria-label="Замечание к герою Hero b"]','Замечание B')
+  await f.open('a');await click('Открыть заявку и проверяемый лист')
+  assert.equal(document.querySelector('[aria-label="Замечание к герою Hero a"]').value,'Исправь историю A')
+  f.worlds.a.revision=8;f.context.events++;await f.render();await flush()
+  const returned=()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Вернуть лист с замечанием'))
+  assert(returned().closest('fieldset').disabled)
+  await click('Обновить заявку')
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/review')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({revision:9})}})
+  await click('Вернуть лист с замечанием')
+  assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/characters/hero-a/review',decision:'return',note:'Исправь историю A',revision:8})
+  f.context.user={id:crypto.randomUUID()};await f.render();await flush();await click('Открыть заявку и проверяемый лист')
+  assert.equal(document.querySelector('[aria-label="Замечание к герою Hero a"]').value,'')
+ }finally{await f.close()}
+})
+
+test('A7: поздняя заявка не раскрывается в другом лобби или после отзыва права проверки', async () => {
+ const f=await fixture(),waiting=deferred()
+ try {
+  await f.role('ASSISTANT');await f.permissions(['approveHeroes']);await f.open('a')
+  f.intercept(url=>url.endsWith('/hero-a/submission')?waiting.promise:undefined)
+  await click('Открыть заявку и проверяемый лист');await f.open('b')
+  await flush(()=>waiting.resolve({revision:7,sheet:{...f.worlds.a.characters[0],name:'Поздний лист A'},review:{status:'pending',locked:false},conditionErrors:[],canResubmit:false}))
+  assert.equal(document.body.textContent.includes('Поздний лист A'),false)
+  await click('Открыть заявку и проверяемый лист');assert(document.querySelector('[aria-label="Отправленный лист"]'))
+  await f.permissions([])
+  assert.equal(document.querySelector('[aria-label="Отправленный лист"]'),null)
+  assert.equal([...document.querySelectorAll('button')].some(b=>b.textContent.includes('Принять героя')),false)
+ }finally{await f.close()}
+})
+
+test('Условия создания: черновик переживает навигацию и сохраняет исходную ревизию', async () => {
+ const f=await fixture()
+ try {
+  await f.open('a');await input('[aria-label="Требования и пояснения для игроков"]','Наши условия A')
+  await f.open('b');await input('[aria-label="Требования и пояснения для игроков"]','Наши условия B')
+  f.worlds.a.revision=12
+  await f.open('a')
+  assert.equal(document.querySelector('[aria-label="Требования и пояснения для игроков"]').value,'Наши условия A')
+  f.intercept((url,options)=>{if(options?.method==='PATCH'&&url.endsWith('/creation-conditions')){f.writes.push({url,...JSON.parse(options.body)});return Promise.reject(Error('Кампания изменилась.'))}})
+  await click('Сохранить условия создания')
+  assert.equal(f.writes.at(-1).revision,7);assert.equal(f.writes.at(-1).conditions.instructions,'Наши условия A')
+  assert.equal(document.querySelector('[aria-label="Требования и пояснения для игроков"]').value,'Наши условия A')
+ }finally{await f.close()}
+})
+
+test('Исправленная заявка: только владелец явно выбирает облачный исходник и подтверждает замену', async () => {
+ const f=await fixture(),confirmed=window.confirm
+ try {
+  f.worlds.a.characters[0].ownerId=f.accountId
+  f.worlds.a.characters[0].review={status:'returned',locked:false,note:'Исправь биографию.'}
+  f.cloud.push({id:'cloud-source',name:'Исправленный исходник',revision:3})
+  await f.role('PLAYER');await f.permissions([]);await f.open('a');await click('Открыть заявку и проверяемый лист')
+  assert.equal(document.querySelector('[aria-label="Исправленный исходник Hero a"]').value,'cloud-source')
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/resubmit')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({revision:8})}})
+  window.confirm=()=>false;await click('Отправить исправленный лист');assert.equal(f.writes.length,0)
+  window.confirm=()=>true;await click('Отправить исправленный лист')
+  assert.deepEqual(f.writes.at(-1),{url:'/lobbies/a/characters/hero-a/resubmit',characterId:'cloud-source',sourceRevision:3,revision:7})
+ }finally{window.confirm=confirmed;await f.close()}
 })

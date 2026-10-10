@@ -8,12 +8,12 @@ export type Topic={id:string;title:string;body:string;category:string;author_id:
 export type Post={id:string;body:string;author:string;author_id:string;created_at:string}
 export type Feed<T>={items:T[];hasMore:boolean}
 export type LobbyCard={id:string;title:string;description:string;owner:string;owner_id:string;genre:string;slots:number;players:number;energy:string;rank:string;status:'open'|'playing'|'closed';visibility:'public'|'private';updated_at:string}
-export type Lobby=LobbyCard&{myRole:LobbyRole;myPermissions:import('./lobbyAccess').LobbyPermission[];inviteCode?:string;revision:number;members:(OnlineUser&{lobbyRole:LobbyRole;permissions:import('./lobbyAccess').LobbyPermission[]})[]}
+export type Lobby=LobbyCard&{myRole:LobbyRole;creationConditions:import('./heroReview').CreationConditions;myPermissions:import('./lobbyAccess').LobbyPermission[];inviteCode?:string;revision:number;members:(OnlineUser&{lobbyRole:LobbyRole;permissions:import('./lobbyAccess').LobbyPermission[]})[]}
 export type MineLobby={id:string;title:string;status:string;visibility:string;role:string;revision:number}
 export type CloudCharacter={id:string;name:string;revision:number;updated_at:string}
 export type Publication={id:string;title:string;body:string;kind:string;author_id:string;author:string;created_at:string}
 export type Ticket=Publication&{status:string;updated_at:string}
-export type PlayerCharacter={id:string;name:string;ownerId:string;approved:boolean;control?:import('./lobbyAccess').CharacterControl;profile:{energy:string;rank:string;rankStep:number};resources?:Record<string,{current:string;maximum:string}>;sensations?:{label:string;symptoms:string[];diagnoses:string[]}[];capabilities?:string[];abilities?:{id:string;name:string;description:string}[]}
+export type PlayerCharacter={id:string;name:string;ownerId:string;approved:boolean;control?:import('./lobbyAccess').CharacterControl;review?:import('./heroReview').HeroReviewSummary;profile:{energy:string;rank:string;rankStep:number};resources?:Record<string,{current:string;maximum:string}>;sensations?:{label:string;symptoms:string[];diagnoses:string[]}[];capabilities?:string[];abilities?:{id:string;name:string;description:string}[]}
 export type PlayerWorld={revision:number;campaign:{seconds:number};characters:PlayerCharacter[]}
 
 export type WorldEntry={id:string;author_id:string;author:string;title:string;category:string;body:string;status:'draft'|'published';revision:number;updated_at:string}

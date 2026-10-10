@@ -32,7 +32,7 @@ export default function LobbyBackupPanel({ lobbyId, revision, checkingAccess, me
         const previous = parsed.bindings?.find(b => b.characterId === c.id)
         return { characterId: c.id,
           ownerId: members.some(m => m.id === previous?.ownerId && !m.disabled) ? previous!.ownerId : '',
-          approved: previous?.approved ?? true }
+          approved: previous?.approved ?? true, ...(previous?.acceptedOnce === undefined ? {} : { acceptedOnce: previous.acceptedOnce }) }
       }))
       setMessage(parsed.bindings ? 'Проверь владельцев перед восстановлением.' : 'В прежней копии нет владельцев. Назначь их явно для каждого героя.')
     } catch (error) {

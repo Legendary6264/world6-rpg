@@ -5,14 +5,15 @@ import { assertCampaignSize, jsonBytes } from './campaignLimits'
 import type { World } from './rpgEngine'
 import { sceneReferencesValid } from './scenes'
 
-export type OwnerBinding = { characterId: string; ownerId: string; approved: boolean }
+export type OwnerBinding = { characterId: string; ownerId: string; approved: boolean; acceptedOnce?: boolean }
 export type BackupOwner = { id: string; displayName: string }
 export type LobbyBackupPreview = { world: World; bindings?: OwnerBinding[]; owners: BackupOwner[] }
 
 export function validOwnerBindings(value: unknown, ids: string[]): value is OwnerBinding[] {
   return Array.isArray(value) && value.length === ids.length && value.every(b =>
     isRecord(b) && typeof b.characterId === 'string' && ids.includes(b.characterId) &&
-    typeof b.ownerId === 'string' && b.ownerId.length > 0 && b.ownerId.length <= 160 && typeof b.approved === 'boolean') &&
+    typeof b.ownerId === 'string' && b.ownerId.length > 0 && b.ownerId.length <= 160 && typeof b.approved === 'boolean' &&
+    (b.acceptedOnce === undefined || typeof b.acceptedOnce === 'boolean')) &&
     new Set(value.map(b => b.characterId)).size === ids.length
 }
 
@@ -33,7 +34,7 @@ export function parseLobbyBackup(text: string): LobbyBackupPreview {
   const candidate = { characters: world.characters.map((c: World['characters'][number]) => ({ ...portableCharacter(c), id: c.id })), campaign: copyCampaign(world.campaign) }
   assertCampaignSize(candidate)
   const owners = Array.isArray(value.owners) ? value.owners.filter((o: BackupOwner) => o && typeof o.id === 'string' && typeof o.displayName === 'string').map((o: BackupOwner) => ({ id: o.id, displayName: o.displayName })) : []
-  return { world: candidate, ...(legacy ? {} : { bindings: value.bindings.map((b: OwnerBinding) => ({ characterId: b.characterId, ownerId: b.ownerId, approved: b.approved })) }), owners }
+  return { world: candidate, ...(legacy ? {} : { bindings: value.bindings.map((b: OwnerBinding) => ({ characterId: b.characterId, ownerId: b.ownerId, approved: b.approved, ...(b.acceptedOnce === undefined ? {} : { acceptedOnce: b.acceptedOnce }) })) }), owners }
 }
 
 export function serializeLobbyBackup(world: World, bindings: OwnerBinding[], owners: BackupOwner[]): string {
@@ -42,7 +43,7 @@ export function serializeLobbyBackup(world: World, bindings: OwnerBinding[], own
   if (!validOwnerBindings(bindings, world.characters.map(c => c.id))) throw new Error('Для каждого героя нужен владелец.')
   const value = { format: 'world6-lobby-backup', version: 1, exportedAt: new Date().toISOString(),
     world: { characters: world.characters.map(c => ({ ...portableCharacter(c), id: c.id })), campaign: copyCampaign(world.campaign) },
-    bindings: bindings.map(b => ({ characterId: b.characterId, ownerId: b.ownerId, approved: b.approved })),
+    bindings: bindings.map(b => ({ characterId: b.characterId, ownerId: b.ownerId, approved: b.approved, ...(b.acceptedOnce === undefined ? {} : { acceptedOnce: b.acceptedOnce }) })),
     owners: owners.filter(o => bindings.some(b => b.ownerId === o.id)).map(o => ({ id: o.id, displayName: o.displayName })) }
   if (jsonBytes(value) > MAX_IMPORT_BYTES) throw new Error('Копия больше 10 МиБ.')
   return JSON.stringify(value)
