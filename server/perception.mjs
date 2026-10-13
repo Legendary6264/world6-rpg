@@ -19,7 +19,7 @@ async function heroContext(tx, lobby, characterId) {
 }
 function viewHero(state, actor, binding, perception, revision) {
   const hero = playerWorld({ ...state, revision }, binding.owner_id, [binding]).characters[0]
-  return { revision, hero, map: perceivedMap(perception, state.campaign.scenes, state.characters),
+  return { revision, hero, map: perceivedMap(perception, state.campaign.scenes, state.characters,state.campaign.seconds),
     knowledge: { journal: actor.journal.map(publicEntry), knownEffects: actor.knownEffects.map(publicEffect) },
     inventory: actor.rpg.inventory.map(i => ({ id: i.id, name: i.name, description: i.description, quantity: i.quantity })) }
 }
@@ -41,7 +41,7 @@ export function perceptionRoutes(app, { db, auth, updated, lockedMembership, rec
       const { lobby, member } = await lockedMembership(tx, req); requireDisclosure(member)
       const { perception, state } = await heroContext(tx, lobby, req.params.characterId)
       return { revision: lobby.revision, draft: perceptionDraft(perception), scenes: state.campaign.scenes ?? emptyScenes(),
-        actors: state.characters.map(c => ({ id: c.id, name: c.name })), preview: perceivedMap(perception, state.campaign.scenes, state.characters) }
+        actors: state.characters.map(c => ({ id: c.id, name: c.name })), preview: perceivedMap(perception, state.campaign.scenes, state.characters,state.campaign.seconds) }
     }); res.json(result)
   })
   app.put('/api/lobbies/:id/characters/:characterId/disclosure', auth.middleware, async (req, res) => {

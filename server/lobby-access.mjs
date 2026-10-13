@@ -1,3 +1,4 @@
+import { sceneAbilityVisuals } from './generated/sceneAbilityVisuals.mjs'
 import {pruneAtlas} from './generated/campaignAtlas.mjs'
 import { pruneDeclarations } from './generated/actionDeclarations.mjs'
 import { roundWorkReferencesValid } from './generated/roundWork.mjs'
@@ -66,6 +67,7 @@ export function lobbyAccessRoutes(app, { db, auth, updated, lockedMembership, re
       const { lobby, member } = await lockedMembership(tx, req); requireLobbyPermission(member, 'scenes')
       const state = JSON.parse(lobby.world_json)
       return { revision: lobby.revision, scenes: state.campaign.scenes ?? emptyScenes(),
+        visuals: Object.fromEntries((state.campaign.scenes?.scenes??[]).map(scene=>[scene.id,sceneAbilityVisuals(scene,state.characters,state.campaign.seconds)])),
         actors: state.characters.map(c => ({ id: c.id, name: c.name, profile: { portrait: c.profile.portrait } })) }
     }); res.json(result)
   })

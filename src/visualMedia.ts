@@ -1,7 +1,9 @@
+import { expandedAssets, expandedArtwork } from './expandedArtwork'
 import { magicArtwork } from './magicArtwork'
 import { schoolById } from './magicCatalog'
 import type { AbilityDefinition, ItemDefinition } from './rpgTypes'
-export const visualArtwork = {
+export const visualArtwork:Record<string,string> = {
+ ...expandedArtwork,
  stone:new URL('./assets/atlas/stone.webp',import.meta.url).href,
  'portrait-traveler':new URL('./assets/atlas/portrait-traveler.webp',import.meta.url).href,
  'portrait-mage':new URL('./assets/atlas/portrait-mage.webp',import.meta.url).href,
@@ -25,14 +27,18 @@ export const visualArtwork = {
  'pixel-gallery':new URL('./assets/starter/gallery.svg',import.meta.url).href,
 }
 export type ArtworkKey=keyof typeof visualArtwork
-export const artworkLabels:Record<ArtworkKey,string>={stone:'Камень','portrait-traveler':'Путник','portrait-mage':'Учёная маг','portrait-elf':'Эльфийский следопыт',weapons:'Оружие',armor:'Броня',artifact:'Артефакт',supplies:'Расходники',banner:'Грани Бытия','body-front':'Фигура спереди','body-back':'Фигура сзади',
+export const artworkLabels:Record<ArtworkKey,string>={...Object.fromEntries(expandedAssets.map(a=>[a.id,a.label])),stone:'Камень','portrait-traveler':'Путник','portrait-mage':'Учёная маг','portrait-elf':'Эльфийский следопыт',weapons:'Оружие',armor:'Броня',artifact:'Артефакт',supplies:'Расходники',banner:'Грани Бытия','body-front':'Фигура спереди','body-back':'Фигура сзади',
  'pixel-guide':'Проводник · пиксели','pixel-keeper':'Кладовщица · пиксели','pixel-watcher':'Наблюдатель · пиксели',
  'pixel-staff':'Посох · пиксели','pixel-lantern':'Фонарь · пиксели','pixel-ration':'Припас · пиксели','pixel-focus':'Сосредоточение · пиксели',
  'pixel-ground-stone':'Тёмный камень','pixel-ground-yard':'Неоновый двор','pixel-gallery':'Боковая галерея'}
-export const portraitPresets:ArtworkKey[]=['pixel-guide','pixel-keeper','pixel-watcher','portrait-traveler','portrait-mage','portrait-elf']
-export const itemPresets:ArtworkKey[]=['pixel-staff','pixel-lantern','pixel-ration','weapons','armor','artifact','supplies']
-export const sceneBackgroundPresets:ArtworkKey[]=['pixel-ground-stone','pixel-ground-yard','pixel-gallery']
+export const portraitPresets:ArtworkKey[]=['pixel-guide','pixel-keeper','pixel-watcher','portrait-traveler','portrait-mage','portrait-elf',...expandedAssets.filter(a=>a.category==='portrait'||a.category==='creature').map(a=>a.id)]
+export const itemPresets:ArtworkKey[]=['pixel-staff','pixel-lantern','pixel-ration','weapons','armor','artifact','supplies',...expandedAssets.filter(a=>a.category==='item').map(a=>a.id)]
+export const sceneBackgroundPresets:ArtworkKey[]=['pixel-ground-stone','pixel-ground-yard','pixel-gallery',...expandedAssets.filter(a=>a.category==='background').map(a=>a.id)]
 export const effectPresets:ArtworkKey[]=['pixel-focus','stone','artifact','supplies']
+export const objectPresets:ArtworkKey[]=expandedAssets.filter(a=>a.category==='object').map(a=>a.id)
+export const artworkCategoryLabels:Record<string,string>={portrait:'Персонажи',creature:'Существа',item:'Предметы',object:'Окружение',background:'Поверхности и фоны',effect:'Эффекты',legacy:'Стартовый набор'}
+export const artworkMetadata:Record<string,{category:string;tags:readonly string[];objectKind?:import('./sceneTypes').SceneObjectKind}>=Object.fromEntries(expandedAssets.map(a=>[a.id,a]))
+export function isTiledArtwork(value:unknown):value is string {return typeof value==='string'&&artworkMetadata[value]?.category==='background'&&artworkMetadata[value].tags.some(tag=>tag==='повторяемая'||tag==='тайл')}
 export const MAX_ARTWORK_LENGTH=120000
 export function isArtwork(v:unknown):v is string{return typeof v==='string'&&(v==='auto'||Object.hasOwn(visualArtwork,v)||v.length<=MAX_ARTWORK_LENGTH&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(v))}
 export function artworkSource(value:string|undefined,fallback:ArtworkKey='artifact'):string {

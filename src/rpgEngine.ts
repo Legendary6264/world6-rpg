@@ -203,7 +203,14 @@ function logWorld(w:World,id:string,text:string,details:string,ids:string[]){
   w.campaign.logs=[...w.campaign.logs,log].slice(-200)
   for(const a of w.characters.filter(c=>ids.includes(c.id)))a.rpg.logs=[...a.rpg.logs,log].slice(-200)
 }
+// Capture only presentation coordinates so later replay does not move with tokens.
+function recordVisualRelease(w:World,owner:Actor,cast:Cast,end?:{x:number;y:number;z:number},sceneId?:string) {
+  const scene=w.campaign.scenes?.scenes.find(s=>s.tokens.some(t=>t.actorId===owner.id)&&(!sceneId||s.id===sceneId)),start=scene?.tokens.find(t=>t.actorId===owner.id)
+  const target=end??scene?.tokens.find(t=>t.actorId===cast.targetId)
+  if(scene&&start&&target)cast.visualRelease={sceneId:scene.id,start:{x:start.x,y:start.y,z:start.z},end:{x:target.x,y:target.y,z:target.z},releasedAt:w.campaign.seconds}
+}
 function impacts(w:World,owner:Actor,target:Actor,cast:Cast,random:(targetId?:string)=>number){
+  recordVisualRelease(w,owner,cast)
   const original=cast.ability,skill=(original.skillId??(original.schoolId?'spellcraft':original.mechanism==='heal'?'medicine':original.mechanism==='stone'?'ranged':'melee')) as Parameters<typeof skillValue>[1]
   const masteryFactor=(0.5+skillValue(owner,skill,w.campaign.seconds)/40)*(0.5+(original.mastery??20)/40)
   const basePower=effectiveAttribute(owner,'energyThroughput')*1.2+effectiveAttribute(owner,'magicControl')*.8
@@ -398,6 +405,7 @@ export function releaseSpatialRoundPlan(world:World,ownerId:string,castId:string
     }
     cast!.input=sourceInput;cast!.targetId='';cast!.status='ended';cast!.endsAt=cast!.ability.duration>0?w.campaign.seconds+cast!.ability.duration:null
     cast!.spatialRelease={sceneId,kind:target.kind as 'point'|'area'|'direction',point:{...aim},actorIds:[...selected.actorIds],inputs}
+    recordVisualRelease(w,owner!,cast!,aim,sceneId)
     const text=owner!.name+': пространственный выпуск «'+cast!.ability.name+'»',description=spatialLabel(cast!.ability.spatial!)+'; координаты ('+aim.x+'; '+aim.y+'; '+aim.z+').\n'+
       (details.length?details.join('\n\n'):'В области нет отметок существ. Заряд выпущен; постоянная зона и повреждение окружения не создавались.')
     logWorld(w,eventId,text,description,[ownerId,...selected.actorIds]);w.campaign.revision++

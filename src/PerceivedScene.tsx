@@ -1,11 +1,14 @@
+import SceneAbilityOverlay, { useVisualReplay } from './SceneAbilityOverlay'
 import { useId } from 'react'
 import type { ScenePosition } from './sceneTypes'
 import type { PerceivedMap, VisibleContact } from './scenePerception'
 import { SceneGlyph } from './SceneViewport'
-import { artworkSource } from './visualMedia'
+import { artworkSource, isTiledArtwork } from './visualMedia'
 import './sceneStyle.css'
 export default function PerceivedScene({ map, selected, onSelect, onPoint }: { map: PerceivedMap; selected?: string; onSelect?: (id: string) => void; onPoint?: (p: ScenePosition) => void }) {
-  const clip = useId().replace(/:/g, ''), f = map.frame, side = f.view === 'side', vertical = side ? f.maxZ - f.minZ : f.depth
+  const playback=useVisualReplay(map.visuals?.some(v=>v.phase==='sequence')??false)
+  const clip = useId().replace(/:/g, ''),visualClip=clip+'-visual', f = map.frame, side = f.view === 'side', vertical = side ? f.maxZ - f.minZ : f.depth
+  const tiled=isTiledArtwork(f.background),tileSize=f.backgroundTileSizeM??4
   const size = Math.max(f.width, vertical) * .022
   const yOf = (c: VisibleContact) => side ? c.z === undefined ? vertical / 2 : f.maxZ - c.z : c.y
   return <section aria-label="Доступная сцена"><h3>{map.title}</h3><p className="w6-prose">{map.description}</p>
@@ -18,11 +21,12 @@ export default function PerceivedScene({ map, selected, onSelect, onPoint }: { m
       const self = map.contacts.find(c => c.kind === 'self'), rounded = (n: number) => Math.round(n * 1000) / 1000
       onPoint({ x: rounded(x), y: side ? self?.y ?? f.depth / 2 : rounded(v), z: side ? rounded(f.maxZ - v) : self?.z ?? f.groundZ })
     }} role="group" aria-label={map.title + (side ? ', вид сбоку' : ', вид сверху')}>
-      <defs><clipPath id={clip}>{map.areas.map(a => <rect key={a.id} x={a.x} y={side ? f.maxZ - a.z - a.height : a.y} width={a.width} height={side ? a.height : a.depth}/>)}</clipPath></defs>
+      <defs><clipPath id={clip}>{map.areas.map(a => <rect key={a.id} x={a.x} y={side ? f.maxZ - a.z - a.height : a.y} width={a.width} height={side ? a.height : a.depth}/>)}</clipPath><clipPath id={visualClip}>{map.areas.filter(a=>a.visible).map(a=><rect key={a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth}/>)}</clipPath>{tiled&&<pattern id={clip+'-texture'} width={tileSize} height={tileSize} patternUnits="userSpaceOnUse"><image href={artworkSource(f.background)} width={tileSize} height={tileSize} preserveAspectRatio="none"/></pattern>}</defs>
       <rect width={f.width} height={vertical} fill="#10121d"/>
       {map.areas.map(a => <rect key={a.id} x={a.x} y={side ? f.maxZ - a.z - a.height : a.y} width={a.width} height={side ? a.height : a.depth} className={a.visible ? 'gb-ground' : 'gb-known-ground'}/>)}
+      {tiled&&map.areas.map(a=><rect key={'texture-'+a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth} fill={'url(#'+clip+'-texture)'} opacity={a.visible?1:.45}/>)}
       <g clipPath={'url(#' + clip + ')'}>{map.objects.map(o => <g key={o.id} opacity={o.visible ? 1 : .48}>
-        <svg x={o.x - o.width / 2} y={side ? f.maxZ - o.z - Math.max(o.height, .2) : o.y - o.depth / 2} width={o.width} height={side ? Math.max(o.height, .2) : o.depth}><SceneGlyph kind={o.kind} open={o.open}/></svg>
+        {o.artwork && o.artwork !== 'auto' ? <image href={artworkSource(o.artwork)} x={o.x - o.width / 2} y={side ? f.maxZ - o.z - Math.max(o.height, .2) : o.y - o.depth / 2} width={o.width} height={side ? Math.max(o.height, .2) : o.depth} preserveAspectRatio="xMidYMid meet" opacity={o.kind === 'door' && o.open ? .45 : 1}/> : <svg x={o.x - o.width / 2} y={side ? f.maxZ - o.z - Math.max(o.height, .2) : o.y - o.depth / 2} width={o.width} height={side ? Math.max(o.height, .2) : o.depth}><SceneGlyph kind={o.kind} open={o.open}/></svg>}
         <title>{o.name}{o.visible ? '' : ' · последнее известное состояние'}</title>
       </g>)}</g>
       {map.contacts.map(c => <g key={c.id} className="gb-contact" role={onSelect ? 'button' : undefined} tabIndex={onSelect ? 0 : undefined} aria-label={c.label} onKeyDown={e => { if (onSelect && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(c.id) } }} onClick={e => { e.stopPropagation(); onSelect?.(c.id); if (c.kind === 'sound') onPoint?.({x:c.x,y:c.y,z:c.z??map.contacts.find(t=>t.kind==='self')?.z??f.groundZ}) }}>
@@ -34,7 +38,8 @@ export default function PerceivedScene({ map, selected, onSelect, onPoint }: { m
         <text x={c.x} y={yOf(c) + size * 1.6} fontSize={size * .55} className="gb-token-label">{c.label}</text>
         {c.z !== undefined && <text x={c.x} y={yOf(c) - size * 1.3} fontSize={size * .5} className="gb-height-label">{c.flying ? '↑ ' : ''}Z {Number(c.z.toFixed(2))} м</text>}
       </g>)}
-    </svg><p className="gb-map-caption">{side ? 'X / Z' : 'X / Y'} · метры{onPoint ? ' · нажми на сцену для выбора координат плана' : ''} · тёмные области неизвестны; приглушённые объекты известны по прежнему наблюдению.</p></div>
+      <g clipPath={'url(#' + visualClip + ')'}><SceneAbilityOverlay frame={f} visuals={map.visuals??[]} replay={playback.replay} paused={playback.paused} enabled={playback.enabled}/></g>
+    </svg>{!!map.visuals?.length&&playback.controls}<p className="gb-map-caption">{side ? 'X / Z' : 'X / Y'} · метры{onPoint ? ' · нажми на сцену для выбора координат плана' : ''} · тёмные области неизвестны; приглушённые объекты известны по прежнему наблюдению.</p></div>
     <div className="gb-scene-entities">{map.contacts.map(c => <button className={'w6-button' + (selected === c.id ? ' w6-active' : '')} type="button" key={c.id} onClick={e => { e.stopPropagation(); onSelect?.(c.id); if (c.kind === 'sound') onPoint?.({x:c.x,y:c.y,z:c.z??map.contacts.find(t=>t.kind==='self')?.z??f.groundZ}) }}>{c.label}<small>{c.kind === 'sound' ? 'Приблизительная отметка звука' : c.z === undefined ? 'Высота не раскрыта' : (c.flying ? 'В воздухе · ' : c.support === 'object' ? 'На опоре · ' : c.support === 'ground' ? 'На земле · ' : '') + 'Z ' + c.z + ' м'}{c.signs ? ' · ' + c.signs : ''}</small></button>)}</div>
     {side && map.contacts.some(c => c.z === undefined) && <p className="w6-copy">Отметки без известной высоты показаны условно в середине схемы.</p>}
   </section>

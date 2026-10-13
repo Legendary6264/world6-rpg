@@ -27,11 +27,11 @@ function validScene(v: unknown): v is Scene {
       !size(v.width) || !size(v.depth) || !finite(v.groundZ) || !finite(v.minZ) || !finite(v.maxZ) ||
       v.minZ > v.groundZ || v.groundZ >= v.maxZ ||
       (v.roundDurationSeconds!==undefined&&(typeof v.roundDurationSeconds!=='number'||!Number.isFinite(v.roundDurationSeconds)||v.roundDurationSeconds<=0||v.roundDurationSeconds>86400)) ||
-      (v.background !== undefined && !isArtwork(v.background)) ||
+      (v.background !== undefined && !isArtwork(v.background)) || (v.backgroundTileSizeM!==undefined&&(!finite(v.backgroundTileSizeM)||v.backgroundTileSizeM<.1||v.backgroundTileSizeM>1000)) ||
       !Array.isArray(v.objects) || v.objects.length > MAX_SCENE_OBJECTS ||
       !Array.isArray(v.tokens) || v.tokens.length > MAX_SCENE_TOKENS) return false
   if (!v.objects.every(o => object(o) && id(o.id) && text(o.name, 120) && !!o.name.trim() &&
-      typeof o.kind === 'string' && Object.hasOwn(sceneObjectLabels, o.kind) && position(o, v) &&
+      typeof o.kind === 'string' && Object.hasOwn(sceneObjectLabels, o.kind) && position(o, v) && (o.artwork === undefined || isArtwork(o.artwork)) &&
       size(o.width) && size(o.depth) && finite(o.height) && o.height >= 0 && Number(o.z) + o.height <= Number(v.maxZ) &&
       o.width <= Number(v.width) && o.depth <= Number(v.depth) &&
       ['blocksMovement', 'blocksSight', 'canSupport', 'open'].every(k => typeof o[k] === 'boolean'))) return false
@@ -66,10 +66,10 @@ export function copySceneState(state: SceneState): SceneState {
     id: s.id, name: s.name, description: s.description, view: s.view, width: s.width, depth: s.depth,
     groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, palette: s.palette,
     ...(s.roundDurationSeconds!==undefined?{roundDurationSeconds:s.roundDurationSeconds}:{}),
-    ...(s.background !== undefined ? { background: s.background } : {}),
+    ...(s.background !== undefined ? { background: s.background } : {}), ...(s.backgroundTileSizeM!==undefined?{backgroundTileSizeM:s.backgroundTileSizeM}:{}),
     objects: s.objects.map(o => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z,
       width: o.width, depth: o.depth, height: o.height, blocksMovement: o.blocksMovement,
-      blocksSight: o.blocksSight, canSupport: o.canSupport, open: o.open })),
+      blocksSight: o.blocksSight, canSupport: o.canSupport, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}) })),
     tokens: s.tokens.map(t => ({ actorId: t.actorId, x: t.x, y: t.y, z: t.z, diameter: t.diameter,
       support: t.support.kind === 'object' ? { kind: 'object', objectId: t.support.objectId } : { kind: t.support.kind } })),
   })) }

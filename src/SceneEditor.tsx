@@ -1,15 +1,16 @@
+import type { SceneAbilityVisual } from './sceneAbilityVisuals'
 import { useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Scene, SceneActor, SceneObject, SceneObjectKind, ScenePosition, SceneState, SceneSupport } from './sceneTypes'
 import { addSceneObject, createScene, deleteScene, emptyScenes, MAX_SCENES, moveSceneObject,
   placeSceneToken, removeSceneObject, replaceScene, sceneObject, sceneObjectLabels } from './scenes'
-import { sceneBackgroundPresets } from './visualMedia'
+import { sceneBackgroundPresets, objectPresets, artworkMetadata, artworkLabels, isTiledArtwork } from './visualMedia'
 import { ArtworkPicker } from './VisualElements'
 import SceneViewport, { SceneGlyph } from './SceneViewport'
 import type { SceneSelection } from './SceneViewport'
 import './sceneStyle.css'
 
-type Props = { value?: SceneState; actors: SceneActor[]; disabled?: boolean;
+type Props = { value?: SceneState; visuals?:Record<string,SceneAbilityVisual[]>; actors: SceneActor[]; disabled?: boolean;
   onChange: (value: SceneState) => { ok: boolean; message: string } }
 type Tool = 'select' | 'move' | 'character' | SceneObjectKind
 function Label({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
@@ -23,9 +24,10 @@ const str = (data: FormData, key: string) => String(data.get(key) ?? '')
 const num = (data: FormData, key: string) => { const v = str(data, key); return v.trim() ? Number(v) : NaN }
 const coords = (data: FormData): ScenePosition => ({ x: num(data, 'x'), y: num(data, 'y'), z: num(data, 'z') })
 
-export default function SceneEditor({ value, actors, disabled = false, onChange }: Props) {
+export default function SceneEditor({ value, actors, disabled = false, onChange, visuals }: Props) {
   const state = value ?? emptyScenes(), scene = state.scenes.find(s => s.id === state.activeSceneId)
   const [tool, setTool] = useState<Tool>('select'), [selection, setSelection] = useState<SceneSelection>(null)
+  const [toolArtwork,setToolArtwork]=useState('auto')
   const [actorId, setActorId] = useState(''), [message, setMessage] = useState('')
   const selectedObject = selection?.kind === 'object' ? scene?.objects.find(o => o.id === selection.id) : undefined
   const selectedToken = selection?.kind === 'token' ? scene?.tokens.find(t => t.actorId === selection.id) : undefined
@@ -56,6 +58,7 @@ export default function SceneEditor({ value, actors, disabled = false, onChange 
       return
     }
     const objectId = crypto.randomUUID(), asset = sceneObject(tool, objectId, point)
+    if(toolArtwork!=='auto'){asset.artwork=toolArtwork;asset.name=artworkLabels[toolArtwork]??asset.name}
     asset.width = Math.min(asset.width, scene.width); asset.depth = Math.min(asset.depth, scene.depth)
     if (perform(() => addSceneObject(state, scene.id, asset))) setSelection({ kind: 'object', id: objectId })
   }
@@ -63,7 +66,7 @@ export default function SceneEditor({ value, actors, disabled = false, onChange 
     const d = formData(event), groundZ = num(d, 'groundZ')
     const next = { ...current, name: str(d, 'name').trim(), description: str(d, 'description'),
       width: num(d, 'width'), depth: num(d, 'depth'), groundZ, minZ: num(d, 'minZ'), maxZ: num(d, 'maxZ'),
-      view: str(d, 'view') as Scene['view'], palette: str(d, 'palette') as Scene['palette'],
+      view: str(d, 'view') as Scene['view'], palette: str(d, 'palette') as Scene['palette'], ...(d.has('backgroundTileSizeM')?{backgroundTileSizeM:num(d,'backgroundTileSizeM')}:{ }),
       tokens: current.tokens.map(t => t.support.kind === 'ground' ? { ...t, z: groundZ } : t) }
     perform(() => replaceScene(state, next))
   }
@@ -110,10 +113,11 @@ export default function SceneEditor({ value, actors, disabled = false, onChange 
         <button className={'w6-button' + (tool === 'character' ? ' w6-active' : '')} type="button" disabled={disabled || !actorId} onClick={() => setTool('character')}>Поставить персонажа</button>
       </div>
       <div className="gb-scene-assets" aria-label="Ассеты окружения">{(Object.keys(sceneObjectLabels) as SceneObjectKind[]).map(kind => <button
-        key={kind} type="button" className={'w6-button' + (tool === kind ? ' w6-active' : '')} disabled={disabled} onClick={() => setTool(kind)}><SceneGlyph kind={kind}/>{sceneObjectLabels[kind]}</button>)}</div>
+        key={kind} type="button" className={'w6-button' + (tool === kind ? ' w6-active' : '')} disabled={disabled} onClick={() => {setTool(kind);setToolArtwork('auto')}}><SceneGlyph kind={kind}/>{sceneObjectLabels[kind]}</button>)}</div>
+      <details className="gb-scene-details"><summary>Библиотека окружения · {objectPresets.length} изображений</summary><ArtworkPicker label="Объект для размещения" value={toolArtwork} presets={objectPresets} disabled={disabled} onChange={key=>{setToolArtwork(key);setTool(artworkMetadata[key]?.objectKind??'crate')}}/><p className="w6-copy">Выбери изображение и нажми на сцену. Размеры и свойства объекта доступны после размещения.</p></details>
       {tool !== 'select' && <button type="button" className="w6-button" disabled={disabled} onClick={() => place({x:scene.width/2,y:scene.depth/2,z:scene.groundZ})}>Разместить в центре</button>}
-      <p className="w6-copy">{tool === 'select' ? 'Выбери объект на карте или в списке. Точные координаты доступны ниже.' : tool === 'move' ? 'Нажми на карту, чтобы передвинуть выбранный объект. В боковом виде глубина Y сохраняется.' : tool === 'character' ? 'Нажми на карту. Персонаж будет перенесён сюда из прежней сцены и поставлен на землю.' : 'Нажми на карту, чтобы разместить: ' + sceneObjectLabels[tool] + '.'}</p>
-      <div className="gb-scene-layout"><SceneViewport scene={scene} actors={actors} selection={selection} onSelect={select} onPoint={place} selecting={tool === 'select'}/>
+      <p className="w6-copy">{tool === 'select' ? 'Выбери объект на карте или в списке. Точные координаты доступны ниже.' : tool === 'move' ? 'Нажми на карту, чтобы передвинуть выбранный объект. В боковом виде глубина Y сохраняется.' : tool === 'character' ? 'Нажми на карту. Персонаж будет перенесён сюда из прежней сцены и поставлен на землю.' : 'Нажми на карту, чтобы разместить: ' + (toolArtwork==='auto'?sceneObjectLabels[tool]:artworkLabels[toolArtwork]) + '.'}</p>
+      <div className="gb-scene-layout"><SceneViewport scene={scene} actors={actors} visuals={visuals?.[scene.id]} selection={selection} onSelect={select} onPoint={place} selecting={tool === 'select'}/>
         <aside className="gb-scene-sidebar"><h3>Расстановка</h3><p>{scene.objects.length} объектов · {scene.tokens.length} персонажей</p>
           <div className="gb-scene-entities">{scene.tokens.map(t => <button type="button" className={'w6-button' + (selection?.kind === 'token' && selection.id === t.actorId ? ' w6-active' : '')} key={t.actorId} onClick={() => select({ kind: 'token', id: t.actorId })}>{actors.find(a => a.id === t.actorId)?.name || 'Без имени'}<small>{t.support.kind === 'air' ? '↑ В воздухе' : 'На опоре'} · Z {t.z} м</small></button>)}</div>
           <div className="gb-scene-entities">{scene.objects.map(o => <button type="button" className={'w6-button' + (selection?.kind === 'object' && selection.id === o.id ? ' w6-active' : '')} key={o.id} onClick={() => select({ kind: 'object', id: o.id })}>{o.name}<small>{sceneObjectLabels[o.kind]} · Z {o.z} м</small></button>)}</div>
@@ -123,7 +127,7 @@ export default function SceneEditor({ value, actors, disabled = false, onChange 
         <Numeric name="width" label="Ширина (м)" value={selectedObject.width} min={.1} max={scene.width}/><Numeric name="depth" label="Глубина (м)" value={selectedObject.depth} min={.1} max={scene.depth}/><Numeric name="height" label="Высота объекта (м)" value={selectedObject.height} min={0}/>
         {(['blocksMovement', 'blocksSight', 'canSupport', ...(selectedObject.kind === 'door' ? ['open'] : [])] as const).map(k => <label className="w6-check" key={k}><input type="checkbox" name={k} defaultChecked={selectedObject[k as keyof SceneObject] === true}/>{({ blocksMovement: 'Препятствие движению', blocksSight: 'Закрывает обзор', canSupport: 'Можно стоять сверху', open: 'Дверь открыта' } as Record<string, string>)[k]}</label>)}
         <div className="w6-buttons gb-wide"><button className="w6-button w6-primary" disabled={disabled}>Сохранить параметры объекта</button><button className="w6-button w6-danger" type="button" disabled={disabled} onClick={() => { if (perform(() => removeSceneObject(state, scene.id, selectedObject.id))) setSelection(null) }}>Убрать объект</button></div>
-      </form></details>}
+      </form><ArtworkPicker label="Изображение объекта" value={selectedObject.artwork} presets={objectPresets} disabled={disabled} onChange={artwork=>perform(()=>moveSceneObject(state,scene.id,{...selectedObject,artwork}))}/></details>}
       {selectedToken && <details className="gb-scene-details" open><summary>Положение персонажа</summary><form key={JSON.stringify(selectedToken)} className="gb-properties" onSubmit={saveToken}>
         {positionFields(selectedToken)}<Numeric name="diameter" label="Занимаемый диаметр (м)" value={selectedToken.diameter} min={.1} max={100}/>
         <Label label="Опора персонажа"><select name="support" defaultValue={selectedToken.support.kind === 'object' ? 'object:' + selectedToken.support.objectId : selectedToken.support.kind}>
@@ -133,13 +137,14 @@ export default function SceneEditor({ value, actors, disabled = false, onChange 
           if (perform(() => replaceScene(state, { ...scene, tokens: scene.tokens.filter(t => t.actorId !== selectedToken.actorId) }))) setSelection(null)
         }}>Убрать со сцены</button></div>
       </form></details>}
-      <details className="gb-scene-details"><summary>Параметры сцены и фон</summary><form key={JSON.stringify([scene.id, scene.name, scene.view, scene.width, scene.depth, scene.groundZ, scene.minZ, scene.maxZ, scene.palette, scene.description])} className="gb-properties" onSubmit={e => saveScene(e, scene)}>
+      <details className="gb-scene-details"><summary>Параметры сцены и фон</summary><form key={JSON.stringify([scene.id, scene.name, scene.view, scene.width, scene.depth, scene.groundZ, scene.minZ, scene.maxZ, scene.palette, scene.description,scene.backgroundTileSizeM])} className="gb-properties" onSubmit={e => saveScene(e, scene)}>
         <Label label="Название сцены" wide><input name="name" required maxLength={120} defaultValue={scene.name}/></Label>
         <Label label="Описание сцены" wide><textarea name="description" maxLength={4000} defaultValue={scene.description}/></Label>
         <Numeric name="width" label="Размер X (м)" value={scene.width} min={.1}/><Numeric name="depth" label="Размер Y (м)" value={scene.depth} min={.1}/>
         <Label label="Вид сцены"><select name="view" defaultValue={scene.view}><option value="top">Сверху</option><option value="side">Сбоку</option></select></Label>
         <Numeric name="groundZ" label="Земля Z (м)" value={scene.groundZ}/><Numeric name="minZ" label="Нижняя граница Z (м)" value={scene.minZ}/><Numeric name="maxZ" label="Верхняя граница Z (м)" value={scene.maxZ}/>
         <Label label="Оформление окружения"><select name="palette" defaultValue={scene.palette}><option value="forest">Природа</option><option value="stone">Камень</option><option value="neon">Неон и металл</option></select></Label>
+        {isTiledArtwork(scene.background)&&<Numeric name="backgroundTileSizeM" label="Размер повторения поверхности (м)" value={scene.backgroundTileSizeM??4} min={.1} max={1000}/>}
         <div className="gb-wide"><button className="w6-button w6-primary" disabled={disabled}>Сохранить параметры сцены</button></div>
       </form><p className="w6-copy">Параметры формы применяются кнопкой сохранения. Расстановка и сохранённые параметры входят в черновик кампании. Уменьшение сцены не перемещает объекты автоматически.</p>
       {!disabled && <ArtworkPicker key={scene.id} label="Фон сцены" value={scene.background} presets={sceneBackgroundPresets} onChange={background => perform(() => replaceScene(state, { ...scene, background }))}/>}</details>

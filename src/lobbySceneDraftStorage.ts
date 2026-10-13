@@ -1,7 +1,7 @@
 import { isSceneState } from './scenes'
 import type { SceneActor, SceneState } from './sceneTypes'
 import { assertCampaignSize } from './campaignLimits'
-export type SceneDraft = { accountId: string; lobbyId: string; revision: number; scenes: SceneState; actors: SceneActor[] }
+export type SceneDraft = { accountId: string; lobbyId: string; revision: number; scenes: SceneState; actors: SceneActor[]; visuals?:Record<string,import('./sceneAbilityVisuals').SceneAbilityVisual[]> }
 const memory = new Map<string, SceneDraft>()
 const key = (accountId: string, lobbyId: string) => 'world6.scene-draft.v1.' + JSON.stringify([accountId, lobbyId])
 export function readSceneDraft(accountId: string, lobbyId: string): SceneDraft | null {

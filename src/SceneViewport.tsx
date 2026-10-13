@@ -1,10 +1,13 @@
+import SceneAbilityOverlay, { useVisualReplay } from './SceneAbilityOverlay'
+import { sceneAbilityVisuals } from './sceneAbilityVisuals'
+import type { SceneAbilityVisual, VisualActor } from './sceneAbilityVisuals'
 import type { PointerEvent } from 'react'
 import type { Scene, SceneActor, SceneObjectKind, ScenePosition } from './sceneTypes'
-import { artworkSource } from './visualMedia'
+import { artworkSource, isTiledArtwork } from './visualMedia'
 
 type Selection = { kind: 'object'; id: string } | { kind: 'token'; id: string } | null
 export type SceneSelection = Selection
-type Props = { scene: Scene; actors: SceneActor[]; selection: Selection;
+type Props = { scene: Scene; actors: (SceneActor & VisualActor)[]; visuals?:SceneAbilityVisual[]; selection: Selection;
   onPoint: (point: ScenePosition) => void; onSelect: (value: Selection) => void; selecting: boolean }
 
 // Small original SVG tiles. They remain sharp at any zoom and need no asset service.
@@ -22,9 +25,11 @@ export function SceneGlyph({ kind, open = false }: { kind: SceneObjectKind; open
   return <svg viewBox="0 0 16 16" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true" shapeRendering="crispEdges">{tiles[kind]}</svg>
 }
 
-export default function SceneViewport({ scene, actors, selection, onPoint, onSelect, selecting }: Props) {
+export default function SceneViewport({ scene, actors, selection, onPoint, onSelect, selecting, visuals }: Props) {
+  const effects=visuals??sceneAbilityVisuals(scene,actors),playback=useVisualReplay(effects.some(v=>v.phase==='sequence'))
   const vertical = scene.view === 'side' ? scene.maxZ - scene.minZ : scene.depth
   const displaySize = Math.max(scene.width, vertical) * 0.022
+  const tiled=isTiledArtwork(scene.background),tileSize=scene.backgroundTileSizeM??4
   const groundY = scene.maxZ - scene.groundZ
   function point(event: PointerEvent<SVGSVGElement>) {
     const svg = event.currentTarget, matrix = svg.getScreenCTM()
@@ -46,16 +51,17 @@ export default function SceneViewport({ scene, actors, selection, onPoint, onSel
       <title>{scene.name}</title>
       <defs><pattern id={'ground-' + scene.id} width="3.7" height="2.9" patternUnits="userSpaceOnUse">
         <rect width="3.7" height="2.9" className="gb-ground"/><path d="M.4 .7H.8M2.7 1.8H3.1M1.2 2.4H1.5" className="gb-ground-marks" strokeWidth=".05"/>
-      </pattern></defs>
+      </pattern>{tiled&&<pattern id={'texture-'+scene.id} width={tileSize} height={tileSize} patternUnits="userSpaceOnUse"><image href={artworkSource(scene.background)} width={tileSize} height={tileSize} preserveAspectRatio="none"/></pattern>}</defs>
       <rect width={scene.width} height={vertical} fill={'url(#ground-' + scene.id + ')'} />
-      {scene.background && scene.background !== 'auto' && <image href={artworkSource(scene.background, 'banner')} width={scene.width} height={vertical} preserveAspectRatio="none" opacity=".85"/>}
+      {tiled&&<rect width={scene.width} height={vertical} fill={'url(#texture-'+scene.id+')'}/>}
+      {!tiled&&scene.background && scene.background !== 'auto' && <image href={artworkSource(scene.background, 'banner')} width={scene.width} height={vertical} preserveAspectRatio="none" opacity=".85"/>}
       {scene.view === 'side' && <><rect y={groundY} width={scene.width} height={scene.groundZ - scene.minZ} className="gb-underground"/><line x1="0" x2={scene.width} y1={groundY} y2={groundY} className="gb-ground-line"/></>}
       {scene.objects.slice().sort((a, b) => a.z - b.z).map(o => {
         const y = scene.view === 'top' ? o.y - o.depth / 2 : scene.maxZ - o.z - Math.max(o.height, .2)
         const height = scene.view === 'top' ? o.depth : Math.max(o.height, .2)
         return <g key={o.id} data-scene-entity="object" data-scene-id={o.id}>
           <title>{o.name} · Z {o.z} м</title>
-          <svg x={o.x - o.width / 2} y={y} width={o.width} height={height} overflow="visible"><SceneGlyph kind={o.kind} open={o.open}/></svg>
+          {o.artwork && o.artwork !== 'auto' ? <image href={artworkSource(o.artwork)} x={o.x - o.width / 2} y={y} width={o.width} height={height} preserveAspectRatio="xMidYMid meet" opacity={o.kind === 'door' && o.open ? .45 : 1}/> : <svg x={o.x - o.width / 2} y={y} width={o.width} height={height} overflow="visible"><SceneGlyph kind={o.kind} open={o.open}/></svg>}
           <rect x={o.x - o.width / 2} y={y} width={o.width} height={height} className={selection?.kind === 'object' && selection.id === o.id ? 'gb-object-selected' : 'gb-object-hit'} vectorEffect="non-scaling-stroke"/>
         </g>
       })}
@@ -72,7 +78,9 @@ export default function SceneViewport({ scene, actors, selection, onPoint, onSel
           <text x={t.x} y={y - displaySize * 1.25} fontSize={displaySize * .52} className="gb-height-label">{flying ? '↑ ' : ''}Z {Number(t.z.toFixed(2))} м</text>
         </g>
       })}
+      <SceneAbilityOverlay frame={scene} visuals={effects} replay={playback.replay} paused={playback.paused} enabled={playback.enabled}/>
     </svg>
+    {effects.length>0&&playback.controls}
     <p className="gb-map-caption">{scene.view === 'top' ? 'X / Y' : 'X / Z'} · метры · {scene.width} × {scene.view === 'top' ? scene.depth : vertical} · высота земли {scene.groundZ} м</p>
   </div>
 }

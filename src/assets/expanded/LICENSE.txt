@@ -1,0 +1,7 @@
+World 6 expanded native pixel-art library
+
+All SVG files and their original generator in this directory were authored for this project. No third-party images, fonts, trademarks or downloaded artwork are included.
+
+To the extent possible under law, the author dedicates these original SVG files and the generator to the public domain under CC0 1.0 Universal. This dedication applies only to this expanded set, not to other assets or code in this repository.
+
+CC0 1.0 legal code: https://creativecommons.org/publicdomain/zero/1.0/legalcode

@@ -7,16 +7,16 @@ import type { PerceptionDraft, PerceivedMap } from './scenePerception'
 import PerceivedScene from './PerceivedScene'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
 type AreaForm = Record<'x' | 'y' | 'z' | 'width' | 'depth' | 'height', string>
-type SignalForm = Record<'actorId' | 'label' | 'signs' | 'x' | 'y' | 'z' | 'radius', string> & { kind: 'identified' | 'silhouette' | 'sound'; showHeight: boolean }
+type SignalForm = Record<'actorId' | 'label' | 'signs' | 'x' | 'y' | 'z' | 'radius', string> & { kind: 'identified' | 'silhouette' | 'sound'; showHeight: boolean; showVisuals?:boolean }
 type Saved = { revision: number; draft: PerceptionDraft; scenes: SceneState; actors: { id: string; name: string }[]; areaForm: AreaForm; signalForm: SignalForm }
 const emptyArea = (): AreaForm => ({ x: '0', y: '0', z: '0', width: '5', depth: '5', height: '5' })
-const emptySignal = (): SignalForm => ({ actorId: '', kind: 'silhouette', label: '', signs: '', showHeight: false, x: '0', y: '0', z: '0', radius: '1' })
+const emptySignal = (): SignalForm => ({ actorId: '', kind: 'silhouette', label: '', signs: '', showHeight: false, showVisuals:false, x: '0', y: '0', z: '0', radius: '1' })
 const valid = (v: unknown): v is Saved => {
   if (!v || typeof v !== 'object') return false
   const s = v as Saved
   return Number.isSafeInteger(s.revision) && isPerceptionDraft(s.draft) && isSceneState(s.scenes) && Array.isArray(s.actors) && s.actors.length <= 200 && s.actors.every(a => typeof a.id === 'string' && typeof a.name === 'string') &&
     !!s.areaForm && Object.values(s.areaForm).every(x => typeof x === 'string' && x.length <= 40) && !!s.signalForm && typeof s.signalForm.actorId === 'string' &&
-    ['identified', 'silhouette', 'sound'].includes(s.signalForm.kind) && typeof s.signalForm.label === 'string' && typeof s.signalForm.signs === 'string' && typeof s.signalForm.showHeight === 'boolean' &&
+    ['identified', 'silhouette', 'sound'].includes(s.signalForm.kind) && typeof s.signalForm.label === 'string' && typeof s.signalForm.signs === 'string' && typeof s.signalForm.showHeight === 'boolean' && (s.signalForm.showVisuals===undefined||typeof s.signalForm.showVisuals==='boolean') &&
     ['x', 'y', 'z', 'radius'].every(k => typeof s.signalForm[k as keyof SignalForm] === 'string')
 }
 export default function LobbyDisclosure({ accountId, lobbyId, characterId, characterName, revision, checkingAccess }: { accountId: string; lobbyId: string; characterId: string; characterName: string; revision: number; checkingAccess: boolean }) {
@@ -63,7 +63,7 @@ export default function LobbyDisclosure({ accountId, lobbyId, characterId, chara
     if (!saved || !scene) return
     const f = saved.signalForm
     if (!['x', 'y', 'z', 'radius'].every(k => f[k as 'x'].trim() && Number.isFinite(Number(f[k as 'x'])))) { setMessage('Проверь координаты и радиус отметки.'); return }
-    const c = { actorId: f.actorId, kind: f.kind, label: f.label, signs: f.signs, showHeight: f.showHeight, point: { x: Number(f.x), y: Number(f.y), z: Number(f.z) }, radius: Number(f.radius) }
+    const c = { actorId: f.actorId, kind: f.kind, label: f.label, signs: f.signs, showHeight: f.showHeight, ...(f.showVisuals&&f.kind==='identified'&&f.showHeight?{showVisuals:true}:{}), point: { x: Number(f.x), y: Number(f.y), z: Number(f.z) }, radius: Number(f.radius) }
     const next = { ...scene, contacts: [...scene.contacts.filter(x => x.actorId !== c.actorId), c] }
     if (!isPerceptionDraft({ ...saved.draft, scenes: saved.draft.scenes.map(s => s.sceneId === scene.sceneId ? next : s) })) { setMessage('Выбери источник и проверь контакт.'); return }
     update(next)
@@ -87,6 +87,7 @@ export default function LobbyDisclosure({ accountId, lobbyId, characterId, chara
         <label className="w6-field"><span>Источник контакта</span><select aria-label="Источник контакта" value={saved.signalForm.actorId} onChange={e => remember({ ...saved, signalForm: { ...saved.signalForm, actorId: e.currentTarget.value } })}><option value="">Выбери существо</option>{saved.actors.filter(a => a.id !== characterId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
         <label className="w6-field"><span>Вид контакта</span><select aria-label="Вид контакта" value={saved.signalForm.kind} onChange={e => remember({ ...saved, signalForm: { ...saved.signalForm, kind: e.currentTarget.value as SignalForm['kind'] } })}><option value="silhouette">Неизвестный силуэт</option><option value="identified">Узнанное существо</option><option value="sound">Приблизительная отметка звука</option></select></label>
         <label><input type="checkbox" checked={saved.signalForm.showHeight} onChange={e => remember({ ...saved, signalForm: { ...saved.signalForm, showHeight: e.currentTarget.checked } })}/>Раскрыть высоту и наблюдаемый полёт</label>
+        <label><input type="checkbox" checked={!!saved.signalForm.showVisuals} disabled={saved.signalForm.kind!=='identified'||!saved.signalForm.showHeight} onChange={e=>remember({...saved,signalForm:{...saved.signalForm,showVisuals:e.currentTarget.checked}})}/>Показывать наблюдаемые эффекты способностей этого существа</label>
         {(['label', 'signs', 'x', 'y', 'z', 'radius'] as const).map(k => <label className="w6-field" key={k}><span>{({ label: 'Подпись контакта (пустая — стандартная)', signs: 'Наблюдаемые признаки', x: 'X отметки звука', y: 'Y отметки звука', z: 'Z отметки звука', radius: 'Радиус приблизительной отметки, м' })[k]}</span><input aria-label={k + ' контакта'} maxLength={k === 'signs' ? 1000 : k === 'label' ? 120 : 40} value={saved.signalForm[k]} onChange={e => remember({ ...saved, signalForm: { ...saved.signalForm, [k]: e.currentTarget.value } })}/></label>)}
         <p className="w6-copy">Для звука используются введённая приблизительная точка и радиус. Силуэт/узнанный контакт показываются по текущей позиции только внутри видимой области. Скрытая высота не выдаётся.</p><button className="w6-button" onClick={addContact}>Добавить или заменить контакт</button>
       </>}

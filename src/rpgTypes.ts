@@ -1,3 +1,4 @@
+import type { AbilityVisualSpec } from './abilityVisuals'
 import type { CampaignEconomy } from './campaignEconomy'
 import type { CampaignTrade } from './campaignTrade'
 import type { CampaignAtlas } from './campaignAtlas'
@@ -37,6 +38,7 @@ export type AbilitySpatial = { includeCaster: boolean } & ({ shape: 'point' } | 
   { shape: 'beam'; lengthM: number; radiusM: number } | { shape: 'cone'; lengthM: number; angleDeg: number })
 export type SpatialRelease = { sceneId: string; kind: 'point' | 'area' | 'direction'; point: ScenePosition; actorIds: string[]; inputs: {actorId:string;input:ActionInput}[] }
 export type AbilityDefinition = {
+  visualEffect?: AbilityVisualSpec
   chargePolicy?: ChargePolicy
   spatial?: AbilitySpatial
   minimumLevel?: number; attributeRequirements?: Partial<Record<AttributeKey,number>>; innate?: boolean; raceId?: string; mastery?: number; statusEffects?: string[]
@@ -79,6 +81,7 @@ export type ActionInput = {
   manualLocal: number; manualSystemic: number; bleedingMlPerSecond: number; injury: string; note: string
 }
 export type Cast = {
+  visualRelease?: {sceneId:string;start:ScenePosition;end:ScenePosition;releasedAt:number}
   interruption?: { reason: string; phase: 'preparing' | 'ready' | 'maintaining'; refunded: Cost }
   spatialRelease?: SpatialRelease
   id: string; ability: LearnedAbility; targetId: string; input: ActionInput

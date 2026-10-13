@@ -1,19 +1,21 @@
+import { castSceneVisual } from './sceneAbilityVisuals'
+import type { SceneAbilityVisual, VisualActor } from './sceneAbilityVisuals'
 import type { Scene, SceneObject, ScenePosition, SceneState } from './sceneTypes'
-import { isArtwork } from './visualMedia'
+import { isArtwork, isTiledArtwork } from './visualMedia'
 
 // Limits protect saved data; they do not define perception distances or game rules.
 export type KnownArea = ScenePosition & { id: string; width: number; depth: number; height: number; visible: boolean }
-export type MapFrame = Pick<Scene, 'id' | 'width' | 'depth' | 'groundZ' | 'minZ' | 'maxZ' | 'view' | 'palette'>
-export type ObservedObject = Pick<SceneObject, 'id' | 'name' | 'kind' | 'x' | 'y' | 'z' | 'width' | 'depth' | 'height' | 'open'>
+export type MapFrame = Pick<Scene, 'id' | 'width' | 'depth' | 'groundZ' | 'minZ' | 'maxZ' | 'view' | 'palette' | 'background' | 'backgroundTileSizeM'>
+export type ObservedObject = Pick<SceneObject, 'id' | 'name' | 'kind' | 'x' | 'y' | 'z' | 'width' | 'depth' | 'height' | 'open' | 'artwork'>
 export type ObjectDisclosure = { objectId: string; visible: boolean; snapshot: ObservedObject }
-export type ContactDisclosure = { id: string; actorId: string; kind: 'identified' | 'silhouette' | 'sound'; label: string; signs: string; showHeight: boolean; point: ScenePosition; radius: number }
+export type ContactDisclosure = { id: string; actorId: string; kind: 'identified' | 'silhouette' | 'sound'; label: string; signs: string; showHeight: boolean; showVisuals?: boolean; point: ScenePosition; radius: number }
 export type KnownScene = { sceneId: string; title: string; description: string; frame: MapFrame; areas: KnownArea[]; objects: ObjectDisclosure[]; contacts: ContactDisclosure[] }
 export type HeroPerception = { actorId: string; activeSceneId: string | null; scenes: KnownScene[] }
 export type ScenePerceptions = { version: 1; heroes: HeroPerception[] }
 export type PerceptionDraft = { activeSceneId: string | null; scenes: (Omit<KnownScene, 'frame' | 'objects' | 'contacts'> & {
   objects: Pick<ObjectDisclosure, 'objectId' | 'visible'>[]; contacts: Omit<ContactDisclosure, 'id'>[] })[] }
 export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; support?: 'ground' | 'air' | 'object'; portrait?: string; radius?: number }
-export type PerceivedMap = { title: string; description: string; frame: MapFrame; areas: KnownArea[]; objects: (ObservedObject & { visible: boolean })[]; contacts: VisibleContact[] }
+export type PerceivedMap = { visuals?:SceneAbilityVisual[]; title: string; description: string; frame: MapFrame; areas: KnownArea[]; objects: (ObservedObject & { visible: boolean })[]; contacts: VisibleContact[] }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const id = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(v)
 const text = (v: unknown, n: number): v is string => typeof v === 'string' && v.length <= n
@@ -21,13 +23,13 @@ const number = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 const unique = (ids: string[]) => new Set(ids).size === ids.length
 const kinds = ['wall', 'door', 'tree', 'rock', 'crate', 'platform', 'lamp', 'water']
 const position = (v: unknown): v is ScenePosition & Record<string, unknown> => record(v) && number(v.x) && number(v.y) && number(v.z)
-const frame = (v: unknown): v is MapFrame => record(v) && id(v.id) && number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 &&
+const frame = (v: unknown): v is MapFrame => record(v) && (v.background===undefined||isTiledArtwork(v.background)) && (v.backgroundTileSizeM===undefined||number(v.backgroundTileSizeM)&&v.backgroundTileSizeM>=.1&&v.backgroundTileSizeM<=1000) && id(v.id) && number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 &&
   number(v.minZ) && number(v.maxZ) && number(v.groundZ) && v.minZ <= v.groundZ && v.groundZ < v.maxZ && typeof v.view === 'string' && ['top', 'side'].includes(v.view) && typeof v.palette === 'string' && ['forest', 'stone', 'neon'].includes(v.palette)
 const area = (v: unknown): v is KnownArea => record(v) && position(v) && id(v.id) && number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 && number(v.height) && v.height > 0 && typeof v.visible === 'boolean'
 const observedObject = (v: unknown): v is ObservedObject => record(v) && position(v) && id(v.id) && text(v.name, 120) && typeof v.kind === 'string' && kinds.includes(v.kind) &&
-  number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 && number(v.height) && v.height >= 0 && typeof v.open === 'boolean'
+  number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 && number(v.height) && v.height >= 0 && typeof v.open === 'boolean' && (v.artwork === undefined || isArtwork(v.artwork))
 const contact = (v: unknown): v is Omit<ContactDisclosure, 'id'> => record(v) && id(v.actorId) && typeof v.kind === 'string' && ['identified', 'silhouette', 'sound'].includes(v.kind) &&
-  text(v.label, 120) && text(v.signs, 1000) && typeof v.showHeight === 'boolean' && position(v.point) && number(v.radius) && v.radius >= 0 && v.radius <= 1000
+  text(v.label, 120) && text(v.signs, 1000) && typeof v.showHeight === 'boolean' && (v.showVisuals===undefined||typeof v.showVisuals==='boolean'&&(!v.showVisuals||v.kind==='identified'&&v.showHeight)) && position(v.point) && number(v.radius) && v.radius >= 0 && v.radius <= 1000
 const sceneInput = (v: unknown): boolean => record(v) && id(v.sceneId) && text(v.title, 120) && text(v.description, 4000) &&
   Array.isArray(v.areas) && v.areas.length <= 40 && v.areas.every(area) && unique(v.areas.map(a => a.id)) &&
   Array.isArray(v.objects) && v.objects.length <= 250 && v.objects.every(o => record(o) && id(o.objectId) && typeof o.visible === 'boolean') && unique(v.objects.map(o => (o as ObjectDisclosure).objectId)) &&
@@ -50,11 +52,11 @@ export const emptyPerception = (actorId: string): HeroPerception => ({ actorId, 
 export function perceptionDraft(value: HeroPerception): PerceptionDraft {
   return { activeSceneId: value.activeSceneId, scenes: value.scenes.map(s => ({ sceneId: s.sceneId, title: s.title, description: s.description,
     areas: s.areas.map(copyArea), objects: s.objects.map(o => ({ objectId: o.objectId, visible: o.visible })),
-    contacts: s.contacts.map(c => ({ actorId: c.actorId, kind: c.kind, label: c.label, signs: c.signs, showHeight: c.showHeight, point: { ...c.point }, radius: c.radius })) })) }
+    contacts: s.contacts.map(c => ({ actorId: c.actorId, kind: c.kind, label: c.label, signs: c.signs, showHeight: c.showHeight, ...(c.showVisuals!==undefined?{showVisuals:c.showVisuals}:{}), point: { ...c.point }, radius: c.radius })) })) }
 }
 const copyArea = (a: KnownArea): KnownArea => ({ id: a.id, x: a.x, y: a.y, z: a.z, width: a.width, depth: a.depth, height: a.height, visible: a.visible })
-export const mapFrame = (s: MapFrame): MapFrame => ({ id: s.id, width: s.width, depth: s.depth, groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, view: s.view, palette: s.palette })
-export const publicObject = (o: SceneObject | ObservedObject): ObservedObject => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z, width: o.width, depth: o.depth, height: o.height, open: o.open })
+export const mapFrame = (s: MapFrame): MapFrame => ({ id: s.id, width: s.width, depth: s.depth, groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, view: s.view, palette: s.palette, ...(isTiledArtwork(s.background)?{background:s.background,...(s.backgroundTileSizeM!==undefined?{backgroundTileSizeM:s.backgroundTileSizeM}:{})}:{}) })
+export const publicObject = (o: SceneObject | ObservedObject): ObservedObject => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z, width: o.width, depth: o.depth, height: o.height, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}) })
 function areaInside(a: KnownArea, f: MapFrame) { return a.x >= 0 && a.y >= 0 && a.z >= f.minZ && a.x + a.width <= f.width && a.y + a.depth <= f.depth && a.z + a.height <= f.maxZ }
 export function withinArea(p: ScenePosition, a: KnownArea) { return p.x >= a.x && p.x <= a.x + a.width && p.y >= a.y && p.y <= a.y + a.depth && p.z >= a.z && p.z <= a.z + a.height }
 export function preparePerception(draft: PerceptionDraft, previous: HeroPerception, scenes: SceneState, actorIds: string[]): HeroPerception {
@@ -72,7 +74,7 @@ export function preparePerception(draft: PerceptionDraft, previous: HeroPercepti
     const contacts = s.contacts.map(c => {
       if (!actorIds.includes(c.actorId) || (c.point.x < 0 || c.point.x > current.width || c.point.y < 0 || c.point.y > current.depth || c.point.z < current.minZ || c.point.z > current.maxZ)) throw Error('Проверь источник контакта и точку внутри сцены.')
       const before = old?.contacts.find(x => x.actorId === c.actorId)
-      return { id: before?.id ?? crypto.randomUUID(), actorId: c.actorId, kind: c.kind, label: c.label.trim(), signs: c.signs.trim(), showHeight: c.showHeight,
+      return { id: before?.id ?? crypto.randomUUID(), actorId: c.actorId, kind: c.kind, label: c.label.trim(), signs: c.signs.trim(), showHeight: c.showHeight, ...(c.showVisuals!==undefined?{showVisuals:c.showVisuals}:{}),
         point: { x: c.point.x, y: c.point.y, z: c.point.z }, radius: c.radius }
     })
     return { sceneId: s.sceneId, title: s.title.trim(), description: s.description.trim(), frame: mapFrame(current), areas: s.areas.map(copyArea), objects, contacts }
@@ -84,7 +86,7 @@ export function copyPerceptions(value: ScenePerceptions): ScenePerceptions {
   return { version: 1, heroes: value.heroes.map(h => ({ actorId: h.actorId, activeSceneId: h.activeSceneId, scenes: h.scenes.map(s => ({
     sceneId: s.sceneId, title: s.title, description: s.description, frame: mapFrame(s.frame), areas: s.areas.map(copyArea),
     objects: s.objects.map(o => ({ objectId: o.objectId, visible: o.visible, snapshot: publicObject(o.snapshot) })),
-    contacts: s.contacts.map(c => ({ id: c.id, actorId: c.actorId, kind: c.kind, label: c.label, signs: c.signs, showHeight: c.showHeight, point: { x: c.point.x, y: c.point.y, z: c.point.z }, radius: c.radius })),
+    contacts: s.contacts.map(c => ({ id: c.id, actorId: c.actorId, kind: c.kind, label: c.label, signs: c.signs, showHeight: c.showHeight, ...(c.showVisuals!==undefined?{showVisuals:c.showVisuals}:{}), point: { x: c.point.x, y: c.point.y, z: c.point.z }, radius: c.radius })),
   })) })) }
 }
 export function perceptionReferencesValid(value: ScenePerceptions | undefined, scenes: SceneState | undefined, actorIds: string[]) {
@@ -97,7 +99,7 @@ export function prunePerceptions(value: ScenePerceptions, scenes: SceneState | u
     return { ...h, scenes: kept, activeSceneId: kept.some(s => s.sceneId === h.activeSceneId) ? h.activeSceneId : null }
   }); return next
 }
-export function perceivedMap(value: HeroPerception, scenes: SceneState | undefined, actors: { id: string; name: string; profile: { portrait?: string } }[]): PerceivedMap | null {
+export function perceivedMap(value: HeroPerception, scenes: SceneState | undefined, actors: VisualActor[], seconds=0): PerceivedMap | null {
   const knowledge = value.scenes.find(s => s.sceneId === value.activeSceneId), live = scenes?.scenes.find(s => s.id === value.activeSceneId)
   if (!knowledge || !live) return null
   const inArea = (p: ScenePosition, visible: boolean) => knowledge.areas.some(a => (!visible || a.visible) && withinArea(p, a))
@@ -116,5 +118,26 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
   })
   const self = live.tokens.find(t => t.actorId === value.actorId), actor = actors.find(a => a.id === value.actorId)
   if (self && actor) contacts.push({ id: 'self', kind: 'self', label: actor.name, signs: '', x: self.x, y: self.y, z: self.z, flying: self.support.kind === 'air', support: self.support.kind, ...(actor.profile.portrait ? { portrait: actor.profile.portrait } : {}) })
-  return { title: knowledge.title, description: knowledge.description, frame: mapFrame(knowledge.frame), areas: knowledge.areas.map(copyArea), objects, contacts }
+  const visuals:SceneAbilityVisual[]=[]
+  // Only own casts or contacts explicitly revealed by the master can produce VFX.
+  // No labels, internal cast/actor IDs, formulas or hidden target coordinates leave this projection.
+  for(let actorIndex=0;actorIndex<actors.length;actorIndex++) {
+    const source=actors[actorIndex],own=source.id===value.actorId,disclosed=knowledge.contacts.find(c=>c.actorId===source.id&&c.kind==='identified'&&c.showHeight&&c.showVisuals)
+    if(!own&&!disclosed)continue
+    const start=live.tokens.find(t=>t.actorId===source.id)
+    if(!start||!inArea(start,true))continue
+    const casts=source.rpg?.casts??[],last=casts.findLast(c=>c.status==='ended'&&!c.interruption)
+    for(let index=0;index<casts.length;index++) {
+      const cast=casts[index],prepared=cast.status==='preparing'||cast.status==='ready',persistent=cast.status==='maintaining'||cast.status==='ended'&&cast.endsAt!==null&&cast.endsAt>seconds
+      if(cast.status==='interrupted'||cast.spatialRelease&&cast.spatialRelease.sceneId!==live.id||cast.visualRelease&&cast.visualRelease.sceneId!==live.id||!prepared&&!persistent&&(cast!==last||!cast.visualRelease))continue
+      const target=live.tokens.find(t=>t.actorId===cast.targetId),targetKnown=cast.targetId===value.actorId||knowledge.contacts.some(c=>c.actorId===cast.targetId&&c.kind==='identified'&&c.showHeight)
+      const origin=!prepared&&!persistent?cast.visualRelease?.start??start:start
+      const end=prepared?start:!persistent?cast.visualRelease?.end:cast.spatialRelease?.point??(targetKnown?target:undefined)
+      if(!prepared&&!cast.spatialRelease&&!targetKnown)continue
+      if(!end||!inArea(end,true)||!inArea(origin,true))continue
+      const effect=castSceneVisual(cast,origin,end,'observed-'+actorIndex+'-'+index+'-'+(cast.visualRelease?.releasedAt??0),prepared?'preparation':persistent?'residue':'sequence')
+      if(effect&&inArea(effect.end,true))visuals.push(effect)
+    }
+  }
+  return { title: knowledge.title, description: knowledge.description, frame: mapFrame(knowledge.frame), areas: knowledge.areas.map(copyArea), objects, contacts, ...(visuals.length?{visuals:visuals.slice(-40)}:{}) }
 }

@@ -1,0 +1,78 @@
+.w6-vfx { pointer-events: none; isolation: isolate; }
+.w6-vfx-primary { fill: var(--vfx-primary); }
+.w6-vfx-highlight { fill: var(--vfx-highlight); }
+.w6-vfx-shade { fill: var(--vfx-shade); }
+.w6-vfx-line, .w6-vfx-light-line, .w6-vfx-outline, .w6-vfx-area {
+  fill: none; stroke: var(--vfx-primary); stroke-width: .065; stroke-linecap: round; stroke-linejoin: round;
+}
+.w6-vfx-light-line { stroke: var(--vfx-highlight); stroke-width: .045; }
+.w6-vfx-outline { opacity: .75; stroke-width: .035; }
+.w6-vfx-area { opacity: .65; }
+.w6-vfx-channel { fill: none; stroke: var(--vfx-primary); opacity: .22; stroke-linecap: round; }
+.w6-vfx-channel-core { animation: w6-vfx-bright var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-glyph { transform-origin: 0 0; }
+.w6-vfx-preparation .w6-vfx-glyph { animation: w6-vfx-form var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-release .w6-vfx-glyph, .w6-vfx-impact .w6-vfx-glyph { animation: w6-vfx-strike var(--vfx-duration) ease-out infinite; }
+.w6-vfx-residue .w6-vfx-glyph { opacity: .6; }
+.w6-vfx-particle { fill: var(--vfx-highlight); animation: w6-vfx-particle var(--vfx-duration) ease-out infinite; }
+.w6-vfx-inward .w6-vfx-particle { animation-name: w6-vfx-inward; }
+.w6-vfx-traveller { animation: w6-vfx-travel var(--vfx-duration) cubic-bezier(.28,.06,.64,.98) infinite; }
+.w6-vfx-turn { transform-origin: 0 0; animation: w6-vfx-turn calc(var(--vfx-duration) * 3) linear infinite; }
+.w6-vfx-orbit { transform-origin: 0 0; animation: w6-vfx-orbit var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-breathe { transform-origin: 0 0; animation: w6-vfx-breathe var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-flutter { transform-origin: 0 .6px; animation: w6-vfx-flutter calc(var(--vfx-duration) * .7) ease-in-out infinite; }
+.w6-vfx-flicker { animation: w6-vfx-flicker calc(var(--vfx-duration) * .6) steps(3, end) infinite; }
+.w6-vfx-shockwave { transform-origin: 0 0; animation: w6-vfx-shockwave var(--vfx-duration) ease-out infinite; }
+.w6-vfx-shiver { animation: w6-vfx-shiver calc(var(--vfx-duration) * .55) steps(4, end) infinite; }
+.w6-vfx-fragment { animation: w6-vfx-fragment var(--vfx-duration) ease-out infinite; }
+.w6-vfx-erase { animation: w6-vfx-erase calc(var(--vfx-duration) * 1.2) steps(5, end) infinite; }
+.w6-vfx-smoke { animation: w6-vfx-smoke var(--vfx-duration) ease-out infinite; }
+.w6-vfx-rise { animation: w6-vfx-rise var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-growth { transform-origin: 0 .85px; animation: w6-vfx-growth var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-paused *, .w6-vfx-paused { animation-play-state: paused !important; }
+.w6-vfx-reduced *, .w6-vfx-reduced { animation: none !important; }
+.w6-vfx-reduced .w6-vfx-traveller { transform: translate(var(--vfx-mid-x), var(--vfx-mid-y)); }
+.w6-vfx-reduced .w6-vfx-particle { opacity: .65; }
+@keyframes w6-vfx-form { 0%,100% { transform: scale(.7); opacity: .68; } 55% { transform: scale(1); opacity: 1; } }
+@keyframes w6-vfx-strike { 0% { transform: scale(.45); opacity: .75; } 18% { transform: scale(1.15); opacity: 1; } 44% { transform: scale(.94); } 100% { transform: scale(.8); opacity: .42; } }
+@keyframes w6-vfx-particle { 0% { transform: translateX(-.17px) scale(.5); opacity: 0; } 23% { opacity: .95; } 100% { transform: translateX(.6px) scale(.28); opacity: 0; } }
+@keyframes w6-vfx-inward { 0% { transform: translateX(.65px) scale(.5); opacity: 0; } 30% { opacity: .95; } 100% { transform: translateX(-.6px) scale(.25); opacity: 0; } }
+@keyframes w6-vfx-travel { 0% { transform: translate(0,0); opacity: .6; } 10%,82% { opacity: 1; } 100% { transform: translate(var(--vfx-dx),var(--vfx-dy)); opacity: .1; } }
+@keyframes w6-vfx-turn { to { transform: rotate(360deg); } }
+@keyframes w6-vfx-orbit { 0%,100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
+@keyframes w6-vfx-breathe { 0%,100% { transform: scale(.92); opacity: .7; } 50% { transform: scale(1.06); opacity: 1; } }
+@keyframes w6-vfx-flutter { 0%,100% { transform: skewX(-4deg) scaleY(.95); } 50% { transform: skewX(6deg) scaleY(1.03); } }
+@keyframes w6-vfx-flicker { 0%,100% { opacity: 1; } 28% { opacity: .42; } 52% { opacity: .9; } 72% { opacity: .6; } }
+@keyframes w6-vfx-shockwave { 0% { transform: scale(.55); opacity: .85; } 100% { transform: scale(1.7); opacity: 0; } }
+@keyframes w6-vfx-shiver { 0%,100% { transform: translate(0,0); } 33% { transform: translate(.022px,-.014px); } 66% { transform: translate(-.019px,.013px); } }
+@keyframes w6-vfx-fragment { 0% { transform: translate(0,0); opacity: .9; } 100% { transform: translate(.11px,-.13px); opacity: .25; } }
+@keyframes w6-vfx-erase { 0%,100% { opacity: .95; } 60% { opacity: .28; } 80% { opacity: .58; } }
+@keyframes w6-vfx-smoke { 0% { transform: translateY(0); opacity: .5; } 100% { transform: translateY(-.3px); opacity: 0; } }
+@keyframes w6-vfx-rise { 0%,100% { transform: translateY(.04px); opacity: .5; } 55% { transform: translateY(-.19px); opacity: 1; } }
+@keyframes w6-vfx-growth { 0%,100% { transform: scaleY(.88); } 50% { transform: scaleY(1.04); } }
+@keyframes w6-vfx-bright { 0%,100% { opacity: .55; } 50% { opacity: .95; } }
+@media (prefers-reduced-motion: reduce) {
+  .w6-vfx *, .w6-vfx { animation: none !important; }
+  .w6-vfx-traveller { transform: translate(var(--vfx-mid-x),var(--vfx-mid-y)); }
+  .w6-vfx-particle { opacity: .65; }
+}
+
+.w6-visual-picker { border: 1px solid #4e465f; border-radius: 10px; padding: 14px; margin: 16px 0; background: #191722; }
+.w6-visual-picker legend { color: #dcc9a5; padding: 0 7px; font-weight: 600; }
+.w6-visual-picker-layout { display: grid; grid-template-columns: minmax(230px,1fr) minmax(200px,1fr); gap: 18px; align-items: start; }
+.w6-visual-picker label { display: grid; gap: 6px; color: #d7d0e0; font-size: .88rem; }
+.w6-visual-picker select, .w6-visual-picker input[type=range] { width: 100%; }
+.w6-visual-picker select { min-height: 38px; border: 1px solid #544c63; border-radius: 6px; background: #242131; color: #eee8f7; padding: 6px 9px; }
+.w6-visual-picker select:focus-visible, .w6-visual-picker button:focus-visible, .w6-visual-picker input:focus-visible { outline: 2px solid #dcc08b; outline-offset: 3px; }
+.w6-visual-picker-settings { display: grid; gap: 12px; }
+.w6-visual-picker-settings output { color: #dcc08b; font-variant-numeric: tabular-nums; }
+.w6-visual-preview { margin: 0; min-width: 0; }
+.w6-visual-preview svg { width: 100%; aspect-ratio: 1.55; display: block; background: #11111b; border: 1px solid #3f394f; border-radius: 8px; }
+.w6-visual-preview figcaption { color: #afa7c0; font-size: .78rem; line-height: 1.5; margin-top: 8px; }
+.w6-visual-preview-controls { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.w6-visual-preview-controls button { border: 1px solid #544c63; border-radius: 6px; padding: 7px 10px; background: #282336; color: #eadff8; font: inherit; font-size: .8rem; cursor: pointer; }
+.w6-visual-picker-description { margin: 8px 0 0; color: #b7afc6; font-size: .8rem; line-height: 1.5; }
+.w6-visual-phase-list { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.w6-visual-phase-list button[aria-pressed=true] { background: #554368; border-color: #ab89c4; }
+.w6-visual-phase-list button { border: 1px solid #494151; border-radius: 5px; background: #262130; color: #d7cbe6; padding: 5px 8px; font: inherit; font-size: .74rem; cursor: pointer; }
+@media (max-width: 680px) { .w6-visual-picker-layout { grid-template-columns: 1fr; } }

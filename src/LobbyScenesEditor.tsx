@@ -46,7 +46,7 @@ export default function LobbyScenesEditor({ accountId, lobbyId, revision, checki
   return <section className="w6-fieldset"><h3>Сцены кампании</h3><p className="w6-copy">Здесь меняются только сцены. Листы, каталог и время мира остаются прежними. Черновик хранится отдельно для аккаунта и лобби.</p>
     <button className="w6-button" disabled={busy || checkingAccess} onClick={() => void load()}>{draft ? 'Загрузить свежие сцены' : 'Открыть сцены в редакторе'}</button>
     {draft && <><p className="w6-copy">{revision === undefined ? 'Проверяем версию сервера.' : draft.revision !== revision ? 'На сервере новая версия. Обнови сцены перед сохранением.' : 'Используется текущая версия сцены.'}</p>
-      <SceneEditor value={draft.scenes} actors={draft.actors} disabled={busy || checkingAccess} onChange={change}/>
+      <SceneEditor value={draft.scenes} actors={draft.actors} visuals={draft.visuals} disabled={busy || checkingAccess} onChange={change}/>
       <button className="w6-button w6-primary" disabled={busy || checkingAccess} onClick={() => void publish()}>Сохранить сцены на сервер</button></>}
     {warning && <p role="alert">{warning}</p>}<p className="w6-notice" role="status">{message}</p>
   </section>

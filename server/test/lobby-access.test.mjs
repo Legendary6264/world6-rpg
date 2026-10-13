@@ -39,7 +39,8 @@ for (const dialect of ['sqlite', 'postgres']) test('Разрешения и до
   await t.test('Отдельная операция сцен не раскрывает листы и не меняет время или владельцев', async () => {
     await grant(['scenes'])
     const editor = await api(root + '/scenes', helper.token)
-    assert.deepEqual(Object.keys(editor).sort(), ['actors', 'revision', 'scenes'])
+    assert.deepEqual(Object.keys(editor).sort(), ['actors', 'revision', 'scenes', 'visuals'])
+    assert.deepEqual(editor.visuals,{})
     assert.deepEqual(editor.actors[0], JSON.parse(JSON.stringify({ id: characterId, name: hero.name, profile: { portrait: hero.profile.portrait } })))
     const scenes = createScene(emptyScenes(), 'assistant-scene', 'Сцена помощника', 'top')
     await api(root + '/scenes', helper.token, 'PUT', { scenes, revision: editor.revision, world: { characters: [] }, seconds: 999, bindings: [] })

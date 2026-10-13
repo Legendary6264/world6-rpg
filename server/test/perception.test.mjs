@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { fixture, lobbyBody } from './fixtures.mjs'
 import { createDefaultCharacter } from '../generated/characterModel.mjs'
 import { createScene, emptyScenes, sceneObject, placeSceneToken } from '../generated/scenes.mjs'
+import { emptyAbility } from '../generated/rpgSchema.mjs'
 import { parseLobbyBackup } from '../generated/lobbyBackup.mjs'
 
 async function setup(t, dialect) {
@@ -56,6 +57,19 @@ for (const dialect of ['sqlite', 'postgres']) {
       await api(f.route(f.npc.id) + '/review', helper.token, 'POST', { decision: 'return', note: 'Подмена', revision: await f.revision() }, 403)
       await f.grant(['scenes', 'viewSecrets'])
       await f.disclose(f.draft(), f.heroes[0], 200, helper.token)
+    })
+    await t.test('Визуальные эффекты раскрываются отдельно и не передают скрытые имена или ID применения', async () => {
+      const world=await api(f.root+'/world',gm.token),npc=world.characters.find(a=>a.id===f.npc.id)
+      npc.rpg.casts=[{id:'private-spell-cast',ability:{...emptyAbility(),id:'private-ability',templateId:'private-template',approved:true,name:'PRIVATE SPELL',schoolId:'fire',visualEffect:{familyId:'fire'}},targetId:npc.id,status:'preparing',readyAt:10,endsAt:null,input:{region:'torso',distanceM:0,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:''}}]
+      await api(f.root+'/world',gm.token,'PUT',{world,revision:world.revision})
+      await f.disclose();assert.equal((await f.see()).map.visuals,undefined)
+      const d=f.draft();Object.assign(d.scenes[0].contacts[0],{kind:'identified',showHeight:true,showVisuals:true})
+      await f.disclose(d)
+      const effects=(await f.see()).map.visuals;assert.equal(effects.length,1);assert.equal(effects[0].spec.familyId,'fire')
+      for(const secret of [npc.id,'PRIVATE SPELL','private-spell-cast','private-ability','private-template'])assert(!JSON.stringify(effects).includes(secret))
+      // Restore the prior observation so existing privacy scenarios stay independent.
+      npc.rpg.casts=[];const fresh=await api(f.root+'/world',gm.token);fresh.characters.find(a=>a.id===npc.id).rpg.casts=[]
+      await api(f.root+'/world',gm.token,'PUT',{world:fresh,revision:fresh.revision});await f.disclose()
     })
     await t.test('Силуэт не раскрывает личность, портрет, высоту, полёт, фон, полный лист или скрытые объекты', async () => {
       const view = await f.see(), json = JSON.stringify(view), map = view.map
