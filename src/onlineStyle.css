@@ -2,3 +2,5 @@
 @media(max-width:760px){.w6-account-nav{width:100%;justify-content:flex-start}.w6-lobby-columns{grid-template-columns:1fr}.w6-community-tools{grid-template-columns:1fr}.w6-thread{padding:1rem}.w6-topic-row{padding:1rem .6rem}.w6-lobby-room .character-manager .panel{padding:.9rem}.w6-member-row{flex-wrap:wrap}.w6-community .w6-section-heading{flex-wrap:wrap}}
 
 .w6-community h1,.w6-community h2,.w6-community h3,.w6-community h4,.w6-community p,.w6-community small,.w6-cloud-library h3{overflow-wrap:anywhere}
+
+.gb-starter-assets{display:grid;grid-template-columns:repeat(auto-fit,minmax(95px,1fr));gap:.7rem;max-width:800px}.gb-starter-assets figure{margin:0;padding:.65rem;background:#101c2c;border:1px solid #345764;border-radius:5px}.gb-starter-assets img{display:block;width:100%;max-width:110px;aspect-ratio:1;image-rendering:pixelated;object-fit:contain;margin:auto}.gb-starter-assets figcaption{font-size:.8rem;color:#bad8d9;margin-top:.5rem}.gb-starter summary{cursor:pointer;color:#91e3d6}.gb-starter input[type=checkbox]{margin-right:.5rem}

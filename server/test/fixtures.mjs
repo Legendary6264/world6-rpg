@@ -17,12 +17,13 @@ export async function fixture(t,dialect='sqlite') {
   async end(){await this.database.close()}
  }:undefined
  if(Pool)config.databaseUrl='postgres-test'
- const server=await createApplication(config,{Pool}),base='http://127.0.0.1:'+(await server.listen()).port
+ let server=await createApplication(config,{Pool}),base='http://127.0.0.1:'+(await server.listen()).port
+ async function restart(){await server.close();server=await createApplication(config,{Pool});base='http://127.0.0.1:'+(await server.listen()).port}
  t.after(async()=>{await server.close();await rm(directory,{recursive:true,force:true})})
  async function request(path,token,method='GET',body){const r=await fetch(base+'/api'+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()}}
  async function api(path,token,method='GET',body,status=200){const r=await request(path,token,method,body);assert.equal(r.status,status,path+': '+JSON.stringify(r.data));return r.data}
  async function register(name){return api('/auth/register','', 'POST',{email:name+'@example.test',displayName:name,password:'Audit-regression-password-2026'},201)}
- return {server,base,request,api,register}
+ return {get server(){return server},get base(){return base},request,api,register,restart}
 }
 export const lobbyBody={title:'Проверка кампании',description:'Отдельная тестовая база',genre:'Приключение',slots:4,energy:'any',rank:'mortal',visibility:'public'}
 export function gate(){let release,reached;return {waiting:new Promise(r=>reached=r),wait:new Promise(r=>release=r),release:()=>release(),reached:()=>reached()}}

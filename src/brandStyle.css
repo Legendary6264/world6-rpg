@@ -1,0 +1,19 @@
+.gb-brand-mark, .w6-hero-seal img { image-rendering: pixelated; flex-shrink: 0; }
+.w6-brand strong { text-transform: uppercase; letter-spacing: .08em; }
+.w6-brand { min-height: 44px; }
+
+.w6-site-nav { flex-wrap: wrap; }
+.w6-site-nav .gb-site-links { flex-wrap: wrap; }
+.w6-site-nav .navigation-button { min-height: 44px; }
+.w6-site-nav .w6-account-nav { min-width: 0; flex-wrap: wrap; }
+.w6-account-nav .w6-button { max-width: 100%; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .w6-site-nav { gap: .75rem; padding: 1rem 0; margin-bottom: 1rem; }
+  .w6-site-nav .w6-brand { max-width: 100%; }
+  .w6-site-nav .w6-brand strong { font-size: 14px; letter-spacing: .06em; }
+  .w6-site-nav .gb-site-links { order: 3; width: 100%; flex-wrap: nowrap; overflow-x: auto; padding: .25rem 0 .5rem; }
+  .gb-site-links .navigation-button { flex: none; }
+  .w6-site-nav .w6-site-status { display: block; white-space: normal; }
+  .w6-site-nav .w6-account-nav { order: 2; width: 100%; }
+  .w6-account-nav .w6-button { min-height: 44px; }
+}

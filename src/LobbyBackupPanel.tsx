@@ -6,10 +6,10 @@ import type { LobbyBackupPreview, OwnerBinding } from './lobbyBackup'
 import type { World } from './rpgEngine'
 
 type Member = { id: string; displayName: string; disabled?: boolean }
-type Props = { lobbyId: string; revision?: number; checkingAccess: boolean; members: Member[];
+type Props = { lobbyId: string; revision?: number; checkingAccess: boolean; members: Member[]; allowRestore?: boolean;
   onRestored: (result: { world: World; revision: number }) => void }
 
-export default function LobbyBackupPanel({ lobbyId, revision, checkingAccess, members, onRestored }: Props) {
+export default function LobbyBackupPanel({ lobbyId, revision, checkingAccess, members, onRestored, allowRestore = true }: Props) {
   const { request, refresh } = useOnline()
   const [preview, setPreview] = useState<LobbyBackupPreview | null>(null)
   const [bindings, setBindings] = useState<OwnerBinding[]>([])
@@ -32,7 +32,7 @@ export default function LobbyBackupPanel({ lobbyId, revision, checkingAccess, me
         const previous = parsed.bindings?.find(b => b.characterId === c.id)
         return { characterId: c.id,
           ownerId: members.some(m => m.id === previous?.ownerId && !m.disabled) ? previous!.ownerId : '',
-          approved: previous?.approved ?? true }
+          approved: previous?.approved ?? true, ...(previous?.acceptedOnce === undefined ? {} : { acceptedOnce: previous.acceptedOnce }) }
       }))
       setMessage(parsed.bindings ? 'Проверь владельцев перед восстановлением.' : 'В прежней копии нет владельцев. Назначь их явно для каждого героя.')
     } catch (error) {
@@ -64,13 +64,13 @@ export default function LobbyBackupPanel({ lobbyId, revision, checkingAccess, me
   }
   const validOwners = bindings.every(b => members.some(m => m.id === b.ownerId && !m.disabled))
   return <details className="w6-fieldset">
-    <summary>Копия лобби и восстановление владельцев</summary>
-    <p className="w6-copy">Копия включает опубликованные листы, каталог, часы и владельцев героев. Перед восстановлением добавь нужных участников в целевое лобби.</p>
+    <summary>{allowRestore?'Копия лобби и восстановление владельцев':'Секретные материалы: копия кампании'}</summary>
+    <p className="w6-copy">Копия включает опубликованные листы, каталог, сцены, часы и владельцев героев. Перед восстановлением добавь нужных участников в целевое лобби.</p>
     <button className="w6-button" disabled={busy || checkingAccess} onClick={() => void act(backup)}>Скачать копию лобби с владельцами</button>
-    <label className="w6-field"><span>Копия лобби или прежняя копия кампании</span>
+    {allowRestore && <label className="w6-field"><span>Копия лобби или прежняя копия кампании</span>
       <input type="file" accept=".json,application/json" disabled={busy || checkingAccess} onChange={e => void read(e.currentTarget.files?.[0])} />
-    </label>
-    {preview && <div className="w6-entry">
+    </label>}
+    {allowRestore && preview && <div className="w6-entry">
       <p>Героев: {preview.world.characters.length}; время: {preview.world.campaign.seconds} с.</p>
       {preview.world.characters.map(c => {
         const original = preview.bindings?.find(b => b.characterId === c.id)

@@ -1,0 +1,28 @@
+.gb-lobby-workbench { min-width: 0; margin: 1rem 0; }
+.gb-lobby-tabs { display: flex; flex-wrap: wrap; gap: .5rem; padding: .75rem 0; border-bottom: 1px solid #42515e; }
+.gb-lobby-tabs .w6-button { min-height: 44px; white-space: normal; overflow-wrap: anywhere; }
+.gb-lobby-tabs [aria-selected="true"] { border-color: #8be7df !important; background: #25444c !important; color: #effffa !important; box-shadow: inset 0 -2px #8be7df; }
+.gb-lobby-panel { min-width: 0; padding-top: .5rem; overflow-wrap: anywhere; }
+.gb-lobby-panel[hidden], .gb-lobby-catalog[hidden] { display: none !important; }
+.gb-lobby-panel > .w6-fieldset:first-child { margin-top: .5rem; }
+.gb-lobby-panel:focus-visible { outline: 2px solid #8be7df; outline-offset: 4px; }
+.gb-lobby-catalog-toggle { margin-bottom: 1rem; }
+.gb-lobby-hint { border-left: 2px solid #8be7df; padding: .5rem .8rem; }
+.gb-player-screen .gb-lobby-tabs { margin-top: .75rem; }
+@media (max-width: 760px) {
+  .w6-community .w6-lobby-room { margin-top: 1rem; padding-top: 1rem; }
+  .w6-lobby-room .w6-button, .w6-lobby-room summary { min-height: 44px; box-sizing: border-box; }
+  .w6-lobby-room summary { padding: .65rem 0; }
+  .w6-lobby-room .w6-fieldset, .w6-lobby-room .w6-player-sheet { padding: .8rem; }
+  .w6-lobby-room .w6-attribute-grid { grid-template-columns: 1fr; }
+  .w6-lobby-room .w6-field input, .w6-lobby-room .w6-field select, .w6-lobby-room .w6-field textarea { min-height: 44px; font-size: 16px; }
+  .w6-lobby-room .w6-button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .w6-lobby-room .w6-chat-feed { max-height: 55vh; padding: .75rem; }
+  .w6-lobby-room .gb-scene-setup input { min-width: 0; }
+  .gb-lobby-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gb-lobby-tabs .w6-button { width: 100%; }
+}
+
+.gb-speech-listener { padding: .5rem; border: 1px solid #42515e; margin: .5rem 0; border-radius: 4px; }
+.gb-speech-listener summary { cursor: pointer; padding: .5rem 0; }
+.gb-speech-decisions { min-width: 0; }
