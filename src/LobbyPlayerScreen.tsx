@@ -7,6 +7,8 @@ import type { PerceivedMap } from './scenePerception'
 import type { JournalEntry, KnownEffect } from './characterKnowledge'
 import { journalCategories, certaintyOptions } from './characterKnowledge'
 import PerceivedScene from './PerceivedScene'
+import LobbyWorkbench from './LobbyWorkbench'
+import LobbyConversations from './LobbyConversations'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
 const LobbyActionDeclarations = lazy(() => import('./LobbyActionDeclarations'))
 type PlayerView = { revision: number; hero: PlayerCharacter; map: PerceivedMap | null; canWriteNotes: boolean;
@@ -35,14 +37,21 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
   return <section className="w6-fieldset gb-player-screen"><h4>Экран героя</h4><button className="w6-button" disabled={checkingAccess || busy} onClick={() => setOpened(!opened)}>{opened ? 'Свернуть экран героя' : 'Открыть экран героя'}</button>
     {opened && <><p role="status">{remote.loading ? 'Загружаем доступные герою сведения…' : remote.error}</p>{value && <>
       <p className="w6-copy">Сведения героя индивидуальны. Мастер управляет раскрытием; выбор отметки не перемещает героя и не тратит время.</p>
+      <LobbyWorkbench label={'Разделы героя '+character.name} sections={[
+        {id:'actions',label:'Сцена и действия',content:<>
       {value.map ? <PerceivedScene map={value.map} selected={selected} onSelect={setSelected} onPoint={setPickedPoint}/> : <p className="gb-scene-empty">Мастер ещё не открыл этому герою сцену.</p>}
       <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading} selectedContact={selected} pickedPoint={pickedPoint} members={members}/></Suspense>
-      <div className="gb-player-tabs"><details open><summary>Состояние и возможности</summary>
+        </>},
+        {id:'state',label:'Состояние',content:<div className="gb-player-tabs">
+<details open><summary>Состояние и возможности</summary>
         {value.hero.resources && <p>{Object.entries(value.hero.resources).map(([k, r]) => <span key={k}>{k === 'mana' ? 'Мана' : k === 'shadow' ? 'Тень' : 'Выносливость'}: {r.current} / {r.maximum} · </span>)}</p>}
         {value.hero.sensations?.map((s, i) => <div key={i}><strong>{s.label}</strong>{s.symptoms.map(x => <p key={x}>{x}</p>)}{s.diagnoses.map(x => <p key={x}>Известный диагноз: {x}</p>)}</div>)}
         {value.hero.capabilities?.map(x => <p key={x}>{x}</p>)}
       </details><details><summary>Инвентарь</summary>{value.inventory.length ? value.inventory.map(i => <p key={i.id}>{i.name} × {i.quantity} · {i.description}</p>) : <p>Инвентарь пуст.</p>}</details>
-      <details><summary>Известные способности</summary>{value.hero.abilities?.length ? value.hero.abilities.map(a => <p key={a.id}><strong>{a.name}</strong> · {a.description}</p>) : <p>Нет утверждённых способностей.</p>}</details>
+      <div aria-label="Мои заряды">{value.hero.charges?.map(c=><p key={c.id}>{c.name}: {c.status==='ready'?'готов к отдельному выпуску':'подготовка'}.{c.holding&&<> {c.status==='ready'&&c.holding.remainingSeconds!==null?'Осталось удержания: '+c.holding.remainingSeconds+' с.':''} Расход удержания за мировую секунду: Мана {c.holding.holdCost.mana}, Тень {c.holding.holdCost.shadow}, Выносливость {c.holding.holdCost.stamina}.</>}</p>)}</div><details><summary>Известные способности</summary>{value.hero.abilities?.length ? value.hero.abilities.map(a => <p key={a.id}><strong>{a.name}</strong> · {a.description}</p>) : <p>Нет утверждённых способностей.</p>}</details>
+        </div>},
+        {id:'conversations',label:'Разговоры',content:<LobbyConversations journal={value.knowledge.journal}/>},
+        {id:'journal',label:'Журнал',content:<div className="gb-player-tabs">
       <details open><summary>Знания и журнал</summary><label className="w6-field"><span>Поиск в журнале героя</span><input aria-label="Поиск в журнале героя" value={query} onChange={e => setQuery(e.currentTarget.value)}/></label>
         <p className="w6-copy">Показаны последние {Math.min(20, entries.length)} из {entries.length} подходящих записей.</p>
         {entries.slice(-20).reverse().map(e => <article className="gb-journal-entry" key={e.id}><h4>{e.title}</h4><small>{journalCategories.find(c => c.key === e.category)?.label} · {certaintyOptions.find(c => c.key === e.certainty)?.label} · {e.source} · {e.gameTime}</small><p className="w6-prose">{e.text}</p>{e.annotation && <p className="w6-prose">Примечание: {e.annotation}</p>}</article>)}
@@ -53,7 +62,8 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
           {stale && <><p role="alert">Кампания изменилась. Проверь заметку перед отправкой.</p><button className="w6-button" onClick={() => remember({ ...note, revision: value.revision })}>Заметка проверена с текущей версией</button></>}
           <button className="w6-button" disabled={!note.title.trim() || !note.text.trim() || !!stale} onClick={() => void save()}>Записать личную заметку</button>
         </fieldset> : <p className="w6-copy">Управление передано: сведения доступны для чтения, заметки записывает действующий управляющий.</p>}
-      </details></div>
+      </details>        </div>},
+      ]}/>
     </>}{warning && <p role="alert">{warning}</p>}<p role="status">{message}</p></>}
   </section>
 }

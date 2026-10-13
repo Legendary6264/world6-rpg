@@ -1,3 +1,8 @@
+import {economyReferencesValid,pruneEconomy} from './campaignEconomy'
+import {tradeReferencesValid,pruneTrade} from './campaignTrade'
+import {atlasReferencesValid,pruneAtlas} from './campaignAtlas'
+import { productBrand } from './productBrand'
+import { roundWorkReferencesValid } from './roundWork'
 import { declarationReferencesValid, pruneDeclarations } from './actionDeclarations'
 import ActionReview from './ActionReview'
 import { Illustration } from './VisualElements'
@@ -50,7 +55,10 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
 
   function commitWorld(next:World) {
     if(initial.blocked)throw new Error('Запись заблокирована.')
-    if(!declarationReferencesValid(next.campaign.declarations,next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('Проверь заявления и участников.');if(!perceptionReferencesValid(next.campaign.perceptions,next.campaign.scenes,next.characters.map(c=>c.id)) || next.characters.length>200 || !isCampaign(next.campaign) || !sceneReferencesValid(next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('Проверь состав кампании и персонажей на сценах.')
+    if(!economyReferencesValid(next.campaign.economy,next.characters.map(c=>c.id),next.campaign.trade))throw new Error('Проверь получателей и валюты правил учёта.')
+    if(!tradeReferencesValid(next.campaign.trade,next.characters.map(c=>c.id),next.campaign.atlas))throw new Error('Проверь связи имущества и кошельков.')
+    if(!atlasReferencesValid(next.campaign.atlas,next.characters.map(c=>c.id),next.campaign.scenes?.scenes.map(s=>s.id)??[]))throw new Error('Проверь связи городов, организаций, NPC и сцен.')
+    if(!roundWorkReferencesValid(next.campaign.roundWork,next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('В работе неизвестные герои или сцены.');if(!declarationReferencesValid(next.campaign.declarations,next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('Проверь заявления и участников.');if(!perceptionReferencesValid(next.campaign.perceptions,next.campaign.scenes,next.characters.map(c=>c.id)) || next.characters.length>200 || !isCampaign(next.campaign) || !sceneReferencesValid(next.campaign.scenes,next.characters.map(c=>c.id)))throw new Error('Проверь состав кампании и персонажей на сценах.')
     // Перед записью ограничиваем текущие запасы, не переписывая ручные максимумы.
     for(const c of next.characters){
       if(!isCharacterDraft(c))throw new Error('Исправь незавершённые поля всех героев перед сохранением.')
@@ -61,12 +69,12 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
     if(!onRemotePublish)writeCharacters(window.localStorage,next.characters,next.campaign)
     setCharacters(next.characters);setCampaign(next.campaign);setDirty(false)
   }
-  function persistCharacters(next:SavedCharacter[]) {commitWorld({characters:next.map(c=>({...normalizeCharacterDraft(c),id:c.id})),campaign:{...campaign,revision:campaign.revision+1,...(campaign.declarations?{declarations:pruneDeclarations(campaign.declarations,campaign.scenes,next.map(c=>c.id))}:{}),...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,campaign.scenes,next.map(c=>c.id))}:{}),...(campaign.scenes?{scenes:pruneSceneActors(campaign.scenes,next.map(c=>c.id))}:{})}})}
+  function persistCharacters(next:SavedCharacter[]) {commitWorld({characters:next.map(c=>({...normalizeCharacterDraft(c),id:c.id})),campaign:{...campaign,...(campaign.economy?{economy:pruneEconomy(campaign.economy,next.map(c=>c.id))}:{}),...(campaign.trade?{trade:pruneTrade(campaign.trade,next.map(c=>c.id))}:{}),...(campaign.atlas?{atlas:pruneAtlas(campaign.atlas,next.map(c=>c.id),campaign.scenes?.scenes.map(s=>s.id)??[])}:{}),revision:campaign.revision+1,...(campaign.declarations?{declarations:pruneDeclarations(campaign.declarations,campaign.scenes,next.map(c=>c.id))}:{}),...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,campaign.scenes,next.map(c=>c.id))}:{}),...(campaign.scenes?{scenes:pruneSceneActors(campaign.scenes,next.map(c=>c.id))}:{})}})}
   function changeScenes(scenes:SceneState){
     try{
       if(initial.blocked)throw new Error('Сначала восстанови доступ к сохранению.')
-      const next={...campaign,revision:campaign.revision+1,scenes,...(campaign.declarations?{declarations:pruneDeclarations(campaign.declarations,scenes,characters.map(c=>c.id))}:{}),...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,scenes,characters.map(c=>c.id))}:{})}
-      if(!isCampaign(next)||!sceneReferencesValid(scenes,characters.map(c=>c.id)))throw new Error('Проверь сцену и персонажей.')
+      const next={...campaign,...(campaign.atlas?{atlas:pruneAtlas(campaign.atlas,characters.map(c=>c.id),scenes.scenes.map(s=>s.id))}:{}),revision:campaign.revision+1,scenes,...(campaign.declarations?{declarations:pruneDeclarations(campaign.declarations,scenes,characters.map(c=>c.id))}:{}),...(campaign.perceptions?{perceptions:prunePerceptions(campaign.perceptions,scenes,characters.map(c=>c.id))}:{})}
+      if(!roundWorkReferencesValid(next.roundWork,scenes,characters.map(c=>c.id)))throw new Error('Сцена нужна переносимой работе. Сначала явно разреши её судьбу.');if(!isCampaign(next)||!sceneReferencesValid(scenes,characters.map(c=>c.id)))throw new Error('Проверь сцену и персонажей.')
       assertCampaignSize({characters,campaign:next})
       // Scene setup must not recalculate physiology, heal or advance game time.
       if(!onRemotePublish)writeCharacters(window.localStorage,characters,next)
@@ -79,7 +87,7 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
     if(isCharacterDraft(actor)){try{const capped=effectiveActor(actor,campaign.seconds);actor=recalculateLife({...normalizeCharacterDraft(actor),id:actor.id},campaign.seconds,crypto.randomUUID());for(const k of ['health','mana','shadow','stamina'] as const)actor.resources[k].current=capped.resources[k].current}catch{/* Незавершённую формулу можно исправить в редакторе. */}}
     setCharacters(previous=>previous.map(c=>c.id===actor.id?actor:c));setCampaign(previous=>({...previous,revision:previous.revision+1}));setDirty(true)}
   function changeCatalog(next:Campaign){
-    try{if(initial.blocked||!isCampaign(next))throw new Error('Проверь каталог.')
+    try{if(initial.blocked||!isCampaign(next)||!roundWorkReferencesValid(next.roundWork,next.scenes,characters.map(c=>c.id)))throw new Error('Проверь каталог, героев и сцены переносимой работы.')
       // Каталог находится в том же снимке, что герои. Не теряем текущие черновики.
       commitWorld({characters:characters.map(c=>({...normalizeCharacterDraft(c),id:c.id})),campaign:{...next,revision:campaign.revision+1}})
       return {ok:true,message:'Каталог и текущие листы сохранены.'}
@@ -127,6 +135,10 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
   function deleteCharacter(id: string) {
     const character = characters.find(item => item.id === id)
     if (!character) return
+    if (campaign.roundWork?.entries.some(e => e.actorId === id)) {
+      setMessage('У героя есть переносимая работа. Сначала явно разреши её судьбу; удаление не выполнено.')
+      return
+    }
     if (!window.confirm('Удалить персонажа «' + character.name + '»? ' +
       'Сохранённые данные и несохранённые изменения этого героя будут удалены.')) return
 
@@ -162,7 +174,7 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
   }
 
   return (
-    <div className="character-manager"><header className="w6-atlas-banner"><div><p className="w6-eyebrow">Летопись персонажей</p><h1>Мир 6</h1><p>Тело, магия и история твоего героя</p></div></header>
+    <div className="character-manager"><header className="w6-atlas-banner"><div><p className="w6-eyebrow">Летопись персонажей</p><h1>{productBrand.name}</h1><p>Тело, магия и история твоего героя</p></div></header>
       {onRemotePublish&&<section className="panel w6-remote-publish"><h2>Редактор общей кампании</h2><p className="w6-copy">Изменения готовятся в этом черновике. Публикация отправляет их участникам и проверяет версию кампании на сервере.</p><button className="w6-button w6-primary" disabled={publishing||remotePublishDisabled} onClick={async()=>{setPublishing(true);try{setMessage(await onRemotePublish(world));setDirty(false)}catch(e){setMessage((e as Error).message)}finally{setPublishing(false)}}}>{publishing?'Публикуем…':'Опубликовать изменения кампании'}</button></section>}
       <details className="panel w6-world-settings"><summary>Игра и настройки лобби / мира</summary><CampaignPanel remote={!!onRemotePublish} world={world} onPlan={showPlan} onRestore={applyWorld} onExamples={examples}/></details>
       <SceneEditor value={campaign.scenes} actors={characters} onChange={changeScenes} disabled={initial.blocked}/>

@@ -9,6 +9,7 @@ export type SceneSupport = { kind: 'ground' } | { kind: 'air' } | { kind: 'objec
 export type SceneToken = ScenePosition & { actorId: string; diameter: number; support: SceneSupport }
 export type Scene = {
   id: string; name: string; description: string; view: 'top' | 'side'
+  roundDurationSeconds?: number
   width: number; depth: number; groundZ: number; minZ: number; maxZ: number
   palette: 'forest' | 'stone' | 'neon'; background?: string
   objects: SceneObject[]; tokens: SceneToken[]

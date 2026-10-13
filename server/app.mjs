@@ -37,6 +37,6 @@ export async function createApplication(config=readConfig(),{Pool}={}){
  auth.routes(app,rateLimit({windowMs:15*60000,limit:30,standardHeaders:'draft-8',legacyHeaders:false,message:{message:'Слишком много попыток входа. Повтори позже.'}}))
  forumRoutes(app,context);lobbyRoutes(app,context);communityRoutes(app,context);worldEntryRoutes(app,context)
  app.use('/api',(req,res)=>res.status(404).json({message:'Метод API не найден.'}))
- app.use((error,req,res,next)=>{if(res.headersSent)return next(error);const status=error.status||500;if(status>=500)console.error('API error:',error.code||error.name,error.message);res.status(status).json({message:status>=500?'Сервер не смог выполнить запрос. Повтори позже.':error.type==='entity.too.large'?'Загрузка превышает 10 МиБ.':error.message})})
+ app.use((error,req,res,next)=>{if(res.headersSent)return next(error);const status=error.status||500;if(status>=500)console.error('API error:',error.code||error.name,error.message);res.status(status).json({message:status>=500?'Сервер не смог выполнить запрос. Повтори позже.':error.type==='entity.too.large'?(req.path.endsWith('/archive/calculate')?'Полная копия превышает 32 МиБ.':'Загрузка превышает 10 МиБ.'):error.message})})
  return {app,http,io,db,config,listen:()=>new Promise(resolve=>http.listen(config.port,config.host,()=>resolve(http.address()))),close:async()=>{await new Promise(resolve=>io.close(resolve));await db.close()}}
 }

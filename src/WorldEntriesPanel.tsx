@@ -23,7 +23,7 @@ export default function WorldEntriesPanel({ manage = false }: { manage?: boolean
   }
   const items = manage ? entries.value : feed.value?.items
   return <CommunityShell title={manage ? 'Редактор мира' : 'Материалы мира'}>
-    <p className="w6-copy">{manage ? 'Редактор готовит свои черновики. Администратор или владелец проверяет и публикует материалы. Эта роль не даёт доступа к чужим лобби или аккаунтам.' : 'Проверенные материалы команды Мира 6. Предложения участников обсуждаются на форуме.'}</p>
+    <p className="w6-copy">{manage ? 'Редактор готовит свои черновики. Администратор или владелец проверяет и публикует материалы. Эта роль не даёт доступа к чужим лобби или аккаунтам.' : 'Проверенные материалы команды «Граней Бытия». Предложения участников обсуждаются на форуме.'}</p>
     {manage && !allowed && <p className="w6-notice">Этот раздел доступен редакторам мира и администрации.</p>}
     {manage && user?.mfaRequired && <p className="w6-notice">Подтверди второй фактор в разделе «Аккаунт».</p>}
     {manage && allowed && !user?.mfaRequired && <form className="w6-form w6-fieldset" onSubmit={e => {

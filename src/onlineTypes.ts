@@ -13,7 +13,7 @@ export type MineLobby={id:string;title:string;status:string;visibility:string;ro
 export type CloudCharacter={id:string;name:string;revision:number;updated_at:string}
 export type Publication={id:string;title:string;body:string;kind:string;author_id:string;author:string;created_at:string}
 export type Ticket=Publication&{status:string;updated_at:string}
-export type PlayerCharacter={id:string;name:string;ownerId:string;approved:boolean;control?:import('./lobbyAccess').CharacterControl;review?:import('./heroReview').HeroReviewSummary;profile:{energy:string;rank:string;rankStep:number};resources?:Record<string,{current:string;maximum:string}>;sensations?:{label:string;symptoms:string[];diagnoses:string[]}[];capabilities?:string[];abilities?:{id:string;name:string;description:string}[]}
-export type PlayerWorld={revision:number;campaign:{seconds:number};characters:PlayerCharacter[]}
+export type PlayerCharacter={npc?:boolean;charges?:{id:string;abilityId:string;name:string;status:string;holding?:{remainingSeconds:number|null;holdCost:import('./rpgTypes').Cost}}[];id:string;name:string;ownerId:string;approved:boolean;control?:import('./lobbyAccess').CharacterControl;review?:import('./heroReview').HeroReviewSummary;profile:{energy:string;rank:string;rankStep:number};resources?:Record<string,{current:string;maximum:string}>;sensations?:{label:string;symptoms:string[];diagnoses:string[]}[];capabilities?:string[];abilities?:{id:string;name:string;description:string}[]}
+export type PlayerWorld={revision:number;campaign:{seconds:number;roundWork?:import('./roundWork').PersonalRoundWork[]};characters:PlayerCharacter[]}
 
 export type WorldEntry={id:string;author_id:string;author:string;title:string;category:string;body:string;status:'draft'|'published';revision:number;updated_at:string}

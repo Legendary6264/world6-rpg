@@ -26,6 +26,7 @@ function validScene(v: unknown): v is Scene {
       typeof v.palette !== 'string' || !['forest', 'stone', 'neon'].includes(v.palette) ||
       !size(v.width) || !size(v.depth) || !finite(v.groundZ) || !finite(v.minZ) || !finite(v.maxZ) ||
       v.minZ > v.groundZ || v.groundZ >= v.maxZ ||
+      (v.roundDurationSeconds!==undefined&&(typeof v.roundDurationSeconds!=='number'||!Number.isFinite(v.roundDurationSeconds)||v.roundDurationSeconds<=0||v.roundDurationSeconds>86400)) ||
       (v.background !== undefined && !isArtwork(v.background)) ||
       !Array.isArray(v.objects) || v.objects.length > MAX_SCENE_OBJECTS ||
       !Array.isArray(v.tokens) || v.tokens.length > MAX_SCENE_TOKENS) return false
@@ -64,6 +65,7 @@ export function copySceneState(state: SceneState): SceneState {
   return { version: 1, activeSceneId: state.activeSceneId, scenes: state.scenes.map(s => ({
     id: s.id, name: s.name, description: s.description, view: s.view, width: s.width, depth: s.depth,
     groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, palette: s.palette,
+    ...(s.roundDurationSeconds!==undefined?{roundDurationSeconds:s.roundDurationSeconds}:{}),
     ...(s.background !== undefined ? { background: s.background } : {}),
     objects: s.objects.map(o => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z,
       width: o.width, depth: o.depth, height: o.height, blocksMovement: o.blocksMovement,

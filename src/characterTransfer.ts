@@ -1,5 +1,6 @@
 import { copyProfile } from './characterProfile'
 import { copyRpg, isCampaign, copyCampaign } from './rpgSchema'
+import { roundWorkReferencesValid } from './roundWork'
 import type { Campaign } from './rpgTypes'
 import { cloneBody } from './characterBody'
 import {
@@ -97,6 +98,7 @@ export function parseCharacterArchive(text: string): ImportResult {
   }
   const campaignValue=(parsed as Record<string,unknown>).campaign
   if (campaignValue !== undefined && !isCampaign(campaignValue)) return { ok:false, message:'Некорректные часы или каталог кампании.' }
+  if (campaignValue !== undefined && !roundWorkReferencesValid((campaignValue as Campaign).roundWork,(campaignValue as Campaign).scenes,[...ids])) return {ok:false,message:'В архиве работа с неизвестными героями или сценами.'}
   return { ok: true, preview: { characters, sourceLabel, ...(campaignValue !== undefined ? {campaign:copyCampaign(campaignValue as Campaign)}:{}) } }
 }
 
@@ -107,6 +109,7 @@ export function createCharacterArchive(characters: SavedCharacter[], at: string,
     throw new Error('Проверь персонажей перед экспортом. В одном архиве — от 1 до 200 героев.')
   }
   if (campaign !== undefined && !isCampaign(campaign)) throw new Error('Некорректная кампания.')
+  if (campaign && !roundWorkReferencesValid(campaign.roundWork,campaign.scenes,characters.map(c=>c.id))) throw new Error('В архиве работа с неизвестными героями или сценами.')
   const text = JSON.stringify({
     format: ARCHIVE_FORMAT, version: 1, exportedAt: at, ...(campaign ? {campaign:copyCampaign(campaign)}:{}),
     characters: characters.map(character => ({ ...portableCharacter(character), id: character.id })),

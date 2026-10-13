@@ -39,6 +39,52 @@ async function setup(t, dialect) {
   return { ...f, get server() { return f.server }, gm, player, other, helper, root, heroes, npc, route, revision, grant, start, view, body, send, phase }
 }
 const wait = (note = '') => [{ kind: 'wait', seconds: 1, note }]
+for (const dialect of ['sqlite', 'postgres']) test('Временная шкала: права, версии и отсутствие исполнения · ' + dialect, async t => {
+  const f = await setup(t, dialect), { api, gm, player, other, helper } = f
+  await f.start()
+  await f.send([{ kind: 'speak', text: 'ПРИВАТНАЯ РЕЧЬ ПРЕДПРОСМОТРА', volume: 'whisper', target: { kind: 'none' }, note: '' }, ...wait()])
+  const body = async () => {
+    const v = await api(f.root + '/declarations', gm.token), c = v.declarations.active
+    return { revision: v.revision, collectionId: c.id, epoch: c.epoch,
+      timings: c.entries.filter(e => e.status === 'submitted').map(e => ({ actorId: e.actorId, entryRevision: e.revision, budgetMs: 10000,
+        costs: e.actions.flatMap((a, index) => a.kind === 'wait' ? [] : [{ index, personalMs: 1000 }]) })) }
+  }
+  const preview = (b, token = gm.token, status = 200) => api(f.root + '/declarations/preview', token, 'POST', b, status)
+  await t.test('Нельзя считать открытый сбор; после закрытия порядок и отсутствующий участник видны мастеру', async () => {
+    await preview(await body(), gm.token, 409); await f.phase('close')
+    const result = await preview(await body())
+    assert.deepEqual(result.timeline.groups.map(g => g.atMs), [500, 1500])
+    assert.deepEqual(result.timeline.missingActorIds, [f.heroes[1]])
+  })
+  await t.test('Игрок и помощник без обоих прав не получают временную шкалу', async () => {
+    await preview(await body(), '', 401)
+    for (const token of [player.token, other.token]) await preview(await body(), token, 403)
+    for (const permissions of [[], ['rounds'], ['viewSecrets']]) {
+      await f.grant(permissions); await preview(await body(), helper.token, 403)
+    }
+    await f.grant(['rounds', 'viewSecrets']); await preview(await body(), helper.token)
+    await f.grant(['rounds']); await preview(await body(), helper.token, 403)
+  })
+  await t.test('Повторный предпросмотр не пишет мир, ревизию, историю, аудит или чат', async () => {
+    const before = await api(f.root + '/world', gm.token)
+    const audit = await f.server.db.get('SELECT COUNT(*) AS n FROM audit'), b = await body()
+    const first = await preview({ ...b, world: { campaign: { seconds: 999999 } } }), second = await preview(b)
+    assert.deepEqual(first, second)
+    assert.deepEqual(await api(f.root + '/world', gm.token), before)
+    assert.deepEqual(await f.server.db.get('SELECT COUNT(*) AS n FROM audit'), audit)
+    assert.deepEqual((await api(f.root + '/messages', other.token)).items, [])
+    assert(!JSON.stringify(await f.view(1)).includes('ПРИВАТНАЯ РЕЧЬ ПРЕДПРОСМОТРА'))
+    assert(!JSON.stringify(first).includes(f.npc.name))
+  })
+  await t.test('Устаревшие параметры и неверные длительности отвергаются без частичной записи', async () => {
+    const b = await body()
+    for (const invalid of [{ ...b, revision: b.revision - 1 }, { ...b, epoch: b.epoch - 1 }, { ...b, collectionId: 'old' }]) await preview(invalid, gm.token, 409)
+    for (const invalid of [{ ...b, timings: [] }, { ...b, timings: [{ ...b.timings[0], budgetMs: 0 }] },
+      { ...b, timings: [{ ...b.timings[0], entryRevision: 999 }] }, { ...b, timings: [{ ...b.timings[0], costs: [{ index: 1, personalMs: 100 }] }] }]) await preview(invalid, gm.token, 400)
+    await f.phase('reopen'); await preview(b, gm.token, 409)
+    await f.phase('close'); await preview(await body())
+  })
+})
 for (const dialect of ['sqlite', 'postgres']) {
   test('Заявления: приватность, конкуренция и сохранение · ' + dialect, async t => {
     const f = await setup(t, dialect), { api, gm, player, other, helper } = f

@@ -13,11 +13,26 @@ export const visualArtwork = {
  banner:new URL('./assets/atlas/atlas-banner.webp',import.meta.url).href,
  'body-front':new URL('./assets/atlas/body-front.webp',import.meta.url).href,
  'body-back':new URL('./assets/atlas/body-back.webp',import.meta.url).href,
+ 'pixel-guide':new URL('./assets/starter/portrait-guide.svg',import.meta.url).href,
+ 'pixel-keeper':new URL('./assets/starter/portrait-keeper.svg',import.meta.url).href,
+ 'pixel-watcher':new URL('./assets/starter/portrait-watcher.svg',import.meta.url).href,
+ 'pixel-staff':new URL('./assets/starter/item-staff.svg',import.meta.url).href,
+ 'pixel-lantern':new URL('./assets/starter/item-lantern.svg',import.meta.url).href,
+ 'pixel-ration':new URL('./assets/starter/item-ration.svg',import.meta.url).href,
+ 'pixel-focus':new URL('./assets/starter/effect-focus.svg',import.meta.url).href,
+ 'pixel-ground-stone':new URL('./assets/starter/ground-stone.svg',import.meta.url).href,
+ 'pixel-ground-yard':new URL('./assets/starter/ground-yard.svg',import.meta.url).href,
+ 'pixel-gallery':new URL('./assets/starter/gallery.svg',import.meta.url).href,
 }
 export type ArtworkKey=keyof typeof visualArtwork
-export const artworkLabels:Record<ArtworkKey,string>={stone:'Камень','portrait-traveler':'Путник','portrait-mage':'Учёная маг','portrait-elf':'Эльфийский следопыт',weapons:'Оружие',armor:'Броня',artifact:'Артефакт',supplies:'Расходники',banner:'Мир 6','body-front':'Фигура спереди','body-back':'Фигура сзади'}
-export const portraitPresets:ArtworkKey[]=['portrait-traveler','portrait-mage','portrait-elf']
-export const itemPresets:ArtworkKey[]=['weapons','armor','artifact','supplies']
+export const artworkLabels:Record<ArtworkKey,string>={stone:'Камень','portrait-traveler':'Путник','portrait-mage':'Учёная маг','portrait-elf':'Эльфийский следопыт',weapons:'Оружие',armor:'Броня',artifact:'Артефакт',supplies:'Расходники',banner:'Грани Бытия','body-front':'Фигура спереди','body-back':'Фигура сзади',
+ 'pixel-guide':'Проводник · пиксели','pixel-keeper':'Кладовщица · пиксели','pixel-watcher':'Наблюдатель · пиксели',
+ 'pixel-staff':'Посох · пиксели','pixel-lantern':'Фонарь · пиксели','pixel-ration':'Припас · пиксели','pixel-focus':'Сосредоточение · пиксели',
+ 'pixel-ground-stone':'Тёмный камень','pixel-ground-yard':'Неоновый двор','pixel-gallery':'Боковая галерея'}
+export const portraitPresets:ArtworkKey[]=['pixel-guide','pixel-keeper','pixel-watcher','portrait-traveler','portrait-mage','portrait-elf']
+export const itemPresets:ArtworkKey[]=['pixel-staff','pixel-lantern','pixel-ration','weapons','armor','artifact','supplies']
+export const sceneBackgroundPresets:ArtworkKey[]=['pixel-ground-stone','pixel-ground-yard','pixel-gallery']
+export const effectPresets:ArtworkKey[]=['pixel-focus','stone','artifact','supplies']
 export const MAX_ARTWORK_LENGTH=120000
 export function isArtwork(v:unknown):v is string{return typeof v==='string'&&(v==='auto'||Object.hasOwn(visualArtwork,v)||v.length<=MAX_ARTWORK_LENGTH&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(v))}
 export function artworkSource(value:string|undefined,fallback:ArtworkKey='artifact'):string {

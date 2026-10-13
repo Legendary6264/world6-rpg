@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import type { Scene, SceneActor, SceneObject, SceneObjectKind, ScenePosition, SceneState, SceneSupport } from './sceneTypes'
 import { addSceneObject, createScene, deleteScene, emptyScenes, MAX_SCENES, moveSceneObject,
   placeSceneToken, removeSceneObject, replaceScene, sceneObject, sceneObjectLabels } from './scenes'
+import { sceneBackgroundPresets } from './visualMedia'
 import { ArtworkPicker } from './VisualElements'
 import SceneViewport, { SceneGlyph } from './SceneViewport'
 import type { SceneSelection } from './SceneViewport'
@@ -141,7 +142,7 @@ export default function SceneEditor({ value, actors, disabled = false, onChange 
         <Label label="Оформление окружения"><select name="palette" defaultValue={scene.palette}><option value="forest">Природа</option><option value="stone">Камень</option><option value="neon">Неон и металл</option></select></Label>
         <div className="gb-wide"><button className="w6-button w6-primary" disabled={disabled}>Сохранить параметры сцены</button></div>
       </form><p className="w6-copy">Параметры формы применяются кнопкой сохранения. Расстановка и сохранённые параметры входят в черновик кампании. Уменьшение сцены не перемещает объекты автоматически.</p>
-      {!disabled && <ArtworkPicker key={scene.id} label="Фон сцены" value={scene.background} presets={[]} onChange={background => perform(() => replaceScene(state, { ...scene, background }))}/>}</details>
+      {!disabled && <ArtworkPicker key={scene.id} label="Фон сцены" value={scene.background} presets={sceneBackgroundPresets} onChange={background => perform(() => replaceScene(state, { ...scene, background }))}/>}</details>
     </> : <div className="gb-scene-empty"><h3>Начни с первой сцены</h3><p>Создай место, размести окружение и добавь портреты персонажей.</p></div>}
     {message && <p className="gb-scene-state" role="status">{message}</p>}
   </section>

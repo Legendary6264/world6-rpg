@@ -1,12 +1,13 @@
-export const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+export const apiBase = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
 export class NetworkError extends Error {
     status;
     constructor(status, message) { super(message); this.status = status; }
 }
 export async function fetchApi(path, token = '', options = {}) {
+    const timeoutMs = /^\/lobbies\/[^/]+\/archive(?:\/|$)/.test(path) ? 120000 : path === '/config' ? 60000 : 15000;
     let response;
     try {
-        response = await fetch(apiBase + '/api' + path, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: 'Bearer ' + token } : {}), ...options.headers }, signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(path === '/config' ? 60000 : 15000)]) : AbortSignal.timeout(path === '/config' ? 60000 : 15000) });
+        response = await fetch(apiBase + '/api' + path, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: 'Bearer ' + token } : {}), ...options.headers }, signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs) });
     }
     catch (e) {
         if (e.name === 'AbortError')

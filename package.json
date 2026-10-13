@@ -8,13 +8,15 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint src server scripts vite.config.ts",
     "preview": "vite preview",
-    "test": "node scripts/test-rules.mjs",
-    "test:ui": "node --test scripts/test-lobby-drafts.cjs",
+    "test": "node scripts/test-rules.mjs && node --test --test-reporter=tap scripts/test-round-timeline.mjs scripts/test-round-work.mjs scripts/test-round-execution.mjs scripts/test-round-rules.mjs scripts/test-spatial-abilities.mjs scripts/test-charge-lifecycle.mjs scripts/test-round-cancellation.mjs scripts/test-campaign-atlas.mjs scripts/test-campaign-trade.mjs scripts/test-campaign-economy.mjs scripts/test-starter-campaign.mjs scripts/test-tutorial.mjs scripts/test-round-speech.mjs scripts/test-round-listening.mjs",
+    "test:ui": "node scripts/build-server-rules.mjs && node --test --test-reporter=tap scripts/test-lobby-drafts.cjs",
+    "test:verification": "node --test --test-reporter=tap scripts/test-local-verification.mjs",
+    "verify:local": "node scripts/verify-local.mjs",
     "dev:all": "node --env-file-if-exists=server/.env scripts/dev-all.mjs",
     "server:build": "node scripts/build-server-rules.mjs",
     "server": "node --env-file-if-exists=server/.env server/index.mjs",
     "start": "node server/index.mjs",
-    "test:server": "node scripts/build-server-rules.mjs && node --test server/test/*.test.mjs"
+    "test:server": "node scripts/build-server-rules.mjs && node --test --test-reporter=tap server/test/*.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

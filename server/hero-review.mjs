@@ -19,7 +19,7 @@ export async function submissionBindings(db, lobbyId, bindings, userId, canRevie
   })
 }
 export async function reviewableCharacters(db, lobby) {
-  const rows = await db.all('SELECT b.character_id FROM character_bindings b LEFT JOIN character_submissions s ON s.lobby_id=b.lobby_id AND s.character_id=b.character_id WHERE b.lobby_id=? AND (b.owner_id<>? OR s.source_character_id IS NOT NULL)', [lobby.id, lobby.owner_id])
+  const rows = await db.all('SELECT b.character_id FROM character_bindings b LEFT JOIN character_submissions s ON s.lobby_id=b.lobby_id AND s.character_id=b.character_id WHERE b.lobby_id=? AND NOT EXISTS (SELECT 1 FROM lobby_npcs n WHERE n.lobby_id=b.lobby_id AND n.character_id=b.character_id) AND (b.owner_id<>? OR s.source_character_id IS NOT NULL)', [lobby.id, lobby.owner_id])
   return rows.map(r => r.character_id)
 }
 function requireReviewable(member, lobby, binding, row) {
@@ -50,6 +50,7 @@ export async function reviewHero(tx, req, lobby, member, decision, note, revisio
   if (revision !== undefined && lobby.revision !== revision) fail(409, 'Лист или условия изменились. Обнови заявку перед решением.')
   const binding = await tx.get('SELECT * FROM character_bindings WHERE lobby_id=? AND character_id=?', [lobby.id, req.params.characterId])
   if (!binding) fail(404, 'Герой не найден.')
+  if(await tx.get('SELECT character_id FROM lobby_npcs WHERE lobby_id=? AND character_id=?',[lobby.id,binding.character_id]))fail(409,'Для NPC используй инструменты NPC кампании.')
   const row = await tx.get('SELECT * FROM character_submissions WHERE lobby_id=? AND character_id=?', [lobby.id, binding.character_id])
   requireReviewable(member, lobby, binding, row)
   const state = JSON.parse(lobby.world_json), actor = state.characters.find(c => c.id === binding.character_id)
@@ -99,7 +100,8 @@ export function heroReviewRoutes(app, { db, auth, updated, lockedMembership, rec
       if (!binding) fail(404, 'Герой не найден.')
       const owner = binding.owner_id === req.user.id
       if (!owner) requireLobbyPermission(member, 'approveHeroes')
-      const row = await tx.get('SELECT * FROM character_submissions WHERE lobby_id=? AND character_id=?', [lobby.id, binding.character_id])
+      if(await tx.get('SELECT character_id FROM lobby_npcs WHERE lobby_id=? AND character_id=?',[lobby.id,binding.character_id]))fail(409,'Для NPC используй инструменты NPC кампании.')
+  const row = await tx.get('SELECT * FROM character_submissions WHERE lobby_id=? AND character_id=?', [lobby.id, binding.character_id])
       if (!owner) requireReviewable(member, lobby, binding, row)
       const state = JSON.parse(lobby.world_json), actor = state.characters.find(c => c.id === binding.character_id), sheet = row?.submitted_json ? JSON.parse(row.submitted_json) : null
       if (!actor) fail(404, 'Лист героя не найден.')
@@ -125,7 +127,8 @@ export function heroReviewRoutes(app, { db, auth, updated, lockedMembership, rec
       const binding = await tx.get('SELECT * FROM character_bindings WHERE lobby_id=? AND character_id=?', [lobby.id, req.params.characterId])
       if (!binding) fail(404, 'Герой не найден.')
       if (binding.owner_id !== req.user.id) fail(403, 'Исправить заявку может только владелец героя.')
-      const row = await tx.get('SELECT * FROM character_submissions WHERE lobby_id=? AND character_id=?', [lobby.id, binding.character_id]), state = JSON.parse(lobby.world_json)
+      if(await tx.get('SELECT character_id FROM lobby_npcs WHERE lobby_id=? AND character_id=?',[lobby.id,binding.character_id]))fail(409,'Для NPC используй инструменты NPC кампании.')
+  const row = await tx.get('SELECT * FROM character_submissions WHERE lobby_id=? AND character_id=?', [lobby.id, binding.character_id]), state = JSON.parse(lobby.world_json)
       const delegated = await tx.get('SELECT 1 AS n FROM character_delegations WHERE lobby_id=? AND character_id=?', [lobby.id, binding.character_id])
       if (!editableSubmission(lobby, state, binding, row, delegated)) fail(409, 'Замена исходником недоступна после принятия героя, его игровых действий, закрытия лобби или передачи управления. Изменения игрового героя проводит мастер в кампании.')
       const source = await tx.get('SELECT * FROM characters WHERE id=? AND owner_id=?', [sourceId, req.user.id])

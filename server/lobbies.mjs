@@ -1,7 +1,20 @@
+import {starterCampaignRoutes} from './starter-campaigns.mjs'
+import {campaignEconomyRoutes} from './campaign-economy.mjs'
+import {pruneEconomy} from './generated/campaignEconomy.mjs'
+import {campaignTradeRoutes} from './campaign-trade.mjs'
+import {pruneTrade} from './generated/campaignTrade.mjs'
+import {campaignAtlasRoutes} from './campaign-atlas.mjs'
+import {pruneAtlas} from './generated/campaignAtlas.mjs'
+import {npcRoutes} from './npcs.mjs'
+import { campaignRetentionRoutes } from './campaign-retention.mjs'
+import { campaignArchiveRoutes } from './campaign-archives.mjs'
+import { roundHistoryRoutes } from './round-history.mjs'
 import { pruneDeclarations } from './generated/actionDeclarations.mjs'
+import { roundWorkReferencesValid } from './generated/roundWork.mjs'
 import { declarationRoutes } from './declarations.mjs'
+import { roundRoutes, invalidateRoundGeneration } from './rounds.mjs'
 import { randomBytes } from 'node:crypto'
-import { fail,text,choice,integer,id,now,emptyWorld,world,worldSize,playerWorld,publicUser } from './validation.mjs'
+import { fail,text,choice,integer,id,now,emptyWorld,world,worldSize,playerWorld,publicUser,preserveSceneRoundDurations } from './validation.mjs'
 import { requireChief, requireCampaignEditor, requireLobbyPermission, effectivePermissions } from './permissions.mjs'
 import { hasLobbyPermission, lobbyPermissions } from './generated/lobbyAccess.mjs'
 import { lobbyAccessRoutes, controlledBindings, resetAssistantControl, controlEvent } from './lobby-access.mjs'
@@ -16,9 +29,10 @@ export async function membership(db,lobbyId,user){const lobby=await db.get('SELE
 export function lobbyRoutes(app,{db,auth,io}){
  const updated=lobbyId=>io.to('lobby:'+lobbyId).emit('lobbyChanged',{id:lobbyId})
  const publicUpdated=()=>io.to('public').emit('communityChanged',{area:'lobbies'})
+ starterCampaignRoutes(app,{db,auth,publicUpdated})
  app.get('/api/lobbies',async(req,res)=>{const q=String(req.query.q||'').slice(0,120).toLowerCase(),args=['%'+q+'%','%'+q+'%'];let where="l.visibility='public' AND l.status<>'closed' AND (LOWER(l.title) LIKE ? OR LOWER(l.description) LIKE ?)";for(const key of ['genre','energy','rank','status'])if(req.query[key]){where+=' AND l.'+key+'=?';args.push(String(req.query[key]).slice(0,60))}const offset=Math.max(0,Math.min(10000,Number(req.query.offset)||0)),rows=await db.all(`SELECT l.id,l.owner_id,l.title,l.description,l.genre,l.slots,l.energy,l.rank,l.visibility,l.status,l.created_at,l.updated_at,u.display_name AS owner,(SELECT COUNT(*) FROM members m WHERE m.lobby_id=l.id AND m.role='PLAYER') AS players FROM lobbies l JOIN users u ON u.id=l.owner_id WHERE ${where} ORDER BY l.updated_at DESC,l.id LIMIT 21 OFFSET ?`,[...args,offset]);res.json({items:rows.slice(0,20),hasMore:rows.length>20})})
  app.get('/api/lobbies/mine',auth.middleware,async(req,res)=>res.json(await db.all('SELECT l.id,l.title,l.status,l.visibility,m.role,l.revision FROM lobbies l JOIN members m ON m.lobby_id=l.id WHERE m.user_id=? ORDER BY l.updated_at DESC',[req.user.id])))
- app.post('/api/lobbies',auth.middleware,async(req,res)=>{const data={title:text(req.body.title,120),description:text(req.body.description,4000),genre:choice(req.body.genre,['Приключение','Исследование','Тайна','Свободная игра']),slots:integer(req.body.slots,1,12),energy:choice(req.body.energy,['any','mana','shadow']),rank:choice(req.body.rank,['mortal','spellcaster','elementalist','heavenlyLord','heavenlyMonarch']),visibility:choice(req.body.visibility,['public','private'])};const lobbyId=id(),at=now();await db.transaction(async tx=>{const count=await tx.get('SELECT COUNT(*) AS n FROM lobbies WHERE owner_id=? AND status<>?',[req.user.id,'closed']);if(Number(count.n)>=20)fail(409,'Сначала закрой старое лобби: максимум 20 активных.');await tx.run('INSERT INTO lobbies(id,owner_id,title,description,genre,slots,energy,rank,visibility,invite_code,world_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',[lobbyId,req.user.id,data.title,data.description,data.genre,data.slots,data.energy,data.rank,data.visibility,randomBytes(18).toString('base64url'),JSON.stringify(emptyWorld()),at,at]);await tx.run('INSERT INTO members(lobby_id,user_id,role,joined_at) VALUES(?,?,?,?)',[lobbyId,req.user.id,'GM',at])});publicUpdated();res.status(201).json({id:lobbyId})})
+ app.post('/api/lobbies',auth.middleware,async(req,res)=>{const data={title:text(req.body.title,120),description:text(req.body.description,4000),genre:choice(req.body.genre,['Приключение','Исследование','Тайна','Свободная игра']),slots:integer(req.body.slots,1,12),energy:choice(req.body.energy,['any','mana','shadow']),rank:choice(req.body.rank,['mortal','spellcaster','elementalist','heavenlyLord','heavenlyMonarch']),visibility:choice(req.body.visibility,['public','private'])};const lobbyId=id(),at=now();await db.transaction(async tx=>{await tx.get('SELECT id FROM users WHERE id=?'+tx.lock,[req.user.id]);const count=await tx.get('SELECT COUNT(*) AS n FROM lobbies WHERE owner_id=? AND status<>?',[req.user.id,'closed']);if(Number(count.n)>=20)fail(409,'Сначала закрой старое лобби: максимум 20 активных.');await tx.run('INSERT INTO lobbies(id,owner_id,title,description,genre,slots,energy,rank,visibility,invite_code,world_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',[lobbyId,req.user.id,data.title,data.description,data.genre,data.slots,data.energy,data.rank,data.visibility,randomBytes(18).toString('base64url'),JSON.stringify(emptyWorld()),at,at]);await tx.run('INSERT INTO members(lobby_id,user_id,role,joined_at) VALUES(?,?,?,?)',[lobbyId,req.user.id,'GM',at])});publicUpdated();res.status(201).json({id:lobbyId})})
  app.post('/api/lobbies/join',auth.middleware,async(req,res)=>{const code=text(req.body.code,64),lobby=await db.get('SELECT id FROM lobbies WHERE invite_code=?',[code]);if(!lobby)fail(404,'Приглашение не найдено.');req.params.id=lobby.id;await join(req,res,code)})
  async function join(req,res,code=''){
   await db.transaction(async tx=>{const lobby=await tx.get('SELECT * FROM lobbies WHERE id=?'+tx.lock,[req.params.id]);if(!lobby)fail(404,'Лобби не найдено.');if(await tx.get('SELECT 1 AS n FROM members WHERE lobby_id=? AND user_id=?',[lobby.id,req.user.id]))return;if(lobby.visibility==='private'&&lobby.invite_code!==code)fail(403,'Нужно приглашение в закрытое лобби.');if(lobby.status!=='open')fail(409,'Набор в лобби закрыт.');const count=await tx.get("SELECT COUNT(*) AS n FROM members WHERE lobby_id=? AND role='PLAYER'",[lobby.id]);if(Number(count.n)>=lobby.slots)fail(409,'Свободных мест нет.');await tx.run('INSERT INTO members(lobby_id,user_id,role,joined_at) VALUES(?,?,?,?)',[lobby.id,req.user.id,'PLAYER',now()]);await tx.run('UPDATE lobbies SET updated_at=? WHERE id=?',[now(),lobby.id])});updated(req.params.id);publicUpdated();res.json({id:req.params.id})
@@ -40,10 +54,18 @@ export function lobbyRoutes(app,{db,auth,io}){
  async function record(tx, req, action) {
   await tx.run('INSERT INTO audit(id,actor_id,action,target_id,created_at) VALUES(?,?,?,?,?)',[id(),req.user.id,action,req.params.id,now()])
  }
+ const economicCommands=campaignTradeRoutes(app,{db,auth,updated,lockedMembership,record})
+ campaignEconomyRoutes(app,{db,auth,updated,lockedMembership,record,...economicCommands})
+ campaignAtlasRoutes(app,{db,auth,updated,lockedMembership,record})
+ npcRoutes(app,{db,auth,updated,lockedMembership,record})
  lobbyAccessRoutes(app,{db,auth,updated,lockedMembership,record})
  heroReviewRoutes(app,{db,auth,updated,lockedMembership,record})
  perceptionRoutes(app,{db,auth,updated,lockedMembership,record})
  declarationRoutes(app,{db,auth,updated,lockedMembership,record})
+ roundRoutes(app,{db,auth,updated,lockedMembership,record})
+ roundHistoryRoutes(app,{db,auth,updated,lockedMembership,record})
+ campaignArchiveRoutes(app,{db,auth,updated,lockedMembership,record})
+ campaignRetentionRoutes(app,{db,auth,updated,lockedMembership,record})
  app.patch('/api/lobbies/:id',auth.middleware,async(req,res)=>{
   await db.transaction(async tx=>{
    const {lobby,member}=await lockedMembership(tx,req);requireChief(lobby,member,req.user)
@@ -94,6 +116,10 @@ export function lobbyRoutes(app,{db,auth,io}){
    // The old chief retains their previously held capabilities, scoped to this lobby.
    const delegated=await tx.all('SELECT character_id FROM character_delegations WHERE lobby_id=? AND assistant_id IS NULL',[lobby.id])
    for(const d of delegated)await controlEvent(tx,lobby.id,d.character_id,req.user.id,targetId,'transfer-chief')
+   const npcs=await tx.all('SELECT character_id,assistant_id FROM lobby_npcs WHERE lobby_id=?',[lobby.id])
+   for(const n of npcs)if(!n.assistant_id||n.assistant_id===targetId)await controlEvent(tx,lobby.id,n.character_id,req.user.id,targetId,'transfer-chief')
+   await tx.run('UPDATE character_bindings SET owner_id=? WHERE lobby_id=? AND character_id IN (SELECT character_id FROM lobby_npcs WHERE lobby_id=?)',[targetId,lobby.id,lobby.id])
+   await tx.run('UPDATE lobby_npcs SET assistant_id=NULL WHERE lobby_id=? AND assistant_id=?',[lobby.id,targetId])
    await tx.run("UPDATE members SET role='ASSISTANT' WHERE lobby_id=? AND user_id=?",[lobby.id,req.user.id])
    await tx.run(`INSERT INTO lobby_permissions(lobby_id,user_id,permissions_json) VALUES(?,?,?) ON CONFLICT(lobby_id,user_id) DO UPDATE SET permissions_json=excluded.permissions_json`,[lobby.id,req.user.id,JSON.stringify(lobbyPermissions)])
    await tx.run("UPDATE members SET role='GM' WHERE lobby_id=? AND user_id=?",[lobby.id,targetId])
@@ -109,7 +135,11 @@ export function lobbyRoutes(app,{db,auth,io}){
    if(req.params.userId===req.user.id&&await tx.get('SELECT 1 AS n FROM character_delegations d JOIN character_bindings b ON b.lobby_id=d.lobby_id AND b.character_id=d.character_id WHERE d.lobby_id=? AND b.owner_id=?',[lobby.id,req.user.id]))fail(409,'Переданные герои остаются в кампании. Для паузы просто закрой сайт; для удаления из лобби сначала верни управление.');
    await resetAssistantControl(tx,lobby,req.params.userId,req.user.id)
    const state=JSON.parse(lobby.world_json),bindings=await tx.all('SELECT character_id FROM character_bindings WHERE lobby_id=? AND owner_id=?',[lobby.id,req.params.userId]),removed=new Set(bindings.map(b=>b.character_id))
+   if(!roundWorkReferencesValid(state.campaign.roundWork,state.campaign.scenes,state.characters.filter(c=>!removed.has(c.id)).map(c=>c.id)))fail(409,'У героя есть переносимая работа. Сначала явно разреши её судьбу; для временного отсутствия просто закрой сайт.')
    state.characters=state.characters.filter(c=>!removed.has(c.id))
+   if(state.campaign.economy)state.campaign.economy=pruneEconomy(state.campaign.economy,state.characters.map(c=>c.id))
+   if(state.campaign.trade)state.campaign.trade=pruneTrade(state.campaign.trade,state.characters.map(c=>c.id))
+   if(state.campaign.atlas)state.campaign.atlas=pruneAtlas(state.campaign.atlas,state.characters.map(c=>c.id),state.campaign.scenes?.scenes.map(s=>s.id)??[])
    if(state.campaign.scenes)state.campaign.scenes=pruneSceneActors(state.campaign.scenes,state.characters.map(c=>c.id))
    if(state.campaign.declarations)state.campaign.declarations=pruneDeclarations(state.campaign.declarations,state.campaign.scenes,state.characters.map(c=>c.id))
    if(state.campaign.perceptions)state.campaign.perceptions=prunePerceptions(state.campaign.perceptions,state.campaign.scenes,state.characters.map(c=>c.id))
@@ -143,12 +173,16 @@ export function lobbyRoutes(app,{db,auth,io}){
    if(bindings.some(b=>!members.some(m=>m.id===b.ownerId&&!m.disabled)))fail(409,'Каждый владелец героя должен быть действующим участником этого лобби.')
    const previousSubmissions=await tx.all('SELECT s.*,b.owner_id FROM character_submissions s JOIN character_bindings b ON b.lobby_id=s.lobby_id AND b.character_id=s.character_id WHERE s.lobby_id=?',[lobby.id])
    const previousDelegations=await tx.all('SELECT d.*,b.owner_id FROM character_delegations d JOIN character_bindings b ON b.lobby_id=d.lobby_id AND b.character_id=d.character_id WHERE d.lobby_id=?',[lobby.id])
+   const npcRows=await tx.all('SELECT * FROM lobby_npcs WHERE lobby_id=?',[lobby.id])
+   if(npcRows.some(n=>bindings.find(b=>b.characterId===n.character_id)?.ownerId!==lobby.owner_id))fail(409,'NPC кампании остаются под управлением текущего главного ГМ.')
    await tx.run('DELETE FROM character_bindings WHERE lobby_id=?',[lobby.id])
    for(const binding of bindings)await tx.run('INSERT INTO character_bindings(lobby_id,character_id,owner_id,approved) VALUES(?,?,?,?)',[lobby.id,binding.characterId,binding.ownerId,binding.approved?1:0])
+   for(const n of npcRows)await tx.run('INSERT INTO lobby_npcs(lobby_id,character_id,assistant_id,created_by,created_at) VALUES(?,?,?,?,?)',[lobby.id,n.character_id,n.assistant_id,n.created_by,n.created_at])
    await restoredSubmissions(tx,lobby.id,previousSubmissions,bindings)
    for(const d of previousDelegations){const next=bindings.find(b=>b.characterId===d.character_id);if(next?.ownerId===d.owner_id)await tx.run('INSERT INTO character_delegations(lobby_id,character_id,assistant_id,delegated_at) VALUES(?,?,?,?)',[lobby.id,d.character_id,d.assistant_id,d.delegated_at]);else await controlEvent(tx,lobby.id,d.character_id,req.user.id,next?.ownerId??d.owner_id,'restore-reset')}
    // Restoring keeps plans/history, but pending requests from the old collection cannot write into the restored one.
    if(candidate.campaign.declarations?.active){candidate.campaign.declarations.active.id=id();candidate.campaign.declarations.active.epoch+=1}
+   await invalidateRoundGeneration(tx,lobby.id)
    await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?',[JSON.stringify(candidate),now(),lobby.id])
    await record(tx,req,'restore-world')
   });updated(req.params.id);res.json({world:candidate,revision:revision+1})
@@ -175,7 +209,7 @@ export function lobbyRoutes(app,{db,auth,io}){
    await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?',[JSON.stringify(state),now(),lobby.id]);await record(tx,req,'submit-character')
   });updated(req.params.id);res.status(201).json({id:newId})
  })
- app.put('/api/lobbies/:id/world',auth.middleware,async(req,res)=>{const candidate=world(req.body.world),revision=integer(req.body.revision);await db.transaction(async tx=>{const {lobby,member}=await lockedMembership(tx,req);requireCampaignEditor(member);if(lobby.energy!=='any'&&candidate.characters.some(c=>c.profile.energy!==lobby.energy))fail(409,'Тип энергии одного из героев не подходит этому лобби.');const locked=await tx.get('SELECT * FROM lobbies WHERE id=?'+tx.lock,[lobby.id]);if(locked.revision!==revision)fail(409,'Кампания изменилась у другого участника. Загрузи свежую версию перед публикацией.');if(JSON.parse(locked.world_json).campaign.declarations&&!candidate.campaign.declarations)fail(409,'В кампании уже есть заявления. Обнови приложение перед публикацией.');if(JSON.parse(locked.world_json).campaign.perceptions&&!candidate.campaign.perceptions)fail(409,'В кампании уже есть индивидуальное раскрытие. Обнови приложение перед публикацией.');if(JSON.parse(locked.world_json).campaign.scenes&&!candidate.campaign.scenes)fail(409,'В кампании уже есть сцены. Обнови приложение перед публикацией; для удаления используй конструктор сцен.');const existing=await tx.all('SELECT * FROM character_bindings WHERE lobby_id=?',[lobby.id]);for(const c of candidate.characters)if(!existing.some(b=>b.character_id===c.id))await tx.run('INSERT INTO character_bindings(lobby_id,character_id,owner_id,approved) VALUES(?,?,?,1)',[lobby.id,c.id,req.user.id]);for(const b of existing)if(!candidate.characters.some(c=>c.id===b.character_id))await tx.run('DELETE FROM character_bindings WHERE lobby_id=? AND character_id=?',[lobby.id,b.character_id]);const r=await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?',[JSON.stringify(candidate),now(),lobby.id,revision]);if(Number(r.changes)!==1)fail(409,'Конфликт версии кампании.');await tx.run('INSERT INTO audit(id,actor_id,action,target_id,created_at) VALUES(?,?,?,?,?)',[id(),req.user.id,'publish-world',lobby.id,now()])});updated(req.params.id);res.json({revision:revision+1})})
+ app.put('/api/lobbies/:id/world',auth.middleware,async(req,res)=>{const candidate=world(req.body.world),revision=integer(req.body.revision);await db.transaction(async tx=>{const {lobby,member}=await lockedMembership(tx,req);requireCampaignEditor(member);if(lobby.energy!=='any'&&candidate.characters.some(c=>c.profile.energy!==lobby.energy))fail(409,'Тип энергии одного из героев не подходит этому лобби.');const locked=await tx.get('SELECT * FROM lobbies WHERE id=?'+tx.lock,[lobby.id]);if(locked.revision!==revision)fail(409,'Кампания изменилась у другого участника. Загрузи свежую версию перед публикацией.');if(JSON.parse(locked.world_json).campaign.economy&&!candidate.campaign.economy)fail(409,'В кампании уже есть правила и результат учёта. Обнови редактор перед записью.');if(JSON.parse(locked.world_json).campaign.trade&&!candidate.campaign.trade)fail(409,'В кампании уже есть имущество и кошельки. Обнови редактор перед записью.');if(JSON.parse(locked.world_json).campaign.atlas&&!candidate.campaign.atlas)fail(409,'В кампании уже есть города и организации. Обнови редактор перед записью.');if(JSON.parse(locked.world_json).campaign.roundWork&&!candidate.campaign.roundWork)fail(409,'В кампании уже есть переносимая работа. Обнови приложение перед публикацией.');if(JSON.parse(locked.world_json).campaign.declarations&&!candidate.campaign.declarations)fail(409,'В кампании уже есть заявления. Обнови приложение перед публикацией.');if(JSON.parse(locked.world_json).campaign.perceptions&&!candidate.campaign.perceptions)fail(409,'В кампании уже есть индивидуальное раскрытие. Обнови приложение перед публикацией.');if(JSON.parse(locked.world_json).characters.some(a=>a.rpg.casts.some(c=>(c.roundPreparation||c.spatialRelease||c.ability.spatial)&&candidate.characters.find(n=>n.id===a.id)?.rpg.casts.some(n=>n.id===c.id&&(c.roundPreparation&&!n.roundPreparation||c.roundPreparation?.paidCost&&!n.roundPreparation?.paidCost||c.interruption&&!n.interruption||c.ability.chargePolicy&&!n.ability.chargePolicy||c.spatialRelease&&!n.spatialRelease||c.ability.spatial&&!n.ability.spatial)))))fail(409,'В кампании есть раундовая подготовка или пространственный выпуск. Обнови приложение перед публикацией.');if(JSON.parse(locked.world_json).campaign.scenes&&!candidate.campaign.scenes)fail(409,'В кампании уже есть сцены. Обнови приложение перед публикацией; для удаления используй конструктор сцен.');preserveSceneRoundDurations(JSON.parse(locked.world_json).campaign.scenes,candidate.campaign.scenes);const existing=await tx.all('SELECT * FROM character_bindings WHERE lobby_id=?',[lobby.id]);for(const c of candidate.characters)if(!existing.some(b=>b.character_id===c.id))await tx.run('INSERT INTO character_bindings(lobby_id,character_id,owner_id,approved) VALUES(?,?,?,1)',[lobby.id,c.id,req.user.id]);for(const b of existing)if(!candidate.characters.some(c=>c.id===b.character_id))await tx.run('DELETE FROM character_bindings WHERE lobby_id=? AND character_id=?',[lobby.id,b.character_id]);const r=await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?',[JSON.stringify(candidate),now(),lobby.id,revision]);if(Number(r.changes)!==1)fail(409,'Конфликт версии кампании.');await tx.run('INSERT INTO audit(id,actor_id,action,target_id,created_at) VALUES(?,?,?,?,?)',[id(),req.user.id,'publish-world',lobby.id,now()])});updated(req.params.id);res.json({revision:revision+1})})
  app.patch('/api/lobbies/:id/characters/:characterId',auth.middleware,async(req,res)=>{
   if(typeof req.body.approved!=='boolean')fail(400,'Проверь утверждение героя.')
   if(req.body.revision!==undefined)integer(req.body.revision)

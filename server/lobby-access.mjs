@@ -1,6 +1,8 @@
+import {pruneAtlas} from './generated/campaignAtlas.mjs'
 import { pruneDeclarations } from './generated/actionDeclarations.mjs'
+import { roundWorkReferencesValid } from './generated/roundWork.mjs'
 import { prunePerceptions } from './generated/scenePerception.mjs'
-import { fail, id, integer, now, text, worldSize } from './validation.mjs'
+import { fail, id, integer, now, text, worldSize, preserveSceneRoundDurations } from './validation.mjs'
 import { requireChief, requireLobbyPermission } from './permissions.mjs'
 import { hasLobbyPermission, validLobbyPermissions } from './generated/lobbyAccess.mjs'
 import { copySceneState, emptyScenes, isSceneState, sceneReferencesValid } from './generated/scenes.mjs'
@@ -9,17 +11,26 @@ export async function controlEvent(tx, lobbyId, characterId, actorId, controller
   await tx.run('INSERT INTO character_control_events(id,lobby_id,character_id,actor_id,controller_id,action,created_at) VALUES(?,?,?,?,?,?,?)',
     [id(), lobbyId, characterId, actorId, controllerId, action, now()])
 }
-export async function resetAssistantControl(tx, lobby, userId, actorId) {
+export async function resetNpcControl(tx,lobby,userId,actorId){
+  const rows=await tx.all('SELECT character_id FROM lobby_npcs WHERE lobby_id=? AND assistant_id=?',[lobby.id,userId])
+  for(const row of rows)await controlEvent(tx,lobby.id,row.character_id,actorId,lobby.owner_id,'fallback')
+  await tx.run('UPDATE lobby_npcs SET assistant_id=NULL WHERE lobby_id=? AND assistant_id=?',[lobby.id,userId])
+}
+export async function resetAssistantControl(tx, lobby, userId, actorId,npcReset=true) {
   const rows = await tx.all('SELECT character_id FROM character_delegations WHERE lobby_id=? AND assistant_id=?', [lobby.id, userId])
   for (const row of rows) await controlEvent(tx, lobby.id, row.character_id, actorId, lobby.owner_id, 'fallback')
   await tx.run('UPDATE character_delegations SET assistant_id=NULL WHERE lobby_id=? AND assistant_id=?', [lobby.id, userId])
+  if(npcReset)await resetNpcControl(tx,lobby,userId,actorId)
 }
 export async function controlledBindings(db, lobby, bindings) {
   const rows = await db.all(`SELECT d.*,m.role,u.disabled,p.permissions_json FROM character_delegations d
     LEFT JOIN members m ON m.lobby_id=d.lobby_id AND m.user_id=d.assistant_id
     LEFT JOIN users u ON u.id=d.assistant_id
     LEFT JOIN lobby_permissions p ON p.lobby_id=d.lobby_id AND p.user_id=d.assistant_id WHERE d.lobby_id=?`, [lobby.id])
+  const npcs=await db.all(`SELECT n.*,m.role,u.disabled,p.permissions_json FROM lobby_npcs n LEFT JOIN members m ON m.lobby_id=n.lobby_id AND m.user_id=n.assistant_id LEFT JOIN users u ON u.id=n.assistant_id LEFT JOIN lobby_permissions p ON p.lobby_id=n.lobby_id AND p.user_id=n.assistant_id WHERE n.lobby_id=?`,[lobby.id])
   return bindings.map(b => {
+    const npc=npcs.find(n=>n.character_id===b.character_id)
+    if(npc){const permissions=JSON.parse(npc.permissions_json??'[]'),valid=!npc.disabled&&hasLobbyPermission(npc.role,permissions,'npcs')&&hasLobbyPermission(npc.role,permissions,'viewSecrets');return {...b,npc:true,control:{npc:true,delegated:false,controllerId:valid?npc.assistant_id:lobby.owner_id}}}
     const d = rows.find(d => d.character_id === b.character_id)
     const validAssistant = d && !d.disabled && hasLobbyPermission(d.role, JSON.parse(d.permissions_json ?? '[]'), 'controlDelegated')
     return { ...b, control: d ? { delegated: true, controllerId: validAssistant ? d.assistant_id : lobby.owner_id, delegatedAt: d.delegated_at } :
@@ -29,6 +40,7 @@ export async function controlledBindings(db, lobby, bindings) {
 export function requireCharacterController(member, binding, userId) {
   if (binding.control.controllerId !== userId) fail(403, 'Этим героем сейчас управляет другой участник.')
   if (binding.control.delegated) requireLobbyPermission(member, 'controlDelegated')
+  if(binding.npc){requireLobbyPermission(member,'npcs');requireLobbyPermission(member,'viewSecrets')}
 }
 
 export function lobbyAccessRoutes(app, { db, auth, updated, lockedMembership, record }) {
@@ -43,7 +55,9 @@ export function lobbyAccessRoutes(app, { db, auth, updated, lockedMembership, re
       if (!target || target.role !== 'ASSISTANT' || target.disabled) fail(409, 'Разрешения назначаются действующему помощнику этого лобби.')
       await tx.run(`INSERT INTO lobby_permissions(lobby_id,user_id,permissions_json) VALUES(?,?,?)
         ON CONFLICT(lobby_id,user_id) DO UPDATE SET permissions_json=excluded.permissions_json`, [lobby.id, target.user_id, JSON.stringify(req.body.permissions)])
-      if (!req.body.permissions.includes('controlDelegated')) await resetAssistantControl(tx, lobby, target.user_id, req.user.id)
+      const resetNpc=!req.body.permissions.includes('npcs')||!req.body.permissions.includes('viewSecrets')
+      if (!req.body.permissions.includes('controlDelegated')) await resetAssistantControl(tx, lobby, target.user_id, req.user.id,resetNpc)
+      else if(resetNpc)await resetNpcControl(tx,lobby,target.user_id,req.user.id)
       await bump(tx, lobby.id); await record(tx, req, 'lobby-member-permissions')
     }); updated(req.params.id); res.json({ ok: true, revision: revision + 1 })
   })
@@ -63,8 +77,11 @@ export function lobbyAccessRoutes(app, { db, auth, updated, lockedMembership, re
     await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireLobbyPermission(member, 'scenes'); checkRevision(lobby, revision)
       const state = JSON.parse(lobby.world_json)
+      preserveSceneRoundDurations(state.campaign.scenes,scenes)
       if (!sceneReferencesValid(scenes, state.characters.map(c => c.id))) fail(400, 'В сценах есть неизвестные персонажи.')
-      state.campaign.scenes = scenes; if(state.campaign.declarations)state.campaign.declarations=pruneDeclarations(state.campaign.declarations,scenes,state.characters.map(c=>c.id)); if(state.campaign.perceptions)state.campaign.perceptions=prunePerceptions(state.campaign.perceptions,scenes,state.characters.map(c=>c.id)); worldSize(state)
+      if (!roundWorkReferencesValid(state.campaign.roundWork, scenes, state.characters.map(c => c.id))) fail(409, 'Сцена нужна переносимой работе. Сначала явно разреши её судьбу.')
+      state.campaign.scenes = scenes
+      if(state.campaign.atlas)state.campaign.atlas=pruneAtlas(state.campaign.atlas,state.characters.map(c=>c.id),scenes.scenes.map(s=>s.id)); if(state.campaign.declarations)state.campaign.declarations=pruneDeclarations(state.campaign.declarations,scenes,state.characters.map(c=>c.id)); if(state.campaign.perceptions)state.campaign.perceptions=prunePerceptions(state.campaign.perceptions,scenes,state.characters.map(c=>c.id)); worldSize(state)
       await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?', [JSON.stringify(state), now(), lobby.id])
       await record(tx, req, 'publish-scenes')
     }); updated(req.params.id); res.json({ revision: revision + 1 })

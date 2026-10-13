@@ -1,0 +1,28 @@
+# REVIEW ONLY: candidate frontend. Does not replace render.yaml or world6-api.
+# The name/address is proposed; availability and the exact URL are not confirmed.
+services:
+  - type: web
+    runtime: static
+    name: grani-bytiya
+    autoDeployTrigger: 'off'
+    buildCommand: npm ci --include=dev && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: '24'
+      - key: SKIP_INSTALL_DEPS
+        value: 'true'
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_SITE_URL
+        sync: false
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin

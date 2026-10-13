@@ -17,6 +17,6 @@ export function hasLobbyPermission(role: string, permissions: readonly string[] 
 export function canEditWholeCampaign(role: string, permissions?: readonly string[]): boolean {
   return lobbyPermissions.every(p => hasLobbyPermission(role, permissions, p))
 }
-export type CharacterControl = { delegated: boolean; controllerId: string; delegatedAt?: string }
+export type CharacterControl = { npc?:boolean; delegated: boolean; controllerId: string; delegatedAt?: string }
 export type ControlEvent = { id: string; action: 'delegate' | 'return' | 'assign' | 'fallback' | 'transfer-chief' | 'restore-reset';
   actorId: string; actor: string; controllerId: string; createdAt: string }

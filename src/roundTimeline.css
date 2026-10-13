@@ -1,0 +1,9 @@
+.gb-round-timeline { min-width: 0; }
+.gb-round-timeline .gb-round-cost { border-top: 1px solid #8be7df30; padding: .75rem 0; overflow-wrap: anywhere; }
+.gb-round-timeline .w6-field { max-width: 28rem; }
+.gb-round-timeline input { box-sizing: border-box; max-width: 100%; min-height: 44px; }
+.gb-round-timeline button { min-height: 44px; white-space: normal; }
+.gb-round-events { display: grid; gap: .75rem; padding-left: 1.6rem; }
+.gb-round-events > li { border-left: 2px solid #8be7df; background: #0e1420; padding: .75rem; overflow-wrap: anywhere; }
+.gb-round-events strong { color: #8be7df; }
+.gb-round-timeline p { overflow-wrap: anywhere; }
