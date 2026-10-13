@@ -29,6 +29,18 @@
 .w6-vfx-smoke { animation: w6-vfx-smoke var(--vfx-duration) ease-out infinite; }
 .w6-vfx-rise { animation: w6-vfx-rise var(--vfx-duration) ease-in-out infinite; }
 .w6-vfx-growth { transform-origin: 0 .85px; animation: w6-vfx-growth var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-converge { transform-origin: 0 0; animation: w6-vfx-converge var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-sift { animation: w6-vfx-sift var(--vfx-duration) ease-in infinite; }
+.w6-vfx-stomp { transform-origin: 0 .35px; animation: w6-vfx-stomp var(--vfx-duration) cubic-bezier(.7,0,.8,.5) infinite; }
+.w6-vfx-split { transform-origin: 0 0; animation: w6-vfx-split calc(var(--vfx-duration) * 1.4) ease-in-out infinite; }
+.w6-vfx-scan { animation: w6-vfx-scan var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-inscribe { stroke-dasharray: 4; stroke-dashoffset: 0; animation: w6-vfx-inscribe var(--vfx-duration) ease-in-out infinite; }
+.w6-vfx-drift { animation: w6-vfx-drift calc(var(--vfx-duration) * 1.8) ease-in-out infinite; }
+.w6-vfx-diminish { transform-origin: 0 -.7px; animation: w6-vfx-diminish var(--vfx-duration) ease-out infinite; }
+.w6-vfx-vibrate { transform-origin: 0 0; animation: w6-vfx-vibrate calc(var(--vfx-duration) * .45) ease-in-out infinite; }
+.w6-vfx-echo { animation: w6-vfx-echo var(--vfx-duration) ease-out infinite; }
+.w6-vfx-bloom { transform-origin: 0 0; animation: w6-vfx-bloom calc(var(--vfx-duration) * 1.6) ease-in-out infinite; }
+.w6-vfx-stream { animation: w6-vfx-stream var(--vfx-duration) ease-out infinite; }
 .w6-vfx-paused *, .w6-vfx-paused { animation-play-state: paused !important; }
 .w6-vfx-reduced *, .w6-vfx-reduced { animation: none !important; }
 .w6-vfx-reduced .w6-vfx-traveller { transform: translate(var(--vfx-mid-x), var(--vfx-mid-y)); }
@@ -51,6 +63,18 @@
 @keyframes w6-vfx-rise { 0%,100% { transform: translateY(.04px); opacity: .5; } 55% { transform: translateY(-.19px); opacity: 1; } }
 @keyframes w6-vfx-growth { 0%,100% { transform: scaleY(.88); } 50% { transform: scaleY(1.04); } }
 @keyframes w6-vfx-bright { 0%,100% { opacity: .55; } 50% { opacity: .95; } }
+@keyframes w6-vfx-converge { 0%,100% { transform: scale(1.13); opacity: .55; } 65% { transform: scale(.89); opacity: 1; } }
+@keyframes w6-vfx-sift { 0% { transform: translate(.05px,-.16px); opacity: .25; } 25% { opacity: 1; } 100% { transform: translate(-.05px,.19px); opacity: .35; } }
+@keyframes w6-vfx-stomp { 0%,100% { transform: translateY(-.12px) rotate(-8deg); } 42% { transform: translateY(.07px) rotate(2deg); } 48% { transform: translateY(.03px) rotate(0); } }
+@keyframes w6-vfx-split { 0%,100% { transform: skewX(-7deg) scaleX(.92); opacity: .6; } 50% { transform: skewX(7deg) scaleX(1.12); opacity: 1; } }
+@keyframes w6-vfx-scan { 0%,100% { transform: translateY(-.16px); opacity: .55; } 50% { transform: translateY(.16px); opacity: 1; } }
+@keyframes w6-vfx-inscribe { 0%,100% { stroke-dashoffset: 4; opacity: .35; } 65%,85% { stroke-dashoffset: 0; opacity: 1; } }
+@keyframes w6-vfx-drift { 0%,100% { transform: translate(-.08px,.02px); opacity: .65; } 50% { transform: translate(.08px,-.06px); opacity: 1; } }
+@keyframes w6-vfx-diminish { 0% { transform: scaleY(1); opacity: 1; } 85%,100% { transform: scaleY(.3); opacity: .2; } }
+@keyframes w6-vfx-vibrate { 0%,100% { transform: skewX(-3deg); } 50% { transform: skewX(3deg); } }
+@keyframes w6-vfx-echo { 0% { transform: translateX(-.09px); opacity: .35; } 35% { opacity: 1; } 100% { transform: translateX(.12px); opacity: .2; } }
+@keyframes w6-vfx-bloom { 0%,100% { transform: rotate(-9deg) scale(.7); opacity: .65; } 55% { transform: rotate(7deg) scale(1.08); opacity: 1; } }
+@keyframes w6-vfx-stream { 0% { transform: translateX(-.13px); opacity: .35; } 40% { opacity: 1; } 100% { transform: translateX(.16px); opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {
   .w6-vfx *, .w6-vfx { animation: none !important; }
   .w6-vfx-traveller { transform: translate(var(--vfx-mid-x),var(--vfx-mid-y)); }

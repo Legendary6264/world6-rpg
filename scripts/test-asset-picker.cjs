@@ -13,6 +13,7 @@ function load(name){
  return module.exports
 }
 const {ArtworkPicker}=load('VisualElements'),media=load('visualMedia'),root=createRoot(document.getElementById('root'))
+const AbilityVisualPicker=load('AbilityVisualPicker').default,{abilityVisualFamilies}=load('abilityVisuals')
 test.after(async()=>{await act(async()=>root.unmount());dom.window.close()})
 const click=async button=>act(async()=>button.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true})))
 const button=label=>[...document.querySelectorAll('button')].find(b=>b.textContent===label)
@@ -38,4 +39,16 @@ test('Заблокированный редактор блокирует выб�
  await act(async()=>root.render(React.createElement(ArtworkPicker,{key:'disabled',label:'Объект',presets:media.objectPresets,disabled:true,onChange:()=>{throw Error('Запрещённое изменение')}})))
  const field=document.querySelector('fieldset');assert(field.disabled)
  for(const element of field.querySelectorAll('button,input,select'))assert(element.matches(':disabled'))
+})
+test('Все 60 оформлений доступны в сгруппированном редакторе, включая новый вариант и автоматический школьный мотив',async()=>{
+ let selected
+ const props={schoolId:'contracts',onChange:value=>{selected=value}}
+ await act(async()=>root.render(React.createElement(AbilityVisualPicker,props)))
+ const select=document.querySelector('.w6-visual-picker select')
+ assert.deepEqual(new Set([...select.options].map(o=>o.value)),new Set(['auto','none',...abilityVisualFamilies.map(f=>f.id)]))
+ assert.equal(document.querySelector('.w6-visual-preview [data-vfx-family]').getAttribute('data-vfx-family'),'contracts')
+ await act(async()=>{select.value='frost';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+ assert.equal(selected.familyId,'frost')
+ await act(async()=>root.render(React.createElement(AbilityVisualPicker,{...props,value:selected})))
+ assert.equal(document.querySelector('.w6-visual-preview [data-vfx-family]').getAttribute('data-vfx-family'),'frost')
 })

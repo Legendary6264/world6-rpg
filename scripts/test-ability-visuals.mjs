@@ -12,22 +12,24 @@ import { JSDOM } from 'jsdom'
 const directory = await mkdtemp(join(tmpdir(), 'world6-visual-renderer-'))
 test.after(() => rm(directory, { recursive: true, force: true }))
 await symlink(resolve('node_modules'), join(directory, 'node_modules'), 'dir')
-for (const file of ['abilityVisuals.ts', 'AbilityVisualEffect.tsx']) {
+for (const file of ['abilityVisuals.ts', 'AbilityVisualEffect.tsx', 'AbilityVisualPicker.tsx', 'magicCatalog.ts']) {
   const source = (await readFile('src/' + file, 'utf8')).replace("import './abilityVisuals.css'", '')
   const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText
     .replace(/(from\s+['"]\.\/[^'"]+)(['"])/g, (_, prefix, quote) => prefix + '.mjs' + quote)
   await writeFile(join(directory, file.replace(/\.tsx?$/, '.mjs')), js)
 }
 const { default: AbilityVisualEffect } = await import(pathToFileURL(join(directory, 'AbilityVisualEffect.mjs')))
-const { abilityVisualFamilies, abilityVisualPhases } = await import(pathToFileURL(join(directory, 'abilityVisuals.mjs')))
+const { abilityVisualFamilies, abilityVisualPhases, resolveAbilityVisual, isAbilityVisualSpec } = await import(pathToFileURL(join(directory, 'abilityVisuals.mjs')))
+const { default: AbilityVisualPicker } = await import(pathToFileURL(join(directory, 'AbilityVisualPicker.mjs')))
+const { magicSchools } = await import(pathToFileURL(join(directory, 'magicCatalog.mjs')))
 const props = { familyId: 'fire', start: Object.freeze({ x: 3, y: 4 }), end: Object.freeze({ x: 20, y: 10 }), radius: 2 }
 const render = patch => renderToStaticMarkup(React.createElement('svg', null, React.createElement(AbilityVisualEffect, { ...props, ...patch })))
 const dom = new JSDOM()
 test.after(() => dom.window.close())
 const documentOf = markup => { dom.window.document.body.innerHTML = markup; return dom.window.document }
 
-test('Все 20 эффектов поддерживают пять стадий и четыре пространственные формы без нечисловой геометрии', () => {
-  assert.equal(abilityVisualFamilies.length, 20)
+test('Все 60 эффектов поддерживают пять стадий и четыре пространственные формы без нечисловой геометрии', () => {
+  assert.equal(abilityVisualFamilies.length, 60)
   for (const family of abilityVisualFamilies) for (const phase of abilityVisualPhases) for (const shape of ['point', 'sphere', 'beam', 'cone']) {
     const markup = render({ familyId: family.id, phase: phase.id, shape, coneAngleDeg: 75 })
     assert(!/(?:NaN|Infinity)/.test(markup), `${family.id}/${phase.id}/${shape}`)
@@ -43,7 +45,7 @@ test('Все 20 эффектов поддерживают пять стадий 
 
 test('У семейств разные геометрические силуэты; частицы ограничены при любых настройках', () => {
   const silhouettes = abilityVisualFamilies.map(family => documentOf(render({ familyId: family.id })).querySelector('.w6-vfx-glyph').innerHTML)
-  assert.equal(new Set(silhouettes).size, 20)
+  assert.equal(new Set(silhouettes).size, 60)
   for (const intensity of [-100, .25, 2, 1e30, NaN, Infinity]) {
     const doc = documentOf(render({ intensity, scale: 1e30, radius: Infinity, durationMs: NaN }))
     const count = doc.querySelectorAll('.w6-vfx-particle').length
@@ -85,4 +87,48 @@ test('Два эффекта в одной сцене создают незави
   const gradients = [...documentOf(markup).querySelectorAll('radialGradient')].map(node => node.id)
   assert.equal(gradients.length, 2)
   assert.equal(new Set(gradients).size, 2)
+})
+
+
+test('У каждого направления собственный мотив; неизвестные и прототипные ключи не назначают оформление', () => {
+  assert.equal(new Set(abilityVisualFamilies.map(family => family.id)).size, 60)
+  for (const school of magicSchools) {
+    assert.equal(resolveAbilityVisual({ schoolId: school.id }).familyId, school.id, school.id)
+    assert.equal(resolveAbilityVisual({ basisSchoolId: school.id }).familyId, school.id, school.id)
+    assert(isAbilityVisualSpec({ familyId: school.id, scale: 4, intensity: 2, durationMs: 10000 }))
+  }
+  for (const schoolId of ['unknown', '__proto__', 'constructor', 'toString']) assert.equal(resolveAbilityVisual({ schoolId }).familyId, 'none')
+  assert.equal(resolveAbilityVisual({ schoolId: 'fire', visualEffect: { familyId: 'none' } }).familyId, 'none')
+})
+
+test('У всех 60 семейств уникальная геометрия, а новые мотивы используют несколько видов движения', async () => {
+  const signatures = abilityVisualFamilies.map(family => {
+    const glyph = documentOf(render({ familyId: family.id })).querySelector('.w6-vfx-glyph')
+    return [...glyph.querySelectorAll('path,circle,ellipse,rect')].map(node =>
+      [node.tagName, ...node.getAttributeNames().filter(name => !['class', 'fill', 'stroke', 'opacity', 'stroke-width'].includes(name))
+        .sort().map(name => name + '=' + node.getAttribute(name))].join(';')).join('|')
+  })
+  assert.equal(new Set(signatures).size, 60)
+  const css = await readFile('src/abilityVisuals.css', 'utf8')
+  const movementClasses = new Set()
+  for (const family of abilityVisualFamilies.slice(20)) {
+    const glyph = documentOf(render({ familyId: family.id })).querySelector('.w6-vfx-glyph')
+    const classes = [...glyph.querySelectorAll('[class]')].flatMap(node => [...node.classList])
+      .filter(name => new RegExp('\\.' + name + ' \\{[^}]*animation:', 's').test(css))
+    assert(classes.length, family.id + ' has animated motif')
+    classes.forEach(name => movementClasses.add(name))
+  }
+  assert(movementClasses.size >= 10)
+})
+
+
+test('Сгруппированный выбор показывает все 60 мотивов и автоматическое оформление школы', () => {
+  const markup = renderToStaticMarkup(React.createElement(AbilityVisualPicker, { schoolId: 'magnetism', onChange: () => {} }))
+  const doc = documentOf(markup), select = doc.querySelector('select')
+  assert.equal(select.querySelectorAll('optgroup').length, 5)
+  const ids = [...select.querySelectorAll('optgroup option')].map(option => option.value)
+  assert.equal(ids.length, 60)
+  assert.deepEqual(new Set(ids), new Set(abilityVisualFamilies.map(family => family.id)))
+  assert.equal(select.querySelector('option[value=auto]').selected, true)
+  assert.match(select.querySelector('option[value=auto]').textContent, /Магнитные полюса/)
 })

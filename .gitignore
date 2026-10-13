@@ -10,3 +10,5 @@ server/.env.*
 !.env.example
 !server/.env.example
 *.log
+__pycache__/
+*.pyc

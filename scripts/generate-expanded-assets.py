@@ -945,7 +945,10 @@ def finish():
         regular=Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
         font=ImageFont.truetype(str(regular),13) if regular.exists() else ImageFont.load_default()
         titlefont=ImageFont.truetype(str(regular),23) if regular.exists() else font
-        categorynames={'background':'Поверхности и фоны — 48','object':'Окружение — 129','item':'Предметы — 72','portrait':'Портреты персонажей — 40','creature':'Портреты существ — 28'}
+        counts=Counter(e['category'] for e in manifest)
+        categorynames={cat:f'{name} — {counts[cat]}' for cat,name in {
+            'background':'Поверхности и фоны','object':'Окружение','item':'Предметы',
+            'portrait':'Портреты персонажей','creature':'Портреты существ'}.items()}
         def sheet(entries,filename,title,cols=8,cellw=156,cellh=153):
             rows=math.ceil(len(entries)/cols)
             board=Image.new('RGB',(cols*cellw+24,rows*cellh+76),P['ink']);d=ImageDraw.Draw(board)
@@ -974,8 +977,16 @@ def finish():
         for cat,indexes in samples.items():
             group=[e for e in images if e[1]==cat]
             selected.extend(group[i] for i in indexes)
-        sheet(selected,'expanded-assets-preview.png','Грани Бытия · 317 новых изображений')
+        # Include representative additions as well as the established first pack.
+        for cat in categorynames:
+            group=[e for e in images if e[1]==cat]
+            selected.extend(group[-12:])
+        sheet(selected,'expanded-assets-preview.png',f'Грани Бытия · {len(manifest)} изображений')
     print(json.dumps(dict(total=len(manifest),categories=dict(Counter(e['category'] for e in manifest))),ensure_ascii=False))
 
+from expanded_assets_environment import generate as generate_environment
+from expanded_assets_characters_items import generate as generate_characters_items
+generate_environment(Art, add, noise, P)
+generate_characters_items(Art, add, noise, P)
 finish()
 

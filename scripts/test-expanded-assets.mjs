@@ -17,15 +17,24 @@ const module=name=>import(pathToFileURL(join(directory,name+'.mjs')))
 const {expandedAssets}=await module('expandedArtwork'),media=await module('visualMedia'),scenes=await module('scenes'),perception=await module('scenePerception')
 const schema=await module('rpgSchema'),visual=await module('abilityVisuals'),projection=await module('sceneAbilityVisuals'),starter=await module('starterCampaign'),engine=await module('rpgEngine')
 test('Большой набор: файлы доступны, ключи уникальны, нет внешних ссылок и точных дублей',async()=>{
- assert(expandedAssets.length>=250)
+ assert.equal(expandedAssets.length,720)
+ const counts=Object.fromEntries(['background','object','item','portrait','creature'].map(category=>[category,expandedAssets.filter(a=>a.category===category).length]))
+ assert.deepEqual(counts,{background:160,object:220,item:180,portrait:80,creature:80})
  assert.equal(new Set(expandedAssets.map(a=>a.id)).size,expandedAssets.length)
- const hashes=new Set()
- for(const entry of expandedAssets){
+ const hashes=new Set(),drawings=new Set()
+ for(const [index,entry] of expandedAssets.entries()){
   assert(media.isArtwork(entry.id));assert(media.artworkLabels[entry.id]);assert(media.artworkSource(entry.id))
   const svg=await readFile('src/assets/expanded/'+entry.file,'utf8')
   assert.match(svg,/<svg\b/);assert.match(svg,/shape-rendering="crispEdges"/)
   assert(!/<script|<foreignObject|\bon\w+=|href=|url\(\s*https?:/i.test(svg),entry.id)
-  hashes.add(createHash('sha256').update(svg).digest('hex'))
+  // Changing only the accessible title cannot disguise a duplicated drawing.
+  const drawing=svg.replace(/<title>[\s\S]*?<\/title>/g,'')
+  hashes.add(createHash('sha256').update(drawing).digest('hex'))
+  const geometry=drawing.replace(/\b(?:fill|stroke)="[^"]*"/g,'')
+  // The first pack remains unchanged; each of the 403 additions must also
+  // differ geometrically from existing art, rather than only by its palette.
+  if(index>=317)assert(!drawings.has(geometry),entry.id+' is only a recolour')
+  drawings.add(geometry)
  }
  assert.equal(hashes.size,expandedAssets.length)
  for(const bad of ['unknown-asset','https://example.test/portrait.svg','data:image/svg+xml;base64,abc','../expanded/oak.svg'])assert(!media.isArtwork(bad))
@@ -50,7 +59,7 @@ test('Оформление: проходит копирование, отклю�
  assert.equal(visual.resolveAbilityVisual({schoolId:'fire'}).familyId,'fire')
  assert.equal(visual.resolveAbilityVisual({schoolId:'fire',visualEffect:{familyId:'none'}}).familyId,'none')
  for(const spec of [{familyId:'unknown'},{familyId:'fire',scale:Infinity},{familyId:'fire',durationMs:600000},{familyId:'fire',url:'https://example.test/'},{familyId:'fire',damage:999}])assert(!schema.isAbility({...ability,visualEffect:spec}))
- assert.equal(visual.abilityVisualFamilies.length,20)
+ assert.equal(visual.abilityVisualFamilies.length,60)
 })
 const fixture=()=>{
  const w=starter.createNightCrossing('visual').world,s=w.campaign.scenes.scenes[0],a=w.characters[0],b=w.characters[1]

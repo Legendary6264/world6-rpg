@@ -2,7 +2,11 @@ import { useEffect, useId, useState } from 'react'
 import AbilityVisualEffect from './AbilityVisualEffect'
 import { abilityVisualDefaults, abilityVisualFamilies, abilityVisualFamilyById, abilityVisualPhases, resolveAbilityVisual } from './abilityVisuals'
 import type { AbilityVisualPhase, AbilityVisualShape, AbilityVisualSource, AbilityVisualSpec } from './abilityVisuals'
+import { magicGroups, magicSchools } from './magicCatalog'
 import './abilityVisuals.css'
+
+const visualFamilyGroups = magicGroups.map(group => ({ ...group, families: abilityVisualFamilies.filter(family =>
+  magicSchools.some(school => school.group === group.id && school.name === family.schoolLabel.split(' · ')[0])) }))
 
 export type AbilityVisualPickerProps = {
   value?: AbilityVisualSpec
@@ -49,7 +53,9 @@ export default function AbilityVisualPicker({ value, onChange, schoolId, basisSc
           }}>
             <option value="auto">По школе: {abilityVisualFamilyById(inferred.familyId)?.name ?? 'без анимации'}</option>
             <option value="none">Без анимации</option>
-            {abilityVisualFamilies.map(item => <option key={item.id} value={item.id}>{item.schoolLabel} · {item.name}</option>)}
+            {visualFamilyGroups.map(group => <optgroup key={group.id} label={group.label}>
+              {group.families.map(item => <option key={item.id} value={item.id}>{item.schoolLabel} · {item.name}</option>)}
+            </optgroup>)}
           </select>
         </label>
         <p className="w6-visual-picker-description">{family?.description ?? 'Эта способность показывается без анимированного эффекта.'} Оформление не меняет действие способности.</p>

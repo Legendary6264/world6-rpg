@@ -3791,6 +3791,4966 @@ export const expandedAssets: ExpandedAsset[] = [
       "skeleton"
     ],
     "file": "creature-skeleton.svg"
+  },
+  {
+    "id": "expanded-surface-red-brick",
+    "label": "Красная кирпичная кладка",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "brick"
+    ],
+    "file": "surface-red-brick.svg"
+  },
+  {
+    "id": "expanded-surface-herringbone-brick",
+    "label": "Кирпич ёлочкой",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "herringbrick"
+    ],
+    "file": "surface-herringbone-brick.svg"
+  },
+  {
+    "id": "expanded-surface-rubble-wall",
+    "label": "Бутовая кладка",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "rubble"
+    ],
+    "file": "surface-rubble-wall.svg"
+  },
+  {
+    "id": "expanded-surface-adobe",
+    "label": "Глинобитная стена",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "adobe"
+    ],
+    "file": "surface-adobe.svg"
+  },
+  {
+    "id": "expanded-surface-timber-wall",
+    "label": "Бревенчатая стена",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "logs"
+    ],
+    "file": "surface-timber-wall.svg"
+  },
+  {
+    "id": "expanded-surface-half-timber",
+    "label": "Стена с фахверком",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "timber"
+    ],
+    "file": "surface-half-timber.svg"
+  },
+  {
+    "id": "expanded-surface-wattle",
+    "label": "Плетёная стенка",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "wattle"
+    ],
+    "file": "surface-wattle.svg"
+  },
+  {
+    "id": "expanded-surface-bamboo-mat",
+    "label": "Бамбуковая циновка",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "bamboomat"
+    ],
+    "file": "surface-bamboo-mat.svg"
+  },
+  {
+    "id": "expanded-surface-shingles",
+    "label": "Деревянная кровельная дранка",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "shingles"
+    ],
+    "file": "surface-shingles.svg"
+  },
+  {
+    "id": "expanded-surface-fishscale-roof",
+    "label": "Чешуйчатая черепица",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "scales"
+    ],
+    "file": "surface-fishscale-roof.svg"
+  },
+  {
+    "id": "expanded-surface-pantile-roof",
+    "label": "Желобчатая черепица",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "pantiles"
+    ],
+    "file": "surface-pantile-roof.svg"
+  },
+  {
+    "id": "expanded-surface-thatch-roof",
+    "label": "Соломенная кровля",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "thatch"
+    ],
+    "file": "surface-thatch-roof.svg"
+  },
+  {
+    "id": "expanded-surface-slate-roof",
+    "label": "Сланцевая кровля",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "slateroof"
+    ],
+    "file": "surface-slate-roof.svg"
+  },
+  {
+    "id": "expanded-surface-copper-roof",
+    "label": "Медные листы кровли",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "строительство",
+      "copper"
+    ],
+    "file": "surface-copper-roof.svg"
+  },
+  {
+    "id": "expanded-surface-riveted-floor",
+    "label": "Клёпаные металлические листы",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "rivets"
+    ],
+    "file": "surface-riveted-floor.svg"
+  },
+  {
+    "id": "expanded-surface-diamond-floor",
+    "label": "Рифлёный металлический настил",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "diamond"
+    ],
+    "file": "surface-diamond-floor.svg"
+  },
+  {
+    "id": "expanded-surface-octagon-floor",
+    "label": "Восьмиугольная плитка",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "octagon"
+    ],
+    "file": "surface-octagon-floor.svg"
+  },
+  {
+    "id": "expanded-surface-hexagon-floor",
+    "label": "Шестигранная плитка",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "hexagon"
+    ],
+    "file": "surface-hexagon-floor.svg"
+  },
+  {
+    "id": "expanded-surface-basket-parquet",
+    "label": "Паркет корзинкой",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "basketparquet"
+    ],
+    "file": "surface-basket-parquet.svg"
+  },
+  {
+    "id": "expanded-surface-endgrain-floor",
+    "label": "Торцевые деревянные шашки",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "endgrain"
+    ],
+    "file": "surface-endgrain-floor.svg"
+  },
+  {
+    "id": "expanded-surface-rope-mat",
+    "label": "Верёвочный коврик",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "ropemat"
+    ],
+    "file": "surface-rope-mat.svg"
+  },
+  {
+    "id": "expanded-surface-reed-mat",
+    "label": "Камышовая циновка",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "reedmat"
+    ],
+    "file": "surface-reed-mat.svg"
+  },
+  {
+    "id": "expanded-surface-woven-checker",
+    "label": "Ткань с клетчатым переплетением",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "woven"
+    ],
+    "file": "surface-woven-checker.svg"
+  },
+  {
+    "id": "expanded-surface-chainmail-mat",
+    "label": "Кольчужное полотно",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "chainmat"
+    ],
+    "file": "surface-chainmail-mat.svg"
+  },
+  {
+    "id": "expanded-surface-honeycomb-grate",
+    "label": "Сотовая решётка",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "honeygrate"
+    ],
+    "file": "surface-honeycomb-grate.svg"
+  },
+  {
+    "id": "expanded-surface-vent-floor",
+    "label": "Настил с вентиляционными щелями",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "vents"
+    ],
+    "file": "surface-vent-floor.svg"
+  },
+  {
+    "id": "expanded-surface-pumice-ground",
+    "label": "Пористая пемза",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "pumice"
+    ],
+    "file": "surface-pumice-ground.svg"
+  },
+  {
+    "id": "expanded-surface-shell-ground",
+    "label": "Песок с ракушками",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "shellsand"
+    ],
+    "file": "surface-shell-ground.svg"
+  },
+  {
+    "id": "expanded-surface-flint-ground",
+    "label": "Острые кремневые сколы",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "flint"
+    ],
+    "file": "surface-flint-ground.svg"
+  },
+  {
+    "id": "expanded-surface-clay-cracks",
+    "label": "Высохшая растрескавшаяся глина",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "clay"
+    ],
+    "file": "surface-clay-cracks.svg"
+  },
+  {
+    "id": "expanded-surface-heather-ground",
+    "label": "Цветущий вересковый покров",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "heather"
+    ],
+    "file": "surface-heather-ground.svg"
+  },
+  {
+    "id": "expanded-surface-clover-ground",
+    "label": "Листья клевера",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "clover"
+    ],
+    "file": "surface-clover-ground.svg"
+  },
+  {
+    "id": "expanded-surface-lichen-ground",
+    "label": "Корочки лишайника",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "lichen"
+    ],
+    "file": "surface-lichen-ground.svg"
+  },
+  {
+    "id": "expanded-surface-pine-needles",
+    "label": "Сосновая хвоя",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "needles"
+    ],
+    "file": "surface-pine-needles.svg"
+  },
+  {
+    "id": "expanded-surface-seaweed-ground",
+    "label": "Затопленные водоросли",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "seaweed"
+    ],
+    "file": "surface-seaweed-ground.svg"
+  },
+  {
+    "id": "expanded-surface-ripple-sand",
+    "label": "Песок с мелкой рябью",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "ripples"
+    ],
+    "file": "surface-ripple-sand.svg"
+  },
+  {
+    "id": "expanded-surface-snow-crust",
+    "label": "Наст с ветровыми гребнями",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "snowcrust"
+    ],
+    "file": "surface-snow-crust.svg"
+  },
+  {
+    "id": "expanded-surface-frost-window",
+    "label": "Инеевые ветви",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "frost"
+    ],
+    "file": "surface-frost-window.svg"
+  },
+  {
+    "id": "expanded-surface-black-ice",
+    "label": "Лёд с пузырьками воздуха",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "bubbles"
+    ],
+    "file": "surface-black-ice.svg"
+  },
+  {
+    "id": "expanded-surface-steam-grate",
+    "label": "Решётчатый настил с люками",
+    "category": "background",
+    "tags": [
+      "поверхность",
+      "тайл",
+      "покрытие",
+      "hatches"
+    ],
+    "file": "surface-steam-grate.svg"
+  },
+  {
+    "id": "expanded-building-corner-stone",
+    "label": "Угол каменного коридора",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "corner"
+    ],
+    "file": "building-corner-stone.svg"
+  },
+  {
+    "id": "expanded-building-junction-stone",
+    "label": "Развилка каменного коридора",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "junction"
+    ],
+    "file": "building-junction-stone.svg"
+  },
+  {
+    "id": "expanded-building-cross-stone",
+    "label": "Перекрёсток каменных проходов",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "cross"
+    ],
+    "file": "building-cross-stone.svg"
+  },
+  {
+    "id": "expanded-building-alcove-stone",
+    "label": "Ниша в каменной стене",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "alcove"
+    ],
+    "file": "building-alcove-stone.svg"
+  },
+  {
+    "id": "expanded-building-doorway-round",
+    "label": "Круглый дверной проём",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "rounddoor"
+    ],
+    "file": "building-doorway-round.svg"
+  },
+  {
+    "id": "expanded-building-doorway-pointed",
+    "label": "Стрельчатый проём",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "pointdoor"
+    ],
+    "file": "building-doorway-pointed.svg"
+  },
+  {
+    "id": "expanded-building-doorway-lintel",
+    "label": "Проём с массивной перемычкой",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "lintel"
+    ],
+    "file": "building-doorway-lintel.svg"
+  },
+  {
+    "id": "expanded-building-double-arch",
+    "label": "Двойной арочный проход",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "doublearch"
+    ],
+    "file": "building-double-arch.svg"
+  },
+  {
+    "id": "expanded-building-stair-turn",
+    "label": "Лестница с поворотом",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "stairturn"
+    ],
+    "file": "building-stair-turn.svg"
+  },
+  {
+    "id": "expanded-building-stair-spiral",
+    "label": "Винтовая лестница сверху",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "spiral"
+    ],
+    "file": "building-stair-spiral.svg"
+  },
+  {
+    "id": "expanded-building-stair-descend",
+    "label": "Спуск в подвал",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "descend"
+    ],
+    "file": "building-stair-descend.svg"
+  },
+  {
+    "id": "expanded-building-stair-balustrade",
+    "label": "Парадная лестница с перилами",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "balustair"
+    ],
+    "file": "building-stair-balustrade.svg"
+  },
+  {
+    "id": "expanded-building-roof-ridge",
+    "label": "Конёк черепичной крыши",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "ridge"
+    ],
+    "file": "building-roof-ridge.svg"
+  },
+  {
+    "id": "expanded-building-roof-gable",
+    "label": "Треугольный фронтон",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "gable"
+    ],
+    "file": "building-roof-gable.svg"
+  },
+  {
+    "id": "expanded-building-roof-dormer",
+    "label": "Слуховое окно на крыше",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "dormer"
+    ],
+    "file": "building-roof-dormer.svg"
+  },
+  {
+    "id": "expanded-building-roof-chimney",
+    "label": "Дымоход на крыше",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "chimney"
+    ],
+    "file": "building-roof-chimney.svg"
+  },
+  {
+    "id": "expanded-building-roof-hip",
+    "label": "Четырёхскатная крыша сверху",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "hiproof"
+    ],
+    "file": "building-roof-hip.svg"
+  },
+  {
+    "id": "expanded-building-roof-broken",
+    "label": "Пролом в крыше",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "roofbroken"
+    ],
+    "file": "building-roof-broken.svg"
+  },
+  {
+    "id": "expanded-building-rampart-straight",
+    "label": "Крепостная стена с зубцами",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "rampart"
+    ],
+    "file": "building-rampart-straight.svg"
+  },
+  {
+    "id": "expanded-building-rampart-corner",
+    "label": "Угол крепостной стены",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "rampartcorner"
+    ],
+    "file": "building-rampart-corner.svg"
+  },
+  {
+    "id": "expanded-building-tower-round",
+    "label": "Круглая башня сверху",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "roundtower"
+    ],
+    "file": "building-tower-round.svg"
+  },
+  {
+    "id": "expanded-building-tower-square",
+    "label": "Квадратная башня сверху",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "squaretower"
+    ],
+    "file": "building-tower-square.svg"
+  },
+  {
+    "id": "expanded-building-gatehouse",
+    "label": "Надвратная башня",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "gatehouse"
+    ],
+    "file": "building-gatehouse.svg"
+  },
+  {
+    "id": "expanded-building-drawbridge-entry",
+    "label": "Въезд с разводным мостом",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "drawbridge"
+    ],
+    "file": "building-drawbridge-entry.svg"
+  },
+  {
+    "id": "expanded-building-house-courtyard",
+    "label": "Двор с колодцем сверху",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "courtyard"
+    ],
+    "file": "building-house-courtyard.svg"
+  },
+  {
+    "id": "expanded-building-cloister",
+    "label": "Галерея вокруг сада",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "cloister"
+    ],
+    "file": "building-cloister.svg"
+  },
+  {
+    "id": "expanded-building-cellar-vault",
+    "label": "Сводчатый подвал",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "vault"
+    ],
+    "file": "building-cellar-vault.svg"
+  },
+  {
+    "id": "expanded-building-mine-entry",
+    "label": "Креплёный вход в шахту",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "mine"
+    ],
+    "file": "building-mine-entry.svg"
+  },
+  {
+    "id": "expanded-building-cave-entry",
+    "label": "Скалистый вход в пещеру",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "cave"
+    ],
+    "file": "building-cave-entry.svg"
+  },
+  {
+    "id": "expanded-building-sewer-entry",
+    "label": "Выход канализации",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "sewer"
+    ],
+    "file": "building-sewer-entry.svg"
+  },
+  {
+    "id": "expanded-building-wood-balcony",
+    "label": "Деревянный балкон",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "balcony"
+    ],
+    "file": "building-wood-balcony.svg"
+  },
+  {
+    "id": "expanded-building-stone-terrace",
+    "label": "Терраса с балюстрадой",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "terrace"
+    ],
+    "file": "building-stone-terrace.svg"
+  },
+  {
+    "id": "expanded-building-water-dock",
+    "label": "Причал с лестницей",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "dock"
+    ],
+    "file": "building-water-dock.svg"
+  },
+  {
+    "id": "expanded-building-canal-lock",
+    "label": "Шлюз канала сверху",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "lock"
+    ],
+    "file": "building-canal-lock.svg"
+  },
+  {
+    "id": "expanded-building-market-row",
+    "label": "Ряд торговых лавок",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "market"
+    ],
+    "file": "building-market-row.svg"
+  },
+  {
+    "id": "expanded-building-stable-yard",
+    "label": "Конюшня с загоном",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "stable"
+    ],
+    "file": "building-stable-yard.svg"
+  },
+  {
+    "id": "expanded-building-watch-post",
+    "label": "Сторожевой пост",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "watch"
+    ],
+    "file": "building-watch-post.svg"
+  },
+  {
+    "id": "expanded-building-mill-building",
+    "label": "Мельничное здание",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "mill"
+    ],
+    "file": "building-mill-building.svg"
+  },
+  {
+    "id": "expanded-building-greenhouse",
+    "label": "Стеклянная оранжерея",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "greenhouse"
+    ],
+    "file": "building-greenhouse.svg"
+  },
+  {
+    "id": "expanded-building-workshop-front",
+    "label": "Фасад ремесленной мастерской",
+    "category": "background",
+    "tags": [
+      "фон",
+      "строительство",
+      "архитектура",
+      "локация",
+      "workshop"
+    ],
+    "file": "building-workshop-front.svg"
+  },
+  {
+    "id": "expanded-landscape-orchard",
+    "label": "Сад с рядами плодовых деревьев",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "orchard"
+    ],
+    "file": "landscape-orchard.svg"
+  },
+  {
+    "id": "expanded-landscape-vineyard",
+    "label": "Виноградник на склоне",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "vineyard"
+    ],
+    "file": "landscape-vineyard.svg"
+  },
+  {
+    "id": "expanded-landscape-rice-terraces",
+    "label": "Затопленные террасы",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "terraces"
+    ],
+    "file": "landscape-rice-terraces.svg"
+  },
+  {
+    "id": "expanded-landscape-flower-valley",
+    "label": "Долина полевых цветов",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "flowers"
+    ],
+    "file": "landscape-flower-valley.svg"
+  },
+  {
+    "id": "expanded-landscape-heather-hills",
+    "label": "Вересковые холмы",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "heatherhills"
+    ],
+    "file": "landscape-heather-hills.svg"
+  },
+  {
+    "id": "expanded-landscape-bamboo-grove",
+    "label": "Бамбуковая роща",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "bamboogrove"
+    ],
+    "file": "landscape-bamboo-grove.svg"
+  },
+  {
+    "id": "expanded-landscape-mangrove",
+    "label": "Мангровый берег",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "mangrove"
+    ],
+    "file": "landscape-mangrove.svg"
+  },
+  {
+    "id": "expanded-landscape-tropical-shore",
+    "label": "Берег с пальмами",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "palms"
+    ],
+    "file": "landscape-tropical-shore.svg"
+  },
+  {
+    "id": "expanded-landscape-redwood-ravine",
+    "label": "Ущелье с высокими деревьями",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "redwoods"
+    ],
+    "file": "landscape-redwood-ravine.svg"
+  },
+  {
+    "id": "expanded-landscape-fungus-cave",
+    "label": "Пещера с грибами",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "funguscave"
+    ],
+    "file": "landscape-fungus-cave.svg"
+  },
+  {
+    "id": "expanded-landscape-underground-lake",
+    "label": "Подземное озеро",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "undergroundlake"
+    ],
+    "file": "landscape-underground-lake.svg"
+  },
+  {
+    "id": "expanded-landscape-crystal-cavern",
+    "label": "Пещера кристаллов",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "crystalcave"
+    ],
+    "file": "landscape-crystal-cavern.svg"
+  },
+  {
+    "id": "expanded-landscape-waterfall",
+    "label": "Ступенчатый водопад",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "waterfall"
+    ],
+    "file": "landscape-waterfall.svg"
+  },
+  {
+    "id": "expanded-landscape-river-delta",
+    "label": "Речная дельта сверху",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "delta"
+    ],
+    "file": "landscape-river-delta.svg"
+  },
+  {
+    "id": "expanded-landscape-tidal-pools",
+    "label": "Приливные скальные ванны",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "tidepools"
+    ],
+    "file": "landscape-tidal-pools.svg"
+  },
+  {
+    "id": "expanded-landscape-coral-lagoon",
+    "label": "Лагуна с коралловыми островками",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "lagoon"
+    ],
+    "file": "landscape-coral-lagoon.svg"
+  },
+  {
+    "id": "expanded-landscape-sea-cliffs",
+    "label": "Обрывистый морской берег",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "seacliffs"
+    ],
+    "file": "landscape-sea-cliffs.svg"
+  },
+  {
+    "id": "expanded-landscape-shipwreck-shore",
+    "label": "Берег с обломками судна",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "wreck"
+    ],
+    "file": "landscape-shipwreck-shore.svg"
+  },
+  {
+    "id": "expanded-landscape-salt-canyon",
+    "label": "Соляной каньон",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "saltcanyon"
+    ],
+    "file": "landscape-salt-canyon.svg"
+  },
+  {
+    "id": "expanded-landscape-arch-desert",
+    "label": "Пустыня с каменной аркой",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "desertarch"
+    ],
+    "file": "landscape-arch-desert.svg"
+  },
+  {
+    "id": "expanded-landscape-mesa",
+    "label": "Столовая гора",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "mesa"
+    ],
+    "file": "landscape-mesa.svg"
+  },
+  {
+    "id": "expanded-landscape-oasis",
+    "label": "Оазис среди дюн",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "oasis"
+    ],
+    "file": "landscape-oasis.svg"
+  },
+  {
+    "id": "expanded-landscape-geyser",
+    "label": "Каменные чаши с гейзером",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "geyser"
+    ],
+    "file": "landscape-geyser.svg"
+  },
+  {
+    "id": "expanded-landscape-hot-springs",
+    "label": "Террасы горячих источников",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "hotsprings"
+    ],
+    "file": "landscape-hot-springs.svg"
+  },
+  {
+    "id": "expanded-landscape-glacier",
+    "label": "Ледниковая долина",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "glacier"
+    ],
+    "file": "landscape-glacier.svg"
+  },
+  {
+    "id": "expanded-landscape-ice-cave",
+    "label": "Ледяная пещера",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "icecave"
+    ],
+    "file": "landscape-ice-cave.svg"
+  },
+  {
+    "id": "expanded-landscape-tundra",
+    "label": "Тундра с карликовыми кустами",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "tundra"
+    ],
+    "file": "landscape-tundra.svg"
+  },
+  {
+    "id": "expanded-landscape-snow-pass",
+    "label": "Заснеженный горный перевал",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "snowpass"
+    ],
+    "file": "landscape-snow-pass.svg"
+  },
+  {
+    "id": "expanded-landscape-burned-forest",
+    "label": "Обгоревший лес",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "burned"
+    ],
+    "file": "landscape-burned-forest.svg"
+  },
+  {
+    "id": "expanded-landscape-fallen-bridge",
+    "label": "Руины моста над рекой",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "fallenbridge"
+    ],
+    "file": "landscape-fallen-bridge.svg"
+  },
+  {
+    "id": "expanded-landscape-sunken-ruins",
+    "label": "Затопленные руины",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "sunken"
+    ],
+    "file": "landscape-sunken-ruins.svg"
+  },
+  {
+    "id": "expanded-landscape-stone-circle",
+    "label": "Каменный круг на холме",
+    "category": "background",
+    "tags": [
+      "фон",
+      "ландшафт",
+      "локация",
+      "stonecircle"
+    ],
+    "file": "landscape-stone-circle.svg"
+  },
+  {
+    "id": "expanded-object-cedar",
+    "label": "Кедр с ярусными ветвями",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "cedar",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-cedar.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-cypress",
+    "label": "Узкий кипарис",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "cypress",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-cypress.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-palm",
+    "label": "Пальма с кокосами",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "palm",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-palm.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-acacia",
+    "label": "Зонтичная акация",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "acacia",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-acacia.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-maple",
+    "label": "Клён с зубчатой кроной",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "maple",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-maple.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-hazel",
+    "label": "Лещина с несколькими стволами",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "hazel",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-hazel.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-juniper",
+    "label": "Стелющийся можжевельник",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "juniper",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-juniper.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-elder",
+    "label": "Бузина с кистями цветов",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "elder",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-elder.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-rose-bush",
+    "label": "Розовый куст",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "rose",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-rose-bush.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-agave",
+    "label": "Розетка агавы",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "agave",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-agave.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-aloe",
+    "label": "Алоэ с цветоносом",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "aloe",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-aloe.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-banana",
+    "label": "Банановые листья",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "banana",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-banana.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-coffee",
+    "label": "Кофейный куст",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "coffee",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-coffee.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-pumpkin-patch",
+    "label": "Тыквенная плеть",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "pumpkin",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-pumpkin-patch.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-cabbages",
+    "label": "Грядка кочанов капусты",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "cabbages",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-cabbages.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-cotton",
+    "label": "Куст хлопчатника",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "cotton",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-cotton.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-hops",
+    "label": "Хмель на шпалере",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "hops",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-hops.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-coral-fan",
+    "label": "Веерный коралл",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "coralfan",
+      "растительность",
+      "природа"
+    ],
+    "file": "object-coral-fan.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-basalt-column",
+    "label": "Базальтовая колонна",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "basaltcolumn",
+      "камень",
+      "природа"
+    ],
+    "file": "object-basalt-column.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-sandstone-stack",
+    "label": "Слоистый каменный столб",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "sandstack",
+      "камень",
+      "природа"
+    ],
+    "file": "object-sandstone-stack.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-balancing-rock",
+    "label": "Камень на узкой опоре",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "balance",
+      "камень",
+      "природа"
+    ],
+    "file": "object-balancing-rock.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-stone-arch-natural",
+    "label": "Природная каменная арка",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "naturalarch",
+      "камень",
+      "природа"
+    ],
+    "file": "object-stone-arch-natural.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-coral-rock",
+    "label": "Пористый коралловый камень",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "coralrock",
+      "камень",
+      "природа"
+    ],
+    "file": "object-coral-rock.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-pumice-boulder",
+    "label": "Валун пемзы",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "pumice",
+      "камень",
+      "природа"
+    ],
+    "file": "object-pumice-boulder.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-sulfur-rock",
+    "label": "Камень с серными наростами",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "sulfur",
+      "камень",
+      "природа"
+    ],
+    "file": "object-sulfur-rock.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-quartz-vein",
+    "label": "Плита с кварцевой жилой",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "quartz",
+      "камень",
+      "природа"
+    ],
+    "file": "object-quartz-vein.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-amber-root",
+    "label": "Янтарные включения в корне",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "amber",
+      "камень",
+      "природа"
+    ],
+    "file": "object-amber-root.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-magnetite",
+    "label": "Гранёный магнитный минерал",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "magnetite",
+      "камень",
+      "природа"
+    ],
+    "file": "object-magnetite.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-driftwood",
+    "label": "Выбеленная коряга",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "driftwood",
+      "камень",
+      "природа"
+    ],
+    "file": "object-driftwood.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-frozen-root",
+    "label": "Обледенелый корень",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "frozenroot",
+      "камень",
+      "природа"
+    ],
+    "file": "object-frozen-root.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-shell-mound",
+    "label": "Насыпь крупных раковин",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "shellmound",
+      "камень",
+      "природа"
+    ],
+    "file": "object-shell-mound.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-sand-burrow",
+    "label": "Нора в песчаной насыпи",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "burrow",
+      "камень",
+      "природа"
+    ],
+    "file": "object-sand-burrow.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-termite-mound",
+    "label": "Высокий термитник",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "termites",
+      "камень",
+      "природа"
+    ],
+    "file": "object-termite-mound.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-potters-wheel",
+    "label": "Гончарный круг",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "potter",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-potters-wheel.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-kiln",
+    "label": "Керамическая печь",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "kiln",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-kiln.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-grindstone",
+    "label": "Точильный круг",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "grindstone",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-grindstone.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-sawhorse",
+    "label": "Козлы с досками",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "sawhorse",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-sawhorse.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-carpenter-clamp",
+    "label": "Столярный стол с тисками",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "clampbench",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-carpenter-clamp.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-tanning-frame",
+    "label": "Рама для выделки кожи",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "tanning",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-tanning-frame.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-dye-vat",
+    "label": "Чан красильщика",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "dyevat",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-dye-vat.svg",
+    "objectKind": "water"
+  },
+  {
+    "id": "expanded-object-cheese-press",
+    "label": "Пресс для сыра",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "cheesepress",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-cheese-press.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-oil-press",
+    "label": "Давильный пресс",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "oilpress",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-oil-press.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-grain-mill",
+    "label": "Ручная жерновая мельница",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "grainmill",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-grain-mill.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-brewing-vat",
+    "label": "Варочный котёл на подставке",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "brewvat",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-brewing-vat.svg",
+    "objectKind": "water"
+  },
+  {
+    "id": "expanded-object-still",
+    "label": "Перегонный куб",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "still",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-still.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-fish-rack",
+    "label": "Стойка для сушки рыбы",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "fishrack",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-fish-rack.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-herb-rack",
+    "label": "Сушилка лекарственных трав",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "herbrack",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-herb-rack.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-smokehouse",
+    "label": "Небольшая коптильня",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "smokehouse",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-smokehouse.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-bread-oven",
+    "label": "Хлебная печь",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "breadoven",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-bread-oven.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-beehive",
+    "label": "Плетёный улей",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "beehive",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-beehive.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-chicken-coop",
+    "label": "Курятник на ножках",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "coop",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-chicken-coop.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-feed-trough",
+    "label": "Кормушка с сеном",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "trough",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-feed-trough.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-hay-bale",
+    "label": "Тюк сена в перевязи",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "haybale",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-hay-bale.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-wine-rack",
+    "label": "Стойка винных бутылей",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "winerack",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-wine-rack.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-bolt-rack",
+    "label": "Стеллаж с рулонами ткани",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "boltrack",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-bolt-rack.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-coal-bin",
+    "label": "Ящик с углём",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "coalbin",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-coal-bin.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-sandbags",
+    "label": "Укрытие из мешков песка",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "sandbags",
+      "ремесло",
+      "интерьер"
+    ],
+    "file": "object-sandbags.svg",
+    "objectKind": "wall"
+  },
+  {
+    "id": "expanded-object-public-pump",
+    "label": "Уличная водяная помпа",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "pump",
+      "город",
+      "улица"
+    ],
+    "file": "object-public-pump.svg",
+    "objectKind": "water"
+  },
+  {
+    "id": "expanded-object-drinking-basin",
+    "label": "Питьевая чаша на стене",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "basin",
+      "город",
+      "улица"
+    ],
+    "file": "object-drinking-basin.svg",
+    "objectKind": "water"
+  },
+  {
+    "id": "expanded-object-wash-line",
+    "label": "Бельё на верёвке",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "washline",
+      "город",
+      "улица"
+    ],
+    "file": "object-wash-line.svg",
+    "objectKind": "wall"
+  },
+  {
+    "id": "expanded-object-market-scale",
+    "label": "Торговые весы на стойке",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "scale",
+      "город",
+      "улица"
+    ],
+    "file": "object-market-scale.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-fruit-stall",
+    "label": "Прилавок с фруктами",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "fruitstall",
+      "город",
+      "улица"
+    ],
+    "file": "object-fruit-stall.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-fish-stall",
+    "label": "Рыбный прилавок",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "fishstall",
+      "город",
+      "улица"
+    ],
+    "file": "object-fish-stall.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-flower-planter",
+    "label": "Деревянная кадка с цветами",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "planter",
+      "город",
+      "улица"
+    ],
+    "file": "object-flower-planter.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-hitching-post",
+    "label": "Столб для привязи",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "hitch",
+      "город",
+      "улица"
+    ],
+    "file": "object-hitching-post.svg",
+    "objectKind": "wall"
+  },
+  {
+    "id": "expanded-object-mile-marker",
+    "label": "Каменный верстовой столб",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "mile",
+      "город",
+      "улица"
+    ],
+    "file": "object-mile-marker.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-road-barrier",
+    "label": "Откидной дорожный шлагбаум",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "barrier",
+      "город",
+      "улица"
+    ],
+    "file": "object-road-barrier.svg",
+    "objectKind": "door"
+  },
+  {
+    "id": "expanded-object-bollard",
+    "label": "Причальная тумба",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "bollard",
+      "город",
+      "улица"
+    ],
+    "file": "object-bollard.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-anchor",
+    "label": "Большой корабельный якорь",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "anchor",
+      "город",
+      "улица"
+    ],
+    "file": "object-anchor.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-lifebuoy",
+    "label": "Спасательный круг на стойке",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "lifebuoy",
+      "город",
+      "улица"
+    ],
+    "file": "object-lifebuoy.svg",
+    "objectKind": "wall"
+  },
+  {
+    "id": "expanded-object-fishing-net",
+    "label": "Рыболовная сеть на раме",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "net",
+      "город",
+      "улица"
+    ],
+    "file": "object-fishing-net.svg",
+    "objectKind": "wall"
+  },
+  {
+    "id": "expanded-object-street-clock",
+    "label": "Уличные часы",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "clock",
+      "город",
+      "улица"
+    ],
+    "file": "object-street-clock.svg",
+    "objectKind": "wall"
+  },
+  {
+    "id": "expanded-object-sundial",
+    "label": "Каменные солнечные часы",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "sundial",
+      "город",
+      "улица"
+    ],
+    "file": "object-sundial.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-gargoyle",
+    "label": "Водосток с каменной головой",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "gargoyle",
+      "город",
+      "улица"
+    ],
+    "file": "object-gargoyle.svg",
+    "objectKind": "wall"
+  },
+  {
+    "id": "expanded-object-birdhouse",
+    "label": "Скворечник на шесте",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "birdhouse",
+      "город",
+      "улица"
+    ],
+    "file": "object-birdhouse.svg",
+    "objectKind": "tree"
+  },
+  {
+    "id": "expanded-object-nest",
+    "label": "Гнездо с яйцами",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "nest",
+      "город",
+      "улица"
+    ],
+    "file": "object-nest.svg",
+    "objectKind": "rock"
+  },
+  {
+    "id": "expanded-object-carriage",
+    "label": "Крытая повозка",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "carriage",
+      "город",
+      "улица"
+    ],
+    "file": "object-carriage.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-windmill-frame",
+    "label": "Ветряное колесо на раме",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "windwheel",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-windmill-frame.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-crane",
+    "label": "Поворотный подъёмный кран",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "crane",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-crane.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-pulley-rig",
+    "label": "Полиспаст с грузом",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "pulley",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-pulley-rig.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-winch",
+    "label": "Барабанная лебёдка",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "winch",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-winch.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-gear-pair",
+    "label": "Пара сцепленных шестерён",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "gears",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-gear-pair.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-water-screw",
+    "label": "Наклонный водоподъёмный винт",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "screw",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-water-screw.svg",
+    "objectKind": "water"
+  },
+  {
+    "id": "expanded-object-sluice-gate",
+    "label": "Затвор с подъёмным винтом",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "sluice",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-sluice-gate.svg",
+    "objectKind": "door"
+  },
+  {
+    "id": "expanded-object-bellows",
+    "label": "Кузнечные мехи на раме",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "bellows",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-bellows.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-mine-cart",
+    "label": "Вагонетка с рудой",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "minecart",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-mine-cart.svg",
+    "objectKind": "crate"
+  },
+  {
+    "id": "expanded-object-rail-switch",
+    "label": "Стрелка рельсового пути",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "rails",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-rail-switch.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-drawbridge-machine",
+    "label": "Механизм подъёмного моста",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "drawmachine",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-drawbridge-machine.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-trap-grate",
+    "label": "Решётка над ямой",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "pitgrate",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-trap-grate.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-rotating-platform",
+    "label": "Круглая поворотная платформа",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "turntable",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-rotating-platform.svg",
+    "objectKind": "platform"
+  },
+  {
+    "id": "expanded-object-signal-lantern",
+    "label": "Сигнальный фонарь с заслонками",
+    "category": "object",
+    "tags": [
+      "окружение",
+      "signal",
+      "механизм",
+      "строительство"
+    ],
+    "file": "object-signal-lantern.svg",
+    "objectKind": "lamp"
+  },
+  {
+    "id": "expanded-portrait-cartographer",
+    "label": "Картограф",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "cartographer"
+    ],
+    "file": "portrait-cartographer.svg"
+  },
+  {
+    "id": "expanded-portrait-baker",
+    "label": "Пекарь",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "baker"
+    ],
+    "file": "portrait-baker.svg"
+  },
+  {
+    "id": "expanded-portrait-butcher",
+    "label": "Мясник",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "butcher"
+    ],
+    "file": "portrait-butcher.svg"
+  },
+  {
+    "id": "expanded-portrait-brewer",
+    "label": "Пивовар",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "brewer"
+    ],
+    "file": "portrait-brewer.svg"
+  },
+  {
+    "id": "expanded-portrait-tailor",
+    "label": "Портной",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "tailor"
+    ],
+    "file": "portrait-tailor.svg"
+  },
+  {
+    "id": "expanded-portrait-potter",
+    "label": "Гончарка",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "potter"
+    ],
+    "file": "portrait-potter.svg"
+  },
+  {
+    "id": "expanded-portrait-cooper",
+    "label": "Бондарь",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "cooper"
+    ],
+    "file": "portrait-cooper.svg"
+  },
+  {
+    "id": "expanded-portrait-mason",
+    "label": "Каменщик",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "mason"
+    ],
+    "file": "portrait-mason.svg"
+  },
+  {
+    "id": "expanded-portrait-glassblower",
+    "label": "Стеклодув",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "glassblower"
+    ],
+    "file": "portrait-glassblower.svg"
+  },
+  {
+    "id": "expanded-portrait-beekeep",
+    "label": "Пасечник",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "beekeep"
+    ],
+    "file": "portrait-beekeep.svg"
+  },
+  {
+    "id": "expanded-portrait-gardener",
+    "label": "Садовница",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "gardener"
+    ],
+    "file": "portrait-gardener.svg"
+  },
+  {
+    "id": "expanded-portrait-stablehand",
+    "label": "Конюх",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "stablehand"
+    ],
+    "file": "portrait-stablehand.svg"
+  },
+  {
+    "id": "expanded-portrait-falconer",
+    "label": "Сокольничая",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "falconer"
+    ],
+    "file": "portrait-falconer.svg"
+  },
+  {
+    "id": "expanded-portrait-trapper",
+    "label": "Зверолов",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "trapper"
+    ],
+    "file": "portrait-trapper.svg"
+  },
+  {
+    "id": "expanded-portrait-pearl-diver",
+    "label": "Ныряльщица за жемчугом",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "pearl-diver"
+    ],
+    "file": "portrait-pearl-diver.svg"
+  },
+  {
+    "id": "expanded-portrait-boatwright",
+    "label": "Лодочный мастер",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "boatwright"
+    ],
+    "file": "portrait-boatwright.svg"
+  },
+  {
+    "id": "expanded-portrait-lighthouse-keeper",
+    "label": "Смотритель маяка",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "lighthouse-keeper"
+    ],
+    "file": "portrait-lighthouse-keeper.svg"
+  },
+  {
+    "id": "expanded-portrait-quartermaster",
+    "label": "Интендант",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "quartermaster"
+    ],
+    "file": "portrait-quartermaster.svg"
+  },
+  {
+    "id": "expanded-portrait-veteran",
+    "label": "Ветеран",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "veteran"
+    ],
+    "file": "portrait-veteran.svg"
+  },
+  {
+    "id": "expanded-portrait-duelist",
+    "label": "Дуэлянтка",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "duelist"
+    ],
+    "file": "portrait-duelist.svg"
+  },
+  {
+    "id": "expanded-portrait-armorer",
+    "label": "Бронник",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "armorer"
+    ],
+    "file": "portrait-armorer.svg"
+  },
+  {
+    "id": "expanded-portrait-watch-sentry",
+    "label": "Ночной дозорный",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "watch-sentry"
+    ],
+    "file": "portrait-watch-sentry.svg"
+  },
+  {
+    "id": "expanded-portrait-standard-bearer",
+    "label": "Знаменосец",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "standard-bearer"
+    ],
+    "file": "portrait-standard-bearer.svg"
+  },
+  {
+    "id": "expanded-portrait-scout-rider",
+    "label": "Конная разведчица",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "scout-rider"
+    ],
+    "file": "portrait-scout-rider.svg"
+  },
+  {
+    "id": "expanded-portrait-scribe",
+    "label": "Писец",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "scribe"
+    ],
+    "file": "portrait-scribe.svg"
+  },
+  {
+    "id": "expanded-portrait-bookbinder",
+    "label": "Переплётчица",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "bookbinder"
+    ],
+    "file": "portrait-bookbinder.svg"
+  },
+  {
+    "id": "expanded-portrait-librarian",
+    "label": "Библиотекарь",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "librarian"
+    ],
+    "file": "portrait-librarian.svg"
+  },
+  {
+    "id": "expanded-portrait-astrologer",
+    "label": "Звездочёт",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "astrologer"
+    ],
+    "file": "portrait-astrologer.svg"
+  },
+  {
+    "id": "expanded-portrait-geographer",
+    "label": "Географ",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "geographer"
+    ],
+    "file": "portrait-geographer.svg"
+  },
+  {
+    "id": "expanded-portrait-linguist",
+    "label": "Толковательница языков",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "linguist"
+    ],
+    "file": "portrait-linguist.svg"
+  },
+  {
+    "id": "expanded-portrait-clockmaker",
+    "label": "Часовщик",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "clockmaker"
+    ],
+    "file": "portrait-clockmaker.svg"
+  },
+  {
+    "id": "expanded-portrait-apothecary",
+    "label": "Аптекарь",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "apothecary"
+    ],
+    "file": "portrait-apothecary.svg"
+  },
+  {
+    "id": "expanded-portrait-surgeon",
+    "label": "Хирург",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "surgeon"
+    ],
+    "file": "portrait-surgeon.svg"
+  },
+  {
+    "id": "expanded-portrait-midwife",
+    "label": "Повитуха",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "midwife"
+    ],
+    "file": "portrait-midwife.svg"
+  },
+  {
+    "id": "expanded-portrait-rune-carver",
+    "label": "Резчик рун",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "rune-carver"
+    ],
+    "file": "portrait-rune-carver.svg"
+  },
+  {
+    "id": "expanded-portrait-illusionist",
+    "label": "Иллюзионистка",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "illusionist"
+    ],
+    "file": "portrait-illusionist.svg"
+  },
+  {
+    "id": "expanded-portrait-metal-mage",
+    "label": "Маг металла",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "metal-mage"
+    ],
+    "file": "portrait-metal-mage.svg"
+  },
+  {
+    "id": "expanded-portrait-plant-mage",
+    "label": "Маг растительности",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "plant-mage"
+    ],
+    "file": "portrait-plant-mage.svg"
+  },
+  {
+    "id": "expanded-portrait-storm-caller",
+    "label": "Заклинатель гроз",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "storm-caller"
+    ],
+    "file": "portrait-storm-caller.svg"
+  },
+  {
+    "id": "expanded-portrait-dream-guide",
+    "label": "Проводница сновидений",
+    "category": "portrait",
+    "tags": [
+      "портрет",
+      "персонаж",
+      "профессия",
+      "образ",
+      "dream-guide"
+    ],
+    "file": "portrait-dream-guide.svg"
+  },
+  {
+    "id": "expanded-creature-hare",
+    "label": "Заяц",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "hare"
+    ],
+    "file": "creature-hare.svg"
+  },
+  {
+    "id": "expanded-creature-squirrel",
+    "label": "Белка",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "squirrel"
+    ],
+    "file": "creature-squirrel.svg"
+  },
+  {
+    "id": "expanded-creature-badger",
+    "label": "Барсук",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "badger"
+    ],
+    "file": "creature-badger.svg"
+  },
+  {
+    "id": "expanded-creature-otter",
+    "label": "Выдра",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "otter"
+    ],
+    "file": "creature-otter.svg"
+  },
+  {
+    "id": "expanded-creature-beaver",
+    "label": "Бобр",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "beaver"
+    ],
+    "file": "creature-beaver.svg"
+  },
+  {
+    "id": "expanded-creature-hedgehog",
+    "label": "Ёж",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "hedgehog"
+    ],
+    "file": "creature-hedgehog.svg"
+  },
+  {
+    "id": "expanded-creature-lynx",
+    "label": "Рысь",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "lynx"
+    ],
+    "file": "creature-lynx.svg"
+  },
+  {
+    "id": "expanded-creature-panther",
+    "label": "Пантера",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "panther"
+    ],
+    "file": "creature-panther.svg"
+  },
+  {
+    "id": "expanded-creature-lion",
+    "label": "Лев",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "lion"
+    ],
+    "file": "creature-lion.svg"
+  },
+  {
+    "id": "expanded-creature-hyena",
+    "label": "Гиена",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "hyena"
+    ],
+    "file": "creature-hyena.svg"
+  },
+  {
+    "id": "expanded-creature-ram",
+    "label": "Баран",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "ram"
+    ],
+    "file": "creature-ram.svg"
+  },
+  {
+    "id": "expanded-creature-goat",
+    "label": "Коза",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "goat"
+    ],
+    "file": "creature-goat.svg"
+  },
+  {
+    "id": "expanded-creature-bison",
+    "label": "Бизон",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "bison"
+    ],
+    "file": "creature-bison.svg"
+  },
+  {
+    "id": "expanded-creature-moose",
+    "label": "Лось",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "moose"
+    ],
+    "file": "creature-moose.svg"
+  },
+  {
+    "id": "expanded-creature-camel",
+    "label": "Верблюд",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "camel"
+    ],
+    "file": "creature-camel.svg"
+  },
+  {
+    "id": "expanded-creature-elephant",
+    "label": "Слон",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "elephant"
+    ],
+    "file": "creature-elephant.svg"
+  },
+  {
+    "id": "expanded-creature-rhinoceros",
+    "label": "Носорог",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "rhinoceros"
+    ],
+    "file": "creature-rhinoceros.svg"
+  },
+  {
+    "id": "expanded-creature-hippopotamus",
+    "label": "Бегемот",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "hippopotamus"
+    ],
+    "file": "creature-hippopotamus.svg"
+  },
+  {
+    "id": "expanded-creature-seal",
+    "label": "Тюлень",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "seal"
+    ],
+    "file": "creature-seal.svg"
+  },
+  {
+    "id": "expanded-creature-walrus",
+    "label": "Морж",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "walrus"
+    ],
+    "file": "creature-walrus.svg"
+  },
+  {
+    "id": "expanded-creature-peacock",
+    "label": "Павлин",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "peacock"
+    ],
+    "file": "creature-peacock.svg"
+  },
+  {
+    "id": "expanded-creature-heron",
+    "label": "Цапля",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "heron"
+    ],
+    "file": "creature-heron.svg"
+  },
+  {
+    "id": "expanded-creature-stork",
+    "label": "Аист",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "stork"
+    ],
+    "file": "creature-stork.svg"
+  },
+  {
+    "id": "expanded-creature-pelican",
+    "label": "Пеликан",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "pelican"
+    ],
+    "file": "creature-pelican.svg"
+  },
+  {
+    "id": "expanded-creature-vulture",
+    "label": "Гриф",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "vulture"
+    ],
+    "file": "creature-vulture.svg"
+  },
+  {
+    "id": "expanded-creature-woodpecker",
+    "label": "Дятел",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "woodpecker"
+    ],
+    "file": "creature-woodpecker.svg"
+  },
+  {
+    "id": "expanded-creature-kingfisher",
+    "label": "Зимородок",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "kingfisher"
+    ],
+    "file": "creature-kingfisher.svg"
+  },
+  {
+    "id": "expanded-creature-parrot",
+    "label": "Попугай",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "parrot"
+    ],
+    "file": "creature-parrot.svg"
+  },
+  {
+    "id": "expanded-creature-swan",
+    "label": "Лебедь",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "swan"
+    ],
+    "file": "creature-swan.svg"
+  },
+  {
+    "id": "expanded-creature-goose",
+    "label": "Гусь",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "goose"
+    ],
+    "file": "creature-goose.svg"
+  },
+  {
+    "id": "expanded-creature-rooster",
+    "label": "Петух",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "rooster"
+    ],
+    "file": "creature-rooster.svg"
+  },
+  {
+    "id": "expanded-creature-penguin",
+    "label": "Пингвин",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "penguin"
+    ],
+    "file": "creature-penguin.svg"
+  },
+  {
+    "id": "expanded-creature-crocodile",
+    "label": "Крокодил",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "crocodile"
+    ],
+    "file": "creature-crocodile.svg"
+  },
+  {
+    "id": "expanded-creature-chameleon",
+    "label": "Хамелеон",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "chameleon"
+    ],
+    "file": "creature-chameleon.svg"
+  },
+  {
+    "id": "expanded-creature-salamander",
+    "label": "Саламандра",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "salamander"
+    ],
+    "file": "creature-salamander.svg"
+  },
+  {
+    "id": "expanded-creature-axolotl",
+    "label": "Аксолотль",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "axolotl"
+    ],
+    "file": "creature-axolotl.svg"
+  },
+  {
+    "id": "expanded-creature-seahorse",
+    "label": "Морской конёк",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "seahorse"
+    ],
+    "file": "creature-seahorse.svg"
+  },
+  {
+    "id": "expanded-creature-stingray",
+    "label": "Скат",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "stingray"
+    ],
+    "file": "creature-stingray.svg"
+  },
+  {
+    "id": "expanded-creature-dolphin",
+    "label": "Дельфин",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "dolphin"
+    ],
+    "file": "creature-dolphin.svg"
+  },
+  {
+    "id": "expanded-creature-whale",
+    "label": "Кит",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "whale"
+    ],
+    "file": "creature-whale.svg"
+  },
+  {
+    "id": "expanded-creature-jellyfish",
+    "label": "Медуза",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "jellyfish"
+    ],
+    "file": "creature-jellyfish.svg"
+  },
+  {
+    "id": "expanded-creature-nautilus",
+    "label": "Наутилус",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "nautilus"
+    ],
+    "file": "creature-nautilus.svg"
+  },
+  {
+    "id": "expanded-creature-mantis",
+    "label": "Богомол",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "mantis"
+    ],
+    "file": "creature-mantis.svg"
+  },
+  {
+    "id": "expanded-creature-dragonfly",
+    "label": "Стрекоза",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "dragonfly"
+    ],
+    "file": "creature-dragonfly.svg"
+  },
+  {
+    "id": "expanded-creature-wasp",
+    "label": "Оса",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "wasp"
+    ],
+    "file": "creature-wasp.svg"
+  },
+  {
+    "id": "expanded-creature-centipede",
+    "label": "Сороконожка",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "centipede"
+    ],
+    "file": "creature-centipede.svg"
+  },
+  {
+    "id": "expanded-creature-snail",
+    "label": "Улитка",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "snail"
+    ],
+    "file": "creature-snail.svg"
+  },
+  {
+    "id": "expanded-creature-hydra",
+    "label": "Гидра",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "hydra",
+      "фантастическое"
+    ],
+    "file": "creature-hydra.svg"
+  },
+  {
+    "id": "expanded-creature-basilisk",
+    "label": "Василиск",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "basilisk",
+      "фантастическое"
+    ],
+    "file": "creature-basilisk.svg"
+  },
+  {
+    "id": "expanded-creature-chimera",
+    "label": "Химера",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "chimera",
+      "фантастическое"
+    ],
+    "file": "creature-chimera.svg"
+  },
+  {
+    "id": "expanded-creature-mimic",
+    "label": "Мимик",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "mimic",
+      "фантастическое"
+    ],
+    "file": "creature-mimic.svg"
+  },
+  {
+    "id": "expanded-creature-gelatinous-cube",
+    "label": "Желеобразный куб",
+    "category": "creature",
+    "tags": [
+      "портрет",
+      "существо",
+      "образ",
+      "gelatinous-cube",
+      "фантастическое"
+    ],
+    "file": "creature-gelatinous-cube.svg"
+  },
+  {
+    "id": "expanded-item-glaive",
+    "label": "Глефа",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "glaive"
+    ],
+    "file": "item-glaive.svg"
+  },
+  {
+    "id": "expanded-item-voulge",
+    "label": "Вульж",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "voulge"
+    ],
+    "file": "item-voulge.svg"
+  },
+  {
+    "id": "expanded-item-war-scythe",
+    "label": "Боевая коса",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "war-scythe"
+    ],
+    "file": "item-war-scythe.svg"
+  },
+  {
+    "id": "expanded-item-sickle",
+    "label": "Серп",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "sickle"
+    ],
+    "file": "item-sickle.svg"
+  },
+  {
+    "id": "expanded-item-war-pick",
+    "label": "Боевой клевец",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "war-pick"
+    ],
+    "file": "item-war-pick.svg"
+  },
+  {
+    "id": "expanded-item-polehammer",
+    "label": "Древковый молот",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "polehammer"
+    ],
+    "file": "item-polehammer.svg"
+  },
+  {
+    "id": "expanded-item-quarterstaff",
+    "label": "Окованный шест",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "quarterstaff"
+    ],
+    "file": "item-quarterstaff.svg"
+  },
+  {
+    "id": "expanded-item-tonfa",
+    "label": "Тонфы",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "tonfa"
+    ],
+    "file": "item-tonfa.svg"
+  },
+  {
+    "id": "expanded-item-nunchaku",
+    "label": "Нунчаки",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "nunchaku"
+    ],
+    "file": "item-nunchaku.svg"
+  },
+  {
+    "id": "expanded-item-chakram",
+    "label": "Чакрам",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "chakram"
+    ],
+    "file": "item-chakram.svg"
+  },
+  {
+    "id": "expanded-item-throwing-darts",
+    "label": "Метательные дротики",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "throwing-darts"
+    ],
+    "file": "item-throwing-darts.svg"
+  },
+  {
+    "id": "expanded-item-boomerang",
+    "label": "Бумеранг",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "boomerang"
+    ],
+    "file": "item-boomerang.svg"
+  },
+  {
+    "id": "expanded-item-javelin",
+    "label": "Метательное копьё",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "javelin"
+    ],
+    "file": "item-javelin.svg"
+  },
+  {
+    "id": "expanded-item-harpoon",
+    "label": "Гарпун",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "harpoon"
+    ],
+    "file": "item-harpoon.svg"
+  },
+  {
+    "id": "expanded-item-net",
+    "label": "Метательная сеть",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "net"
+    ],
+    "file": "item-net.svg"
+  },
+  {
+    "id": "expanded-item-cestus",
+    "label": "Цестусы",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "оружие",
+      "cestus"
+    ],
+    "file": "item-cestus.svg"
+  },
+  {
+    "id": "expanded-item-sallet",
+    "label": "Шлем салад",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "sallet",
+      "броня"
+    ],
+    "file": "item-sallet.svg"
+  },
+  {
+    "id": "expanded-item-bascinet",
+    "label": "Бацинет",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "bascinet",
+      "броня"
+    ],
+    "file": "item-bascinet.svg"
+  },
+  {
+    "id": "expanded-item-kettle-helmet",
+    "label": "Шлем с полями",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "kettle-helmet",
+      "броня"
+    ],
+    "file": "item-kettle-helmet.svg"
+  },
+  {
+    "id": "expanded-item-lamellar",
+    "label": "Ламеллярный доспех",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "lamellar",
+      "броня"
+    ],
+    "file": "item-lamellar.svg"
+  },
+  {
+    "id": "expanded-item-brigandine",
+    "label": "Бригантина",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "brigandine",
+      "броня"
+    ],
+    "file": "item-brigandine.svg"
+  },
+  {
+    "id": "expanded-item-scale-armor",
+    "label": "Чешуйчатый доспех",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "scale-armor",
+      "броня"
+    ],
+    "file": "item-scale-armor.svg"
+  },
+  {
+    "id": "expanded-item-gambeson",
+    "label": "Стёганая куртка",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "gambeson",
+      "броня"
+    ],
+    "file": "item-gambeson.svg"
+  },
+  {
+    "id": "expanded-item-pauldrons",
+    "label": "Наплечники",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "pauldrons",
+      "броня"
+    ],
+    "file": "item-pauldrons.svg"
+  },
+  {
+    "id": "expanded-item-greaves",
+    "label": "Поножи",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "greaves",
+      "броня"
+    ],
+    "file": "item-greaves.svg"
+  },
+  {
+    "id": "expanded-item-sandals",
+    "label": "Сандалии",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "sandals",
+      "броня"
+    ],
+    "file": "item-sandals.svg"
+  },
+  {
+    "id": "expanded-item-snowshoes",
+    "label": "Снегоступы",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "snowshoes",
+      "броня"
+    ],
+    "file": "item-snowshoes.svg"
+  },
+  {
+    "id": "expanded-item-goggles",
+    "label": "Защитные очки",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "goggles",
+      "броня"
+    ],
+    "file": "item-goggles.svg"
+  },
+  {
+    "id": "expanded-item-respirator",
+    "label": "Маска с фильтрами",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "respirator",
+      "броня"
+    ],
+    "file": "item-respirator.svg"
+  },
+  {
+    "id": "expanded-item-tabard",
+    "label": "Табард с эмблемой",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "tabard",
+      "броня"
+    ],
+    "file": "item-tabard.svg"
+  },
+  {
+    "id": "expanded-item-sash",
+    "label": "Кушак",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "sash",
+      "броня"
+    ],
+    "file": "item-sash.svg"
+  },
+  {
+    "id": "expanded-item-round-wood-shield",
+    "label": "Дощатый круглый щит",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "снаряжение",
+      "round-wood-shield",
+      "броня"
+    ],
+    "file": "item-round-wood-shield.svg"
+  },
+  {
+    "id": "expanded-item-adze",
+    "label": "Тесло",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "adze"
+    ],
+    "file": "item-adze.svg"
+  },
+  {
+    "id": "expanded-item-auger",
+    "label": "Ручной бурав",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "auger"
+    ],
+    "file": "item-auger.svg"
+  },
+  {
+    "id": "expanded-item-chisel",
+    "label": "Стамеска",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "chisel"
+    ],
+    "file": "item-chisel.svg"
+  },
+  {
+    "id": "expanded-item-plane",
+    "label": "Рубанок",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "plane"
+    ],
+    "file": "item-plane.svg"
+  },
+  {
+    "id": "expanded-item-files",
+    "label": "Набор напильников",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "files"
+    ],
+    "file": "item-files.svg"
+  },
+  {
+    "id": "expanded-item-wrench",
+    "label": "Гаечный ключ",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "wrench"
+    ],
+    "file": "item-wrench.svg"
+  },
+  {
+    "id": "expanded-item-pliers",
+    "label": "Плоскогубцы",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "pliers"
+    ],
+    "file": "item-pliers.svg"
+  },
+  {
+    "id": "expanded-item-calipers",
+    "label": "Штангенциркуль",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "calipers"
+    ],
+    "file": "item-calipers.svg"
+  },
+  {
+    "id": "expanded-item-dividers",
+    "label": "Разметочный циркуль",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "dividers"
+    ],
+    "file": "item-dividers.svg"
+  },
+  {
+    "id": "expanded-item-plumbline",
+    "label": "Отвес",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "plumbline"
+    ],
+    "file": "item-plumbline.svg"
+  },
+  {
+    "id": "expanded-item-level",
+    "label": "Строительный уровень",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "level"
+    ],
+    "file": "item-level.svg"
+  },
+  {
+    "id": "expanded-item-trowel",
+    "label": "Мастерок",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "trowel"
+    ],
+    "file": "item-trowel.svg"
+  },
+  {
+    "id": "expanded-item-pruning-shears",
+    "label": "Садовые ножницы",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "pruning-shears"
+    ],
+    "file": "item-pruning-shears.svg"
+  },
+  {
+    "id": "expanded-item-spade",
+    "label": "Заступ",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "spade"
+    ],
+    "file": "item-spade.svg"
+  },
+  {
+    "id": "expanded-item-fork",
+    "label": "Вилы",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "fork"
+    ],
+    "file": "item-fork.svg"
+  },
+  {
+    "id": "expanded-item-rake",
+    "label": "Грабли",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "rake"
+    ],
+    "file": "item-rake.svg"
+  },
+  {
+    "id": "expanded-item-watering-can",
+    "label": "Лейка",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "watering-can"
+    ],
+    "file": "item-watering-can.svg"
+  },
+  {
+    "id": "expanded-item-fishing-rod",
+    "label": "Удочка",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "fishing-rod"
+    ],
+    "file": "item-fishing-rod.svg"
+  },
+  {
+    "id": "expanded-item-scoop-net",
+    "label": "Сачок",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "scoop-net"
+    ],
+    "file": "item-scoop-net.svg"
+  },
+  {
+    "id": "expanded-item-brush",
+    "label": "Малярная кисть",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "brush"
+    ],
+    "file": "item-brush.svg"
+  },
+  {
+    "id": "expanded-item-spindle",
+    "label": "Веретено",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "spindle"
+    ],
+    "file": "item-spindle.svg"
+  },
+  {
+    "id": "expanded-item-loom-shuttle",
+    "label": "Ткацкий челнок",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "loom-shuttle"
+    ],
+    "file": "item-loom-shuttle.svg"
+  },
+  {
+    "id": "expanded-item-needle-case",
+    "label": "Футляр с иглами",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "needle-case"
+    ],
+    "file": "item-needle-case.svg"
+  },
+  {
+    "id": "expanded-item-mortar-pestle",
+    "label": "Ступка с пестиком",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "инструмент",
+      "mortar-pestle"
+    ],
+    "file": "item-mortar-pestle.svg"
+  },
+  {
+    "id": "expanded-item-lute",
+    "label": "Лютня",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "lute",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-lute.svg"
+  },
+  {
+    "id": "expanded-item-lyre",
+    "label": "Лира",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "lyre",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-lyre.svg"
+  },
+  {
+    "id": "expanded-item-flute",
+    "label": "Флейта",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "flute",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-flute.svg"
+  },
+  {
+    "id": "expanded-item-drum",
+    "label": "Барабан с палочками",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "drum",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-drum.svg"
+  },
+  {
+    "id": "expanded-item-bagpipe",
+    "label": "Волынка",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "bagpipe",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-bagpipe.svg"
+  },
+  {
+    "id": "expanded-item-violin",
+    "label": "Скрипка со смычком",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "violin",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-violin.svg"
+  },
+  {
+    "id": "expanded-item-hunting-horn",
+    "label": "Охотничий рог",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "hunting-horn",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-hunting-horn.svg"
+  },
+  {
+    "id": "expanded-item-inkwell",
+    "label": "Чернильница",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "inkwell",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-inkwell.svg"
+  },
+  {
+    "id": "expanded-item-quill",
+    "label": "Перо для письма",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "quill",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-quill.svg"
+  },
+  {
+    "id": "expanded-item-scroll",
+    "label": "Свиток с печатью",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "scroll",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-scroll.svg"
+  },
+  {
+    "id": "expanded-item-abacus",
+    "label": "Счёты",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "abacus",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-abacus.svg"
+  },
+  {
+    "id": "expanded-item-writing-tablet",
+    "label": "Восковая табличка",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "музыка и письмо",
+      "writing-tablet",
+      "музыка",
+      "письменность"
+    ],
+    "file": "item-writing-tablet.svg"
+  },
+  {
+    "id": "expanded-item-iron-ingot",
+    "label": "Железный слиток",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "iron-ingot"
+    ],
+    "file": "item-iron-ingot.svg"
+  },
+  {
+    "id": "expanded-item-copper-wire",
+    "label": "Медная проволока",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "copper-wire"
+    ],
+    "file": "item-copper-wire.svg"
+  },
+  {
+    "id": "expanded-item-ore-chunk",
+    "label": "Кусок руды",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "ore-chunk"
+    ],
+    "file": "item-ore-chunk.svg"
+  },
+  {
+    "id": "expanded-item-coal",
+    "label": "Каменный уголь",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "coal"
+    ],
+    "file": "item-coal.svg"
+  },
+  {
+    "id": "expanded-item-sulfur",
+    "label": "Самородная сера",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "sulfur"
+    ],
+    "file": "item-sulfur.svg"
+  },
+  {
+    "id": "expanded-item-salt-crystals",
+    "label": "Кристаллы соли",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "salt-crystals"
+    ],
+    "file": "item-salt-crystals.svg"
+  },
+  {
+    "id": "expanded-item-clay-lump",
+    "label": "Ком глины",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "clay-lump"
+    ],
+    "file": "item-clay-lump.svg"
+  },
+  {
+    "id": "expanded-item-glass-shards",
+    "label": "Осколки стекла",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "glass-shards"
+    ],
+    "file": "item-glass-shards.svg"
+  },
+  {
+    "id": "expanded-item-leather-roll",
+    "label": "Рулон кожи",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "leather-roll"
+    ],
+    "file": "item-leather-roll.svg"
+  },
+  {
+    "id": "expanded-item-cloth-roll",
+    "label": "Рулон ткани",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "cloth-roll"
+    ],
+    "file": "item-cloth-roll.svg"
+  },
+  {
+    "id": "expanded-item-wool-skein",
+    "label": "Моток шерсти",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "wool-skein"
+    ],
+    "file": "item-wool-skein.svg"
+  },
+  {
+    "id": "expanded-item-feathers",
+    "label": "Связка перьев",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "feathers"
+    ],
+    "file": "item-feathers.svg"
+  },
+  {
+    "id": "expanded-item-bone",
+    "label": "Кость",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "bone"
+    ],
+    "file": "item-bone.svg"
+  },
+  {
+    "id": "expanded-item-fang",
+    "label": "Клык",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "fang"
+    ],
+    "file": "item-fang.svg"
+  },
+  {
+    "id": "expanded-item-antler",
+    "label": "Олений рог",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "antler"
+    ],
+    "file": "item-antler.svg"
+  },
+  {
+    "id": "expanded-item-scale",
+    "label": "Крупная чешуя",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "материал",
+      "scale"
+    ],
+    "file": "item-scale.svg"
+  },
+  {
+    "id": "expanded-item-berries",
+    "label": "Лесные ягоды",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "berries",
+      "расходник"
+    ],
+    "file": "item-berries.svg"
+  },
+  {
+    "id": "expanded-item-pear",
+    "label": "Груша",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "pear",
+      "расходник"
+    ],
+    "file": "item-pear.svg"
+  },
+  {
+    "id": "expanded-item-grapes",
+    "label": "Виноград",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "grapes",
+      "расходник"
+    ],
+    "file": "item-grapes.svg"
+  },
+  {
+    "id": "expanded-item-nuts",
+    "label": "Орехи",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "nuts",
+      "расходник"
+    ],
+    "file": "item-nuts.svg"
+  },
+  {
+    "id": "expanded-item-dried-fish",
+    "label": "Вяленая рыба",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "dried-fish",
+      "расходник"
+    ],
+    "file": "item-dried-fish.svg"
+  },
+  {
+    "id": "expanded-item-meat",
+    "label": "Кусок мяса",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "meat",
+      "расходник"
+    ],
+    "file": "item-meat.svg"
+  },
+  {
+    "id": "expanded-item-eggs",
+    "label": "Яйца в корзине",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "eggs",
+      "расходник"
+    ],
+    "file": "item-eggs.svg"
+  },
+  {
+    "id": "expanded-item-honey-jar",
+    "label": "Банка мёда",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "honey-jar",
+      "расходник"
+    ],
+    "file": "item-honey-jar.svg"
+  },
+  {
+    "id": "expanded-item-tea-tin",
+    "label": "Жестянка с чаем",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "tea-tin",
+      "расходник"
+    ],
+    "file": "item-tea-tin.svg"
+  },
+  {
+    "id": "expanded-item-spice-box",
+    "label": "Шкатулка пряностей",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "spice-box",
+      "расходник"
+    ],
+    "file": "item-spice-box.svg"
+  },
+  {
+    "id": "expanded-item-oil-bottle",
+    "label": "Бутыль масла",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "oil-bottle",
+      "расходник"
+    ],
+    "file": "item-oil-bottle.svg"
+  },
+  {
+    "id": "expanded-item-smoke-pot",
+    "label": "Дымовой горшок",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "smoke-pot",
+      "расходник"
+    ],
+    "file": "item-smoke-pot.svg"
+  },
+  {
+    "id": "expanded-item-antidote-tube",
+    "label": "Пробирка противоядия",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "antidote-tube",
+      "расходник"
+    ],
+    "file": "item-antidote-tube.svg"
+  },
+  {
+    "id": "expanded-item-salve-tin",
+    "label": "Баночка мази",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "salve-tin",
+      "расходник"
+    ],
+    "file": "item-salve-tin.svg"
+  },
+  {
+    "id": "expanded-item-tinderbox",
+    "label": "Коробка с огнивом",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "tinderbox",
+      "расходник"
+    ],
+    "file": "item-tinderbox.svg"
+  },
+  {
+    "id": "expanded-item-whetstone",
+    "label": "Точильный камень",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "припасы",
+      "whetstone",
+      "расходник"
+    ],
+    "file": "item-whetstone.svg"
+  },
+  {
+    "id": "expanded-item-tuning-fork",
+    "label": "Резонансный камертон",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "артефакт",
+      "tuning-fork"
+    ],
+    "file": "item-tuning-fork.svg"
+  },
+  {
+    "id": "expanded-item-prism",
+    "label": "Световая призма",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "артефакт",
+      "prism"
+    ],
+    "file": "item-prism.svg"
+  },
+  {
+    "id": "expanded-item-astrolabe",
+    "label": "Астролябия",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "артефакт",
+      "astrolabe"
+    ],
+    "file": "item-astrolabe.svg"
+  },
+  {
+    "id": "expanded-item-orrery",
+    "label": "Миниатюрный оррерий",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "артефакт",
+      "orrery"
+    ],
+    "file": "item-orrery.svg"
+  },
+  {
+    "id": "expanded-item-dreamcatcher",
+    "label": "Ловец сновидений",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "артефакт",
+      "dreamcatcher"
+    ],
+    "file": "item-dreamcatcher.svg"
+  },
+  {
+    "id": "expanded-item-ritual-mask",
+    "label": "Ритуальная маска",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "артефакт",
+      "ritual-mask"
+    ],
+    "file": "item-ritual-mask.svg"
+  },
+  {
+    "id": "expanded-item-knotted-charm",
+    "label": "Узловой оберег",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "артефакт",
+      "knotted-charm"
+    ],
+    "file": "item-knotted-charm.svg"
+  },
+  {
+    "id": "expanded-item-ward-talisman",
+    "label": "Охранный талисман",
+    "category": "item",
+    "tags": [
+      "предмет",
+      "артефакт",
+      "ward-talisman"
+    ],
+    "file": "item-ward-talisman.svg"
   }
 ]
 export const expandedArtwork: Record<string, string> = {
@@ -4111,4 +9071,407 @@ export const expandedArtwork: Record<string, string> = {
   "expanded-creature-treant": new URL('./assets/expanded/creature-treant.svg', import.meta.url).href,
   "expanded-creature-wisp": new URL('./assets/expanded/creature-wisp.svg', import.meta.url).href,
   "expanded-creature-skeleton": new URL('./assets/expanded/creature-skeleton.svg', import.meta.url).href,
+  "expanded-surface-red-brick": new URL('./assets/expanded/surface-red-brick.svg', import.meta.url).href,
+  "expanded-surface-herringbone-brick": new URL('./assets/expanded/surface-herringbone-brick.svg', import.meta.url).href,
+  "expanded-surface-rubble-wall": new URL('./assets/expanded/surface-rubble-wall.svg', import.meta.url).href,
+  "expanded-surface-adobe": new URL('./assets/expanded/surface-adobe.svg', import.meta.url).href,
+  "expanded-surface-timber-wall": new URL('./assets/expanded/surface-timber-wall.svg', import.meta.url).href,
+  "expanded-surface-half-timber": new URL('./assets/expanded/surface-half-timber.svg', import.meta.url).href,
+  "expanded-surface-wattle": new URL('./assets/expanded/surface-wattle.svg', import.meta.url).href,
+  "expanded-surface-bamboo-mat": new URL('./assets/expanded/surface-bamboo-mat.svg', import.meta.url).href,
+  "expanded-surface-shingles": new URL('./assets/expanded/surface-shingles.svg', import.meta.url).href,
+  "expanded-surface-fishscale-roof": new URL('./assets/expanded/surface-fishscale-roof.svg', import.meta.url).href,
+  "expanded-surface-pantile-roof": new URL('./assets/expanded/surface-pantile-roof.svg', import.meta.url).href,
+  "expanded-surface-thatch-roof": new URL('./assets/expanded/surface-thatch-roof.svg', import.meta.url).href,
+  "expanded-surface-slate-roof": new URL('./assets/expanded/surface-slate-roof.svg', import.meta.url).href,
+  "expanded-surface-copper-roof": new URL('./assets/expanded/surface-copper-roof.svg', import.meta.url).href,
+  "expanded-surface-riveted-floor": new URL('./assets/expanded/surface-riveted-floor.svg', import.meta.url).href,
+  "expanded-surface-diamond-floor": new URL('./assets/expanded/surface-diamond-floor.svg', import.meta.url).href,
+  "expanded-surface-octagon-floor": new URL('./assets/expanded/surface-octagon-floor.svg', import.meta.url).href,
+  "expanded-surface-hexagon-floor": new URL('./assets/expanded/surface-hexagon-floor.svg', import.meta.url).href,
+  "expanded-surface-basket-parquet": new URL('./assets/expanded/surface-basket-parquet.svg', import.meta.url).href,
+  "expanded-surface-endgrain-floor": new URL('./assets/expanded/surface-endgrain-floor.svg', import.meta.url).href,
+  "expanded-surface-rope-mat": new URL('./assets/expanded/surface-rope-mat.svg', import.meta.url).href,
+  "expanded-surface-reed-mat": new URL('./assets/expanded/surface-reed-mat.svg', import.meta.url).href,
+  "expanded-surface-woven-checker": new URL('./assets/expanded/surface-woven-checker.svg', import.meta.url).href,
+  "expanded-surface-chainmail-mat": new URL('./assets/expanded/surface-chainmail-mat.svg', import.meta.url).href,
+  "expanded-surface-honeycomb-grate": new URL('./assets/expanded/surface-honeycomb-grate.svg', import.meta.url).href,
+  "expanded-surface-vent-floor": new URL('./assets/expanded/surface-vent-floor.svg', import.meta.url).href,
+  "expanded-surface-pumice-ground": new URL('./assets/expanded/surface-pumice-ground.svg', import.meta.url).href,
+  "expanded-surface-shell-ground": new URL('./assets/expanded/surface-shell-ground.svg', import.meta.url).href,
+  "expanded-surface-flint-ground": new URL('./assets/expanded/surface-flint-ground.svg', import.meta.url).href,
+  "expanded-surface-clay-cracks": new URL('./assets/expanded/surface-clay-cracks.svg', import.meta.url).href,
+  "expanded-surface-heather-ground": new URL('./assets/expanded/surface-heather-ground.svg', import.meta.url).href,
+  "expanded-surface-clover-ground": new URL('./assets/expanded/surface-clover-ground.svg', import.meta.url).href,
+  "expanded-surface-lichen-ground": new URL('./assets/expanded/surface-lichen-ground.svg', import.meta.url).href,
+  "expanded-surface-pine-needles": new URL('./assets/expanded/surface-pine-needles.svg', import.meta.url).href,
+  "expanded-surface-seaweed-ground": new URL('./assets/expanded/surface-seaweed-ground.svg', import.meta.url).href,
+  "expanded-surface-ripple-sand": new URL('./assets/expanded/surface-ripple-sand.svg', import.meta.url).href,
+  "expanded-surface-snow-crust": new URL('./assets/expanded/surface-snow-crust.svg', import.meta.url).href,
+  "expanded-surface-frost-window": new URL('./assets/expanded/surface-frost-window.svg', import.meta.url).href,
+  "expanded-surface-black-ice": new URL('./assets/expanded/surface-black-ice.svg', import.meta.url).href,
+  "expanded-surface-steam-grate": new URL('./assets/expanded/surface-steam-grate.svg', import.meta.url).href,
+  "expanded-building-corner-stone": new URL('./assets/expanded/building-corner-stone.svg', import.meta.url).href,
+  "expanded-building-junction-stone": new URL('./assets/expanded/building-junction-stone.svg', import.meta.url).href,
+  "expanded-building-cross-stone": new URL('./assets/expanded/building-cross-stone.svg', import.meta.url).href,
+  "expanded-building-alcove-stone": new URL('./assets/expanded/building-alcove-stone.svg', import.meta.url).href,
+  "expanded-building-doorway-round": new URL('./assets/expanded/building-doorway-round.svg', import.meta.url).href,
+  "expanded-building-doorway-pointed": new URL('./assets/expanded/building-doorway-pointed.svg', import.meta.url).href,
+  "expanded-building-doorway-lintel": new URL('./assets/expanded/building-doorway-lintel.svg', import.meta.url).href,
+  "expanded-building-double-arch": new URL('./assets/expanded/building-double-arch.svg', import.meta.url).href,
+  "expanded-building-stair-turn": new URL('./assets/expanded/building-stair-turn.svg', import.meta.url).href,
+  "expanded-building-stair-spiral": new URL('./assets/expanded/building-stair-spiral.svg', import.meta.url).href,
+  "expanded-building-stair-descend": new URL('./assets/expanded/building-stair-descend.svg', import.meta.url).href,
+  "expanded-building-stair-balustrade": new URL('./assets/expanded/building-stair-balustrade.svg', import.meta.url).href,
+  "expanded-building-roof-ridge": new URL('./assets/expanded/building-roof-ridge.svg', import.meta.url).href,
+  "expanded-building-roof-gable": new URL('./assets/expanded/building-roof-gable.svg', import.meta.url).href,
+  "expanded-building-roof-dormer": new URL('./assets/expanded/building-roof-dormer.svg', import.meta.url).href,
+  "expanded-building-roof-chimney": new URL('./assets/expanded/building-roof-chimney.svg', import.meta.url).href,
+  "expanded-building-roof-hip": new URL('./assets/expanded/building-roof-hip.svg', import.meta.url).href,
+  "expanded-building-roof-broken": new URL('./assets/expanded/building-roof-broken.svg', import.meta.url).href,
+  "expanded-building-rampart-straight": new URL('./assets/expanded/building-rampart-straight.svg', import.meta.url).href,
+  "expanded-building-rampart-corner": new URL('./assets/expanded/building-rampart-corner.svg', import.meta.url).href,
+  "expanded-building-tower-round": new URL('./assets/expanded/building-tower-round.svg', import.meta.url).href,
+  "expanded-building-tower-square": new URL('./assets/expanded/building-tower-square.svg', import.meta.url).href,
+  "expanded-building-gatehouse": new URL('./assets/expanded/building-gatehouse.svg', import.meta.url).href,
+  "expanded-building-drawbridge-entry": new URL('./assets/expanded/building-drawbridge-entry.svg', import.meta.url).href,
+  "expanded-building-house-courtyard": new URL('./assets/expanded/building-house-courtyard.svg', import.meta.url).href,
+  "expanded-building-cloister": new URL('./assets/expanded/building-cloister.svg', import.meta.url).href,
+  "expanded-building-cellar-vault": new URL('./assets/expanded/building-cellar-vault.svg', import.meta.url).href,
+  "expanded-building-mine-entry": new URL('./assets/expanded/building-mine-entry.svg', import.meta.url).href,
+  "expanded-building-cave-entry": new URL('./assets/expanded/building-cave-entry.svg', import.meta.url).href,
+  "expanded-building-sewer-entry": new URL('./assets/expanded/building-sewer-entry.svg', import.meta.url).href,
+  "expanded-building-wood-balcony": new URL('./assets/expanded/building-wood-balcony.svg', import.meta.url).href,
+  "expanded-building-stone-terrace": new URL('./assets/expanded/building-stone-terrace.svg', import.meta.url).href,
+  "expanded-building-water-dock": new URL('./assets/expanded/building-water-dock.svg', import.meta.url).href,
+  "expanded-building-canal-lock": new URL('./assets/expanded/building-canal-lock.svg', import.meta.url).href,
+  "expanded-building-market-row": new URL('./assets/expanded/building-market-row.svg', import.meta.url).href,
+  "expanded-building-stable-yard": new URL('./assets/expanded/building-stable-yard.svg', import.meta.url).href,
+  "expanded-building-watch-post": new URL('./assets/expanded/building-watch-post.svg', import.meta.url).href,
+  "expanded-building-mill-building": new URL('./assets/expanded/building-mill-building.svg', import.meta.url).href,
+  "expanded-building-greenhouse": new URL('./assets/expanded/building-greenhouse.svg', import.meta.url).href,
+  "expanded-building-workshop-front": new URL('./assets/expanded/building-workshop-front.svg', import.meta.url).href,
+  "expanded-landscape-orchard": new URL('./assets/expanded/landscape-orchard.svg', import.meta.url).href,
+  "expanded-landscape-vineyard": new URL('./assets/expanded/landscape-vineyard.svg', import.meta.url).href,
+  "expanded-landscape-rice-terraces": new URL('./assets/expanded/landscape-rice-terraces.svg', import.meta.url).href,
+  "expanded-landscape-flower-valley": new URL('./assets/expanded/landscape-flower-valley.svg', import.meta.url).href,
+  "expanded-landscape-heather-hills": new URL('./assets/expanded/landscape-heather-hills.svg', import.meta.url).href,
+  "expanded-landscape-bamboo-grove": new URL('./assets/expanded/landscape-bamboo-grove.svg', import.meta.url).href,
+  "expanded-landscape-mangrove": new URL('./assets/expanded/landscape-mangrove.svg', import.meta.url).href,
+  "expanded-landscape-tropical-shore": new URL('./assets/expanded/landscape-tropical-shore.svg', import.meta.url).href,
+  "expanded-landscape-redwood-ravine": new URL('./assets/expanded/landscape-redwood-ravine.svg', import.meta.url).href,
+  "expanded-landscape-fungus-cave": new URL('./assets/expanded/landscape-fungus-cave.svg', import.meta.url).href,
+  "expanded-landscape-underground-lake": new URL('./assets/expanded/landscape-underground-lake.svg', import.meta.url).href,
+  "expanded-landscape-crystal-cavern": new URL('./assets/expanded/landscape-crystal-cavern.svg', import.meta.url).href,
+  "expanded-landscape-waterfall": new URL('./assets/expanded/landscape-waterfall.svg', import.meta.url).href,
+  "expanded-landscape-river-delta": new URL('./assets/expanded/landscape-river-delta.svg', import.meta.url).href,
+  "expanded-landscape-tidal-pools": new URL('./assets/expanded/landscape-tidal-pools.svg', import.meta.url).href,
+  "expanded-landscape-coral-lagoon": new URL('./assets/expanded/landscape-coral-lagoon.svg', import.meta.url).href,
+  "expanded-landscape-sea-cliffs": new URL('./assets/expanded/landscape-sea-cliffs.svg', import.meta.url).href,
+  "expanded-landscape-shipwreck-shore": new URL('./assets/expanded/landscape-shipwreck-shore.svg', import.meta.url).href,
+  "expanded-landscape-salt-canyon": new URL('./assets/expanded/landscape-salt-canyon.svg', import.meta.url).href,
+  "expanded-landscape-arch-desert": new URL('./assets/expanded/landscape-arch-desert.svg', import.meta.url).href,
+  "expanded-landscape-mesa": new URL('./assets/expanded/landscape-mesa.svg', import.meta.url).href,
+  "expanded-landscape-oasis": new URL('./assets/expanded/landscape-oasis.svg', import.meta.url).href,
+  "expanded-landscape-geyser": new URL('./assets/expanded/landscape-geyser.svg', import.meta.url).href,
+  "expanded-landscape-hot-springs": new URL('./assets/expanded/landscape-hot-springs.svg', import.meta.url).href,
+  "expanded-landscape-glacier": new URL('./assets/expanded/landscape-glacier.svg', import.meta.url).href,
+  "expanded-landscape-ice-cave": new URL('./assets/expanded/landscape-ice-cave.svg', import.meta.url).href,
+  "expanded-landscape-tundra": new URL('./assets/expanded/landscape-tundra.svg', import.meta.url).href,
+  "expanded-landscape-snow-pass": new URL('./assets/expanded/landscape-snow-pass.svg', import.meta.url).href,
+  "expanded-landscape-burned-forest": new URL('./assets/expanded/landscape-burned-forest.svg', import.meta.url).href,
+  "expanded-landscape-fallen-bridge": new URL('./assets/expanded/landscape-fallen-bridge.svg', import.meta.url).href,
+  "expanded-landscape-sunken-ruins": new URL('./assets/expanded/landscape-sunken-ruins.svg', import.meta.url).href,
+  "expanded-landscape-stone-circle": new URL('./assets/expanded/landscape-stone-circle.svg', import.meta.url).href,
+  "expanded-object-cedar": new URL('./assets/expanded/object-cedar.svg', import.meta.url).href,
+  "expanded-object-cypress": new URL('./assets/expanded/object-cypress.svg', import.meta.url).href,
+  "expanded-object-palm": new URL('./assets/expanded/object-palm.svg', import.meta.url).href,
+  "expanded-object-acacia": new URL('./assets/expanded/object-acacia.svg', import.meta.url).href,
+  "expanded-object-maple": new URL('./assets/expanded/object-maple.svg', import.meta.url).href,
+  "expanded-object-hazel": new URL('./assets/expanded/object-hazel.svg', import.meta.url).href,
+  "expanded-object-juniper": new URL('./assets/expanded/object-juniper.svg', import.meta.url).href,
+  "expanded-object-elder": new URL('./assets/expanded/object-elder.svg', import.meta.url).href,
+  "expanded-object-rose-bush": new URL('./assets/expanded/object-rose-bush.svg', import.meta.url).href,
+  "expanded-object-agave": new URL('./assets/expanded/object-agave.svg', import.meta.url).href,
+  "expanded-object-aloe": new URL('./assets/expanded/object-aloe.svg', import.meta.url).href,
+  "expanded-object-banana": new URL('./assets/expanded/object-banana.svg', import.meta.url).href,
+  "expanded-object-coffee": new URL('./assets/expanded/object-coffee.svg', import.meta.url).href,
+  "expanded-object-pumpkin-patch": new URL('./assets/expanded/object-pumpkin-patch.svg', import.meta.url).href,
+  "expanded-object-cabbages": new URL('./assets/expanded/object-cabbages.svg', import.meta.url).href,
+  "expanded-object-cotton": new URL('./assets/expanded/object-cotton.svg', import.meta.url).href,
+  "expanded-object-hops": new URL('./assets/expanded/object-hops.svg', import.meta.url).href,
+  "expanded-object-coral-fan": new URL('./assets/expanded/object-coral-fan.svg', import.meta.url).href,
+  "expanded-object-basalt-column": new URL('./assets/expanded/object-basalt-column.svg', import.meta.url).href,
+  "expanded-object-sandstone-stack": new URL('./assets/expanded/object-sandstone-stack.svg', import.meta.url).href,
+  "expanded-object-balancing-rock": new URL('./assets/expanded/object-balancing-rock.svg', import.meta.url).href,
+  "expanded-object-stone-arch-natural": new URL('./assets/expanded/object-stone-arch-natural.svg', import.meta.url).href,
+  "expanded-object-coral-rock": new URL('./assets/expanded/object-coral-rock.svg', import.meta.url).href,
+  "expanded-object-pumice-boulder": new URL('./assets/expanded/object-pumice-boulder.svg', import.meta.url).href,
+  "expanded-object-sulfur-rock": new URL('./assets/expanded/object-sulfur-rock.svg', import.meta.url).href,
+  "expanded-object-quartz-vein": new URL('./assets/expanded/object-quartz-vein.svg', import.meta.url).href,
+  "expanded-object-amber-root": new URL('./assets/expanded/object-amber-root.svg', import.meta.url).href,
+  "expanded-object-magnetite": new URL('./assets/expanded/object-magnetite.svg', import.meta.url).href,
+  "expanded-object-driftwood": new URL('./assets/expanded/object-driftwood.svg', import.meta.url).href,
+  "expanded-object-frozen-root": new URL('./assets/expanded/object-frozen-root.svg', import.meta.url).href,
+  "expanded-object-shell-mound": new URL('./assets/expanded/object-shell-mound.svg', import.meta.url).href,
+  "expanded-object-sand-burrow": new URL('./assets/expanded/object-sand-burrow.svg', import.meta.url).href,
+  "expanded-object-termite-mound": new URL('./assets/expanded/object-termite-mound.svg', import.meta.url).href,
+  "expanded-object-potters-wheel": new URL('./assets/expanded/object-potters-wheel.svg', import.meta.url).href,
+  "expanded-object-kiln": new URL('./assets/expanded/object-kiln.svg', import.meta.url).href,
+  "expanded-object-grindstone": new URL('./assets/expanded/object-grindstone.svg', import.meta.url).href,
+  "expanded-object-sawhorse": new URL('./assets/expanded/object-sawhorse.svg', import.meta.url).href,
+  "expanded-object-carpenter-clamp": new URL('./assets/expanded/object-carpenter-clamp.svg', import.meta.url).href,
+  "expanded-object-tanning-frame": new URL('./assets/expanded/object-tanning-frame.svg', import.meta.url).href,
+  "expanded-object-dye-vat": new URL('./assets/expanded/object-dye-vat.svg', import.meta.url).href,
+  "expanded-object-cheese-press": new URL('./assets/expanded/object-cheese-press.svg', import.meta.url).href,
+  "expanded-object-oil-press": new URL('./assets/expanded/object-oil-press.svg', import.meta.url).href,
+  "expanded-object-grain-mill": new URL('./assets/expanded/object-grain-mill.svg', import.meta.url).href,
+  "expanded-object-brewing-vat": new URL('./assets/expanded/object-brewing-vat.svg', import.meta.url).href,
+  "expanded-object-still": new URL('./assets/expanded/object-still.svg', import.meta.url).href,
+  "expanded-object-fish-rack": new URL('./assets/expanded/object-fish-rack.svg', import.meta.url).href,
+  "expanded-object-herb-rack": new URL('./assets/expanded/object-herb-rack.svg', import.meta.url).href,
+  "expanded-object-smokehouse": new URL('./assets/expanded/object-smokehouse.svg', import.meta.url).href,
+  "expanded-object-bread-oven": new URL('./assets/expanded/object-bread-oven.svg', import.meta.url).href,
+  "expanded-object-beehive": new URL('./assets/expanded/object-beehive.svg', import.meta.url).href,
+  "expanded-object-chicken-coop": new URL('./assets/expanded/object-chicken-coop.svg', import.meta.url).href,
+  "expanded-object-feed-trough": new URL('./assets/expanded/object-feed-trough.svg', import.meta.url).href,
+  "expanded-object-hay-bale": new URL('./assets/expanded/object-hay-bale.svg', import.meta.url).href,
+  "expanded-object-wine-rack": new URL('./assets/expanded/object-wine-rack.svg', import.meta.url).href,
+  "expanded-object-bolt-rack": new URL('./assets/expanded/object-bolt-rack.svg', import.meta.url).href,
+  "expanded-object-coal-bin": new URL('./assets/expanded/object-coal-bin.svg', import.meta.url).href,
+  "expanded-object-sandbags": new URL('./assets/expanded/object-sandbags.svg', import.meta.url).href,
+  "expanded-object-public-pump": new URL('./assets/expanded/object-public-pump.svg', import.meta.url).href,
+  "expanded-object-drinking-basin": new URL('./assets/expanded/object-drinking-basin.svg', import.meta.url).href,
+  "expanded-object-wash-line": new URL('./assets/expanded/object-wash-line.svg', import.meta.url).href,
+  "expanded-object-market-scale": new URL('./assets/expanded/object-market-scale.svg', import.meta.url).href,
+  "expanded-object-fruit-stall": new URL('./assets/expanded/object-fruit-stall.svg', import.meta.url).href,
+  "expanded-object-fish-stall": new URL('./assets/expanded/object-fish-stall.svg', import.meta.url).href,
+  "expanded-object-flower-planter": new URL('./assets/expanded/object-flower-planter.svg', import.meta.url).href,
+  "expanded-object-hitching-post": new URL('./assets/expanded/object-hitching-post.svg', import.meta.url).href,
+  "expanded-object-mile-marker": new URL('./assets/expanded/object-mile-marker.svg', import.meta.url).href,
+  "expanded-object-road-barrier": new URL('./assets/expanded/object-road-barrier.svg', import.meta.url).href,
+  "expanded-object-bollard": new URL('./assets/expanded/object-bollard.svg', import.meta.url).href,
+  "expanded-object-anchor": new URL('./assets/expanded/object-anchor.svg', import.meta.url).href,
+  "expanded-object-lifebuoy": new URL('./assets/expanded/object-lifebuoy.svg', import.meta.url).href,
+  "expanded-object-fishing-net": new URL('./assets/expanded/object-fishing-net.svg', import.meta.url).href,
+  "expanded-object-street-clock": new URL('./assets/expanded/object-street-clock.svg', import.meta.url).href,
+  "expanded-object-sundial": new URL('./assets/expanded/object-sundial.svg', import.meta.url).href,
+  "expanded-object-gargoyle": new URL('./assets/expanded/object-gargoyle.svg', import.meta.url).href,
+  "expanded-object-birdhouse": new URL('./assets/expanded/object-birdhouse.svg', import.meta.url).href,
+  "expanded-object-nest": new URL('./assets/expanded/object-nest.svg', import.meta.url).href,
+  "expanded-object-carriage": new URL('./assets/expanded/object-carriage.svg', import.meta.url).href,
+  "expanded-object-windmill-frame": new URL('./assets/expanded/object-windmill-frame.svg', import.meta.url).href,
+  "expanded-object-crane": new URL('./assets/expanded/object-crane.svg', import.meta.url).href,
+  "expanded-object-pulley-rig": new URL('./assets/expanded/object-pulley-rig.svg', import.meta.url).href,
+  "expanded-object-winch": new URL('./assets/expanded/object-winch.svg', import.meta.url).href,
+  "expanded-object-gear-pair": new URL('./assets/expanded/object-gear-pair.svg', import.meta.url).href,
+  "expanded-object-water-screw": new URL('./assets/expanded/object-water-screw.svg', import.meta.url).href,
+  "expanded-object-sluice-gate": new URL('./assets/expanded/object-sluice-gate.svg', import.meta.url).href,
+  "expanded-object-bellows": new URL('./assets/expanded/object-bellows.svg', import.meta.url).href,
+  "expanded-object-mine-cart": new URL('./assets/expanded/object-mine-cart.svg', import.meta.url).href,
+  "expanded-object-rail-switch": new URL('./assets/expanded/object-rail-switch.svg', import.meta.url).href,
+  "expanded-object-drawbridge-machine": new URL('./assets/expanded/object-drawbridge-machine.svg', import.meta.url).href,
+  "expanded-object-trap-grate": new URL('./assets/expanded/object-trap-grate.svg', import.meta.url).href,
+  "expanded-object-rotating-platform": new URL('./assets/expanded/object-rotating-platform.svg', import.meta.url).href,
+  "expanded-object-signal-lantern": new URL('./assets/expanded/object-signal-lantern.svg', import.meta.url).href,
+  "expanded-portrait-cartographer": new URL('./assets/expanded/portrait-cartographer.svg', import.meta.url).href,
+  "expanded-portrait-baker": new URL('./assets/expanded/portrait-baker.svg', import.meta.url).href,
+  "expanded-portrait-butcher": new URL('./assets/expanded/portrait-butcher.svg', import.meta.url).href,
+  "expanded-portrait-brewer": new URL('./assets/expanded/portrait-brewer.svg', import.meta.url).href,
+  "expanded-portrait-tailor": new URL('./assets/expanded/portrait-tailor.svg', import.meta.url).href,
+  "expanded-portrait-potter": new URL('./assets/expanded/portrait-potter.svg', import.meta.url).href,
+  "expanded-portrait-cooper": new URL('./assets/expanded/portrait-cooper.svg', import.meta.url).href,
+  "expanded-portrait-mason": new URL('./assets/expanded/portrait-mason.svg', import.meta.url).href,
+  "expanded-portrait-glassblower": new URL('./assets/expanded/portrait-glassblower.svg', import.meta.url).href,
+  "expanded-portrait-beekeep": new URL('./assets/expanded/portrait-beekeep.svg', import.meta.url).href,
+  "expanded-portrait-gardener": new URL('./assets/expanded/portrait-gardener.svg', import.meta.url).href,
+  "expanded-portrait-stablehand": new URL('./assets/expanded/portrait-stablehand.svg', import.meta.url).href,
+  "expanded-portrait-falconer": new URL('./assets/expanded/portrait-falconer.svg', import.meta.url).href,
+  "expanded-portrait-trapper": new URL('./assets/expanded/portrait-trapper.svg', import.meta.url).href,
+  "expanded-portrait-pearl-diver": new URL('./assets/expanded/portrait-pearl-diver.svg', import.meta.url).href,
+  "expanded-portrait-boatwright": new URL('./assets/expanded/portrait-boatwright.svg', import.meta.url).href,
+  "expanded-portrait-lighthouse-keeper": new URL('./assets/expanded/portrait-lighthouse-keeper.svg', import.meta.url).href,
+  "expanded-portrait-quartermaster": new URL('./assets/expanded/portrait-quartermaster.svg', import.meta.url).href,
+  "expanded-portrait-veteran": new URL('./assets/expanded/portrait-veteran.svg', import.meta.url).href,
+  "expanded-portrait-duelist": new URL('./assets/expanded/portrait-duelist.svg', import.meta.url).href,
+  "expanded-portrait-armorer": new URL('./assets/expanded/portrait-armorer.svg', import.meta.url).href,
+  "expanded-portrait-watch-sentry": new URL('./assets/expanded/portrait-watch-sentry.svg', import.meta.url).href,
+  "expanded-portrait-standard-bearer": new URL('./assets/expanded/portrait-standard-bearer.svg', import.meta.url).href,
+  "expanded-portrait-scout-rider": new URL('./assets/expanded/portrait-scout-rider.svg', import.meta.url).href,
+  "expanded-portrait-scribe": new URL('./assets/expanded/portrait-scribe.svg', import.meta.url).href,
+  "expanded-portrait-bookbinder": new URL('./assets/expanded/portrait-bookbinder.svg', import.meta.url).href,
+  "expanded-portrait-librarian": new URL('./assets/expanded/portrait-librarian.svg', import.meta.url).href,
+  "expanded-portrait-astrologer": new URL('./assets/expanded/portrait-astrologer.svg', import.meta.url).href,
+  "expanded-portrait-geographer": new URL('./assets/expanded/portrait-geographer.svg', import.meta.url).href,
+  "expanded-portrait-linguist": new URL('./assets/expanded/portrait-linguist.svg', import.meta.url).href,
+  "expanded-portrait-clockmaker": new URL('./assets/expanded/portrait-clockmaker.svg', import.meta.url).href,
+  "expanded-portrait-apothecary": new URL('./assets/expanded/portrait-apothecary.svg', import.meta.url).href,
+  "expanded-portrait-surgeon": new URL('./assets/expanded/portrait-surgeon.svg', import.meta.url).href,
+  "expanded-portrait-midwife": new URL('./assets/expanded/portrait-midwife.svg', import.meta.url).href,
+  "expanded-portrait-rune-carver": new URL('./assets/expanded/portrait-rune-carver.svg', import.meta.url).href,
+  "expanded-portrait-illusionist": new URL('./assets/expanded/portrait-illusionist.svg', import.meta.url).href,
+  "expanded-portrait-metal-mage": new URL('./assets/expanded/portrait-metal-mage.svg', import.meta.url).href,
+  "expanded-portrait-plant-mage": new URL('./assets/expanded/portrait-plant-mage.svg', import.meta.url).href,
+  "expanded-portrait-storm-caller": new URL('./assets/expanded/portrait-storm-caller.svg', import.meta.url).href,
+  "expanded-portrait-dream-guide": new URL('./assets/expanded/portrait-dream-guide.svg', import.meta.url).href,
+  "expanded-creature-hare": new URL('./assets/expanded/creature-hare.svg', import.meta.url).href,
+  "expanded-creature-squirrel": new URL('./assets/expanded/creature-squirrel.svg', import.meta.url).href,
+  "expanded-creature-badger": new URL('./assets/expanded/creature-badger.svg', import.meta.url).href,
+  "expanded-creature-otter": new URL('./assets/expanded/creature-otter.svg', import.meta.url).href,
+  "expanded-creature-beaver": new URL('./assets/expanded/creature-beaver.svg', import.meta.url).href,
+  "expanded-creature-hedgehog": new URL('./assets/expanded/creature-hedgehog.svg', import.meta.url).href,
+  "expanded-creature-lynx": new URL('./assets/expanded/creature-lynx.svg', import.meta.url).href,
+  "expanded-creature-panther": new URL('./assets/expanded/creature-panther.svg', import.meta.url).href,
+  "expanded-creature-lion": new URL('./assets/expanded/creature-lion.svg', import.meta.url).href,
+  "expanded-creature-hyena": new URL('./assets/expanded/creature-hyena.svg', import.meta.url).href,
+  "expanded-creature-ram": new URL('./assets/expanded/creature-ram.svg', import.meta.url).href,
+  "expanded-creature-goat": new URL('./assets/expanded/creature-goat.svg', import.meta.url).href,
+  "expanded-creature-bison": new URL('./assets/expanded/creature-bison.svg', import.meta.url).href,
+  "expanded-creature-moose": new URL('./assets/expanded/creature-moose.svg', import.meta.url).href,
+  "expanded-creature-camel": new URL('./assets/expanded/creature-camel.svg', import.meta.url).href,
+  "expanded-creature-elephant": new URL('./assets/expanded/creature-elephant.svg', import.meta.url).href,
+  "expanded-creature-rhinoceros": new URL('./assets/expanded/creature-rhinoceros.svg', import.meta.url).href,
+  "expanded-creature-hippopotamus": new URL('./assets/expanded/creature-hippopotamus.svg', import.meta.url).href,
+  "expanded-creature-seal": new URL('./assets/expanded/creature-seal.svg', import.meta.url).href,
+  "expanded-creature-walrus": new URL('./assets/expanded/creature-walrus.svg', import.meta.url).href,
+  "expanded-creature-peacock": new URL('./assets/expanded/creature-peacock.svg', import.meta.url).href,
+  "expanded-creature-heron": new URL('./assets/expanded/creature-heron.svg', import.meta.url).href,
+  "expanded-creature-stork": new URL('./assets/expanded/creature-stork.svg', import.meta.url).href,
+  "expanded-creature-pelican": new URL('./assets/expanded/creature-pelican.svg', import.meta.url).href,
+  "expanded-creature-vulture": new URL('./assets/expanded/creature-vulture.svg', import.meta.url).href,
+  "expanded-creature-woodpecker": new URL('./assets/expanded/creature-woodpecker.svg', import.meta.url).href,
+  "expanded-creature-kingfisher": new URL('./assets/expanded/creature-kingfisher.svg', import.meta.url).href,
+  "expanded-creature-parrot": new URL('./assets/expanded/creature-parrot.svg', import.meta.url).href,
+  "expanded-creature-swan": new URL('./assets/expanded/creature-swan.svg', import.meta.url).href,
+  "expanded-creature-goose": new URL('./assets/expanded/creature-goose.svg', import.meta.url).href,
+  "expanded-creature-rooster": new URL('./assets/expanded/creature-rooster.svg', import.meta.url).href,
+  "expanded-creature-penguin": new URL('./assets/expanded/creature-penguin.svg', import.meta.url).href,
+  "expanded-creature-crocodile": new URL('./assets/expanded/creature-crocodile.svg', import.meta.url).href,
+  "expanded-creature-chameleon": new URL('./assets/expanded/creature-chameleon.svg', import.meta.url).href,
+  "expanded-creature-salamander": new URL('./assets/expanded/creature-salamander.svg', import.meta.url).href,
+  "expanded-creature-axolotl": new URL('./assets/expanded/creature-axolotl.svg', import.meta.url).href,
+  "expanded-creature-seahorse": new URL('./assets/expanded/creature-seahorse.svg', import.meta.url).href,
+  "expanded-creature-stingray": new URL('./assets/expanded/creature-stingray.svg', import.meta.url).href,
+  "expanded-creature-dolphin": new URL('./assets/expanded/creature-dolphin.svg', import.meta.url).href,
+  "expanded-creature-whale": new URL('./assets/expanded/creature-whale.svg', import.meta.url).href,
+  "expanded-creature-jellyfish": new URL('./assets/expanded/creature-jellyfish.svg', import.meta.url).href,
+  "expanded-creature-nautilus": new URL('./assets/expanded/creature-nautilus.svg', import.meta.url).href,
+  "expanded-creature-mantis": new URL('./assets/expanded/creature-mantis.svg', import.meta.url).href,
+  "expanded-creature-dragonfly": new URL('./assets/expanded/creature-dragonfly.svg', import.meta.url).href,
+  "expanded-creature-wasp": new URL('./assets/expanded/creature-wasp.svg', import.meta.url).href,
+  "expanded-creature-centipede": new URL('./assets/expanded/creature-centipede.svg', import.meta.url).href,
+  "expanded-creature-snail": new URL('./assets/expanded/creature-snail.svg', import.meta.url).href,
+  "expanded-creature-hydra": new URL('./assets/expanded/creature-hydra.svg', import.meta.url).href,
+  "expanded-creature-basilisk": new URL('./assets/expanded/creature-basilisk.svg', import.meta.url).href,
+  "expanded-creature-chimera": new URL('./assets/expanded/creature-chimera.svg', import.meta.url).href,
+  "expanded-creature-mimic": new URL('./assets/expanded/creature-mimic.svg', import.meta.url).href,
+  "expanded-creature-gelatinous-cube": new URL('./assets/expanded/creature-gelatinous-cube.svg', import.meta.url).href,
+  "expanded-item-glaive": new URL('./assets/expanded/item-glaive.svg', import.meta.url).href,
+  "expanded-item-voulge": new URL('./assets/expanded/item-voulge.svg', import.meta.url).href,
+  "expanded-item-war-scythe": new URL('./assets/expanded/item-war-scythe.svg', import.meta.url).href,
+  "expanded-item-sickle": new URL('./assets/expanded/item-sickle.svg', import.meta.url).href,
+  "expanded-item-war-pick": new URL('./assets/expanded/item-war-pick.svg', import.meta.url).href,
+  "expanded-item-polehammer": new URL('./assets/expanded/item-polehammer.svg', import.meta.url).href,
+  "expanded-item-quarterstaff": new URL('./assets/expanded/item-quarterstaff.svg', import.meta.url).href,
+  "expanded-item-tonfa": new URL('./assets/expanded/item-tonfa.svg', import.meta.url).href,
+  "expanded-item-nunchaku": new URL('./assets/expanded/item-nunchaku.svg', import.meta.url).href,
+  "expanded-item-chakram": new URL('./assets/expanded/item-chakram.svg', import.meta.url).href,
+  "expanded-item-throwing-darts": new URL('./assets/expanded/item-throwing-darts.svg', import.meta.url).href,
+  "expanded-item-boomerang": new URL('./assets/expanded/item-boomerang.svg', import.meta.url).href,
+  "expanded-item-javelin": new URL('./assets/expanded/item-javelin.svg', import.meta.url).href,
+  "expanded-item-harpoon": new URL('./assets/expanded/item-harpoon.svg', import.meta.url).href,
+  "expanded-item-net": new URL('./assets/expanded/item-net.svg', import.meta.url).href,
+  "expanded-item-cestus": new URL('./assets/expanded/item-cestus.svg', import.meta.url).href,
+  "expanded-item-sallet": new URL('./assets/expanded/item-sallet.svg', import.meta.url).href,
+  "expanded-item-bascinet": new URL('./assets/expanded/item-bascinet.svg', import.meta.url).href,
+  "expanded-item-kettle-helmet": new URL('./assets/expanded/item-kettle-helmet.svg', import.meta.url).href,
+  "expanded-item-lamellar": new URL('./assets/expanded/item-lamellar.svg', import.meta.url).href,
+  "expanded-item-brigandine": new URL('./assets/expanded/item-brigandine.svg', import.meta.url).href,
+  "expanded-item-scale-armor": new URL('./assets/expanded/item-scale-armor.svg', import.meta.url).href,
+  "expanded-item-gambeson": new URL('./assets/expanded/item-gambeson.svg', import.meta.url).href,
+  "expanded-item-pauldrons": new URL('./assets/expanded/item-pauldrons.svg', import.meta.url).href,
+  "expanded-item-greaves": new URL('./assets/expanded/item-greaves.svg', import.meta.url).href,
+  "expanded-item-sandals": new URL('./assets/expanded/item-sandals.svg', import.meta.url).href,
+  "expanded-item-snowshoes": new URL('./assets/expanded/item-snowshoes.svg', import.meta.url).href,
+  "expanded-item-goggles": new URL('./assets/expanded/item-goggles.svg', import.meta.url).href,
+  "expanded-item-respirator": new URL('./assets/expanded/item-respirator.svg', import.meta.url).href,
+  "expanded-item-tabard": new URL('./assets/expanded/item-tabard.svg', import.meta.url).href,
+  "expanded-item-sash": new URL('./assets/expanded/item-sash.svg', import.meta.url).href,
+  "expanded-item-round-wood-shield": new URL('./assets/expanded/item-round-wood-shield.svg', import.meta.url).href,
+  "expanded-item-adze": new URL('./assets/expanded/item-adze.svg', import.meta.url).href,
+  "expanded-item-auger": new URL('./assets/expanded/item-auger.svg', import.meta.url).href,
+  "expanded-item-chisel": new URL('./assets/expanded/item-chisel.svg', import.meta.url).href,
+  "expanded-item-plane": new URL('./assets/expanded/item-plane.svg', import.meta.url).href,
+  "expanded-item-files": new URL('./assets/expanded/item-files.svg', import.meta.url).href,
+  "expanded-item-wrench": new URL('./assets/expanded/item-wrench.svg', import.meta.url).href,
+  "expanded-item-pliers": new URL('./assets/expanded/item-pliers.svg', import.meta.url).href,
+  "expanded-item-calipers": new URL('./assets/expanded/item-calipers.svg', import.meta.url).href,
+  "expanded-item-dividers": new URL('./assets/expanded/item-dividers.svg', import.meta.url).href,
+  "expanded-item-plumbline": new URL('./assets/expanded/item-plumbline.svg', import.meta.url).href,
+  "expanded-item-level": new URL('./assets/expanded/item-level.svg', import.meta.url).href,
+  "expanded-item-trowel": new URL('./assets/expanded/item-trowel.svg', import.meta.url).href,
+  "expanded-item-pruning-shears": new URL('./assets/expanded/item-pruning-shears.svg', import.meta.url).href,
+  "expanded-item-spade": new URL('./assets/expanded/item-spade.svg', import.meta.url).href,
+  "expanded-item-fork": new URL('./assets/expanded/item-fork.svg', import.meta.url).href,
+  "expanded-item-rake": new URL('./assets/expanded/item-rake.svg', import.meta.url).href,
+  "expanded-item-watering-can": new URL('./assets/expanded/item-watering-can.svg', import.meta.url).href,
+  "expanded-item-fishing-rod": new URL('./assets/expanded/item-fishing-rod.svg', import.meta.url).href,
+  "expanded-item-scoop-net": new URL('./assets/expanded/item-scoop-net.svg', import.meta.url).href,
+  "expanded-item-brush": new URL('./assets/expanded/item-brush.svg', import.meta.url).href,
+  "expanded-item-spindle": new URL('./assets/expanded/item-spindle.svg', import.meta.url).href,
+  "expanded-item-loom-shuttle": new URL('./assets/expanded/item-loom-shuttle.svg', import.meta.url).href,
+  "expanded-item-needle-case": new URL('./assets/expanded/item-needle-case.svg', import.meta.url).href,
+  "expanded-item-mortar-pestle": new URL('./assets/expanded/item-mortar-pestle.svg', import.meta.url).href,
+  "expanded-item-lute": new URL('./assets/expanded/item-lute.svg', import.meta.url).href,
+  "expanded-item-lyre": new URL('./assets/expanded/item-lyre.svg', import.meta.url).href,
+  "expanded-item-flute": new URL('./assets/expanded/item-flute.svg', import.meta.url).href,
+  "expanded-item-drum": new URL('./assets/expanded/item-drum.svg', import.meta.url).href,
+  "expanded-item-bagpipe": new URL('./assets/expanded/item-bagpipe.svg', import.meta.url).href,
+  "expanded-item-violin": new URL('./assets/expanded/item-violin.svg', import.meta.url).href,
+  "expanded-item-hunting-horn": new URL('./assets/expanded/item-hunting-horn.svg', import.meta.url).href,
+  "expanded-item-inkwell": new URL('./assets/expanded/item-inkwell.svg', import.meta.url).href,
+  "expanded-item-quill": new URL('./assets/expanded/item-quill.svg', import.meta.url).href,
+  "expanded-item-scroll": new URL('./assets/expanded/item-scroll.svg', import.meta.url).href,
+  "expanded-item-abacus": new URL('./assets/expanded/item-abacus.svg', import.meta.url).href,
+  "expanded-item-writing-tablet": new URL('./assets/expanded/item-writing-tablet.svg', import.meta.url).href,
+  "expanded-item-iron-ingot": new URL('./assets/expanded/item-iron-ingot.svg', import.meta.url).href,
+  "expanded-item-copper-wire": new URL('./assets/expanded/item-copper-wire.svg', import.meta.url).href,
+  "expanded-item-ore-chunk": new URL('./assets/expanded/item-ore-chunk.svg', import.meta.url).href,
+  "expanded-item-coal": new URL('./assets/expanded/item-coal.svg', import.meta.url).href,
+  "expanded-item-sulfur": new URL('./assets/expanded/item-sulfur.svg', import.meta.url).href,
+  "expanded-item-salt-crystals": new URL('./assets/expanded/item-salt-crystals.svg', import.meta.url).href,
+  "expanded-item-clay-lump": new URL('./assets/expanded/item-clay-lump.svg', import.meta.url).href,
+  "expanded-item-glass-shards": new URL('./assets/expanded/item-glass-shards.svg', import.meta.url).href,
+  "expanded-item-leather-roll": new URL('./assets/expanded/item-leather-roll.svg', import.meta.url).href,
+  "expanded-item-cloth-roll": new URL('./assets/expanded/item-cloth-roll.svg', import.meta.url).href,
+  "expanded-item-wool-skein": new URL('./assets/expanded/item-wool-skein.svg', import.meta.url).href,
+  "expanded-item-feathers": new URL('./assets/expanded/item-feathers.svg', import.meta.url).href,
+  "expanded-item-bone": new URL('./assets/expanded/item-bone.svg', import.meta.url).href,
+  "expanded-item-fang": new URL('./assets/expanded/item-fang.svg', import.meta.url).href,
+  "expanded-item-antler": new URL('./assets/expanded/item-antler.svg', import.meta.url).href,
+  "expanded-item-scale": new URL('./assets/expanded/item-scale.svg', import.meta.url).href,
+  "expanded-item-berries": new URL('./assets/expanded/item-berries.svg', import.meta.url).href,
+  "expanded-item-pear": new URL('./assets/expanded/item-pear.svg', import.meta.url).href,
+  "expanded-item-grapes": new URL('./assets/expanded/item-grapes.svg', import.meta.url).href,
+  "expanded-item-nuts": new URL('./assets/expanded/item-nuts.svg', import.meta.url).href,
+  "expanded-item-dried-fish": new URL('./assets/expanded/item-dried-fish.svg', import.meta.url).href,
+  "expanded-item-meat": new URL('./assets/expanded/item-meat.svg', import.meta.url).href,
+  "expanded-item-eggs": new URL('./assets/expanded/item-eggs.svg', import.meta.url).href,
+  "expanded-item-honey-jar": new URL('./assets/expanded/item-honey-jar.svg', import.meta.url).href,
+  "expanded-item-tea-tin": new URL('./assets/expanded/item-tea-tin.svg', import.meta.url).href,
+  "expanded-item-spice-box": new URL('./assets/expanded/item-spice-box.svg', import.meta.url).href,
+  "expanded-item-oil-bottle": new URL('./assets/expanded/item-oil-bottle.svg', import.meta.url).href,
+  "expanded-item-smoke-pot": new URL('./assets/expanded/item-smoke-pot.svg', import.meta.url).href,
+  "expanded-item-antidote-tube": new URL('./assets/expanded/item-antidote-tube.svg', import.meta.url).href,
+  "expanded-item-salve-tin": new URL('./assets/expanded/item-salve-tin.svg', import.meta.url).href,
+  "expanded-item-tinderbox": new URL('./assets/expanded/item-tinderbox.svg', import.meta.url).href,
+  "expanded-item-whetstone": new URL('./assets/expanded/item-whetstone.svg', import.meta.url).href,
+  "expanded-item-tuning-fork": new URL('./assets/expanded/item-tuning-fork.svg', import.meta.url).href,
+  "expanded-item-prism": new URL('./assets/expanded/item-prism.svg', import.meta.url).href,
+  "expanded-item-astrolabe": new URL('./assets/expanded/item-astrolabe.svg', import.meta.url).href,
+  "expanded-item-orrery": new URL('./assets/expanded/item-orrery.svg', import.meta.url).href,
+  "expanded-item-dreamcatcher": new URL('./assets/expanded/item-dreamcatcher.svg', import.meta.url).href,
+  "expanded-item-ritual-mask": new URL('./assets/expanded/item-ritual-mask.svg', import.meta.url).href,
+  "expanded-item-knotted-charm": new URL('./assets/expanded/item-knotted-charm.svg', import.meta.url).href,
+  "expanded-item-ward-talisman": new URL('./assets/expanded/item-ward-talisman.svg', import.meta.url).href,
 }
