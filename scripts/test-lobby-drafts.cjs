@@ -166,6 +166,73 @@ async function fixture() {
 }
 const name = () => document.querySelector('[data-name]')?.value
 
+test('Выбор героя: локальный лист сохраняется в аккаунт перед отправкой в лобби', async () => {
+  const hero = { ...createDefaultCharacter(), id: 'local-picker-hero', name: 'Локальный герой' }
+  writeCharacters(localStorage, [hero])
+  const f = await fixture(), calls = []
+  try {
+    f.intercept((url, options) => {
+      if (options?.method === 'PUT' && url === '/characters/' + hero.id) {
+        calls.push({ url, body: JSON.parse(options.body) }); return Promise.resolve({ revision: 0 })
+      }
+      if (options?.method === 'POST' && url === '/lobbies/a/characters') {
+        calls.push({ url, body: JSON.parse(options.body) }); return Promise.resolve({ id: 'attached' })
+      }
+    })
+    await f.open('a'); await selectValue('[aria-label="Герой для кампании"]', hero.id)
+    await click('Сохранить в аккаунт и добавить')
+    assert.equal(calls.length, 2); assert.equal(calls[0].body.character.name, hero.name)
+    assert.equal(calls[0].body.revision, -1)
+    assert.deepEqual(calls[1].body, { characterId: hero.id, revision: 7, sourceRevision: 0 })
+    assert.equal(load('characterStorage').readCharacters(localStorage).characters[0].name, hero.name)
+    assert.equal(JSON.parse(localStorage.getItem('world6.cloud-versions.' + f.accountId))[hero.id], 0)
+    assert(document.body.textContent.includes('Герой добавлен'))
+  } finally { await f.close(); localStorage.removeItem(load('characterStorage').STORAGE_KEY) }
+})
+
+test('Выбор героя: копия аккаунта имеет приоритет и не перезаписывается локальным листом', async () => {
+  const hero = { ...createDefaultCharacter(), id: 'same-picker-id', name: 'Старый локальный лист' }
+  writeCharacters(localStorage, [hero])
+  const f = await fixture(), calls = []
+  try {
+    f.cloud.push({ id: hero.id, name: 'Герой в аккаунте', revision: 4 })
+    f.intercept((url, options) => {
+      if (options?.method && options.method !== 'GET') { calls.push({ url, method: options.method, body: JSON.parse(options.body) }); return Promise.resolve({ id: 'attached' }) }
+    })
+    await f.open('a')
+    assert.equal(document.querySelectorAll('option[value="same-picker-id"]').length, 1)
+    await selectValue('[aria-label="Герой для кампании"]', hero.id); await click('Добавить героя в кампанию')
+    assert.equal(calls.length, 1); assert.equal(calls[0].method, 'POST'); assert.equal(calls[0].body.sourceRevision, 4)
+  } finally { await f.close(); localStorage.removeItem(load('characterStorage').STORAGE_KEY) }
+})
+
+test('Выбор героя: ошибка сохранения не отправляет заявку и сохраняет выбранный лист', async () => {
+  const hero = { ...createDefaultCharacter(), id: 'failed-picker', name: 'Не терять лист' }
+  writeCharacters(localStorage, [hero])
+  const f = await fixture(), calls = []
+  try {
+    f.intercept((url, options) => {
+      if (options?.method === 'PUT') { calls.push(url); return Promise.reject(Error('Не удалось сохранить героя')) }
+      if (options?.method === 'POST') { calls.push(url); return Promise.resolve({}) }
+    })
+    await f.open('a'); await selectValue('[aria-label="Герой для кампании"]', hero.id); await click('Сохранить в аккаунт и добавить')
+    assert.deepEqual(calls, ['/characters/' + hero.id])
+    assert.equal(document.querySelector('[aria-label="Герой для кампании"]').value, hero.id)
+    assert(document.body.textContent.includes('Не удалось сохранить героя'))
+  } finally { await f.close(); localStorage.removeItem(load('characterStorage').STORAGE_KEY) }
+})
+
+test('Выбор героя: ошибка загрузки аккаунта показана рядом со списком', async () => {
+  const f = await fixture()
+  try {
+    f.intercept(url => url === '/characters' ? Promise.reject(Error('Список героев недоступен')) : undefined)
+    await f.role('PLAYER'); await f.open('a')
+    assert(document.body.textContent.includes('Список героев недоступен'))
+    assert(document.querySelector('[aria-label="Герой для кампании"]').disabled)
+    assert(enabledButton('Обновить список героев'))
+  } finally { await f.close() }
+})
+
 test('P22: адрес сайта необязателен, поддерживает старый подпуть и новый origin', () => {
   const { readSitePresentation } = load('sitePresentation')
   assert.deepEqual(readSitePresentation({}), { siteUrl: '' })
@@ -2305,7 +2372,7 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     await until(()=>document.querySelector('[aria-label="Инструменты лобби"]'),'joined lobby')
     const beforeHero=JSON.stringify(await api(path+'/world',player.token))
     assert(!beforeHero.includes(initial.characters[0].id),'Private NPC sheet is absent')
-    await selectValue('[aria-label="Герой из аккаунта"]',hero.id);await click('Добавить героя в кампанию')
+    await selectValue('[aria-label="Герой для кампании"]',hero.id);await click('Добавить героя в кампанию')
     await until(()=>document.body.textContent.includes('Герой друзей')&&enabledButton('Открыть экран героя'),'submitted hero')
     const heroId=(await api(path+'/world',gm.token)).characters.find(c=>c.name===hero.name).id
     await click('Открыть экран героя')
