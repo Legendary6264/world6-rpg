@@ -9,7 +9,7 @@ import type {TutorialPath} from './tutorialProgress'
 import PerceivedScene from './PerceivedScene'
 import SceneViewport from './SceneViewport'
 import {artworkSource} from './visualMedia'
-const labels={speak:'Реплика',wait:'Ожидание',open:'Открытие',close:'Закрытие',move:'Движение',item:'Снаряжение',prepare:'Подготовка',ready:'Готовность',release:'Выпуск'}
+const labels={inspect:'Осмотр',speak:'Реплика',wait:'Ожидание',open:'Открытие',close:'Закрытие',move:'Движение',item:'Снаряжение',prepare:'Подготовка',ready:'Готовность',release:'Выпуск'}
 export default function TutorialSandbox({path}:{path:TutorialPath}){
  const [session,setSession]=useState(()=>createTutorialSession(path)),[preview,setPreview]=useState<TutorialPreview|null>(null),[message,setMessage]=useState('')
  const [kind,setKind]=useState<DeclaredAction['kind']>('move'),[point,setPoint]=useState({x:'7',y:'6',z:'0'}),[target,setTarget]=useState('self')

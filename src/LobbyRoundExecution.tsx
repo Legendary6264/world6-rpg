@@ -1,3 +1,5 @@
+import { inspectionRows, isInspectionDecision } from './roundInspection'
+import type { InspectionDecision } from './roundInspection'
 import LobbyListeningPlans from './LobbyListeningPlans'
 import { listeningRows, listeningPlanLabel, listeningFocusLabel } from './roundListening'
 import LobbyRoundSpeech from './LobbyRoundSpeech'
@@ -27,7 +29,7 @@ type Command = { previewId: string; generation: number; commandKey: string }
 type Draft = { source: string; interactionsConfirmed: boolean; missing: Record<string, string>;
   continuations: { actorId: string; mode: '' | 'continue' | 'hold'; budget: string }[]; command: Command | null;
   movementConfirmed?: boolean; bodyHeights?: Record<string, string>; flightReasons?:Record<string,string>; rules?:RuleForm[]; charges?:ChargeForm[];
-  speech?:SpeechDecision[]; replayEnabled?:boolean; replayReceiptId?:string; replayChoices?:{key:string;value:string}[] }
+  speech?:SpeechDecision[]; inspections?:InspectionDecision[]; replayEnabled?:boolean; replayReceiptId?:string; replayChoices?:{key:string;value:string}[] }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const heightsValid = (v: unknown): v is Record<string, string> => record(v) && Object.keys(v).length <= 200 && Object.keys(v).every(k => /^[a-zA-Z0-9:_-]{1,160}$/.test(k)) && Object.values(v).every(x => typeof x === 'string' && x.length <= 40)
 const valid = (v: unknown): v is Draft => record(v) && typeof v.source === 'string' && v.source.length <= 500000 && typeof v.interactionsConfirmed === 'boolean' &&
@@ -37,6 +39,7 @@ const valid = (v: unknown): v is Draft => record(v) && typeof v.source === 'stri
   (v.movementConfirmed === undefined || typeof v.movementConfirmed === 'boolean') && (v.bodyHeights === undefined || heightsValid(v.bodyHeights)) &&
   (v.flightReasons === undefined || record(v.flightReasons) && Object.keys(v.flightReasons).length <= 200 && Object.keys(v.flightReasons).every(k => /^[a-zA-Z0-9:_-]{1,160}$/.test(k)) && Object.values(v.flightReasons).every(x => typeof x === 'string' && x.length <= 2000)) &&
   (v.charges===undefined||Array.isArray(v.charges)&&v.charges.length<=200&&v.charges.every(isChargeForm)) &&
+  (v.inspections===undefined||Array.isArray(v.inspections)&&v.inspections.length<=200&&v.inspections.every(isInspectionDecision)) &&
   (v.speech===undefined||Array.isArray(v.speech)&&v.speech.length<=200&&v.speech.every(isSpeechDecision)) &&
   (v.rules===undefined||Array.isArray(v.rules)&&v.rules.length<=200&&v.rules.every(isRuleForm)) &&
   (v.replayEnabled===undefined||typeof v.replayEnabled==='boolean') && (v.replayReceiptId===undefined||typeof v.replayReceiptId==='string'&&/^[a-zA-Z0-9_-]{1,160}$/.test(v.replayReceiptId)) &&
@@ -95,6 +98,8 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
   const movementReady = !hasMovement || draft.movementConfirmed && bodyRows.length > 0 && bodyRows.every(b => !!height(bodyHeight(b.actorId))) && airActors.every(id=>actors.find(a=>a.id===id)?.canFly || !!flightReason(id).trim())
   const ruleRows=roundRuleRows(collection,effectiveWork,workActors.filter(id=>row(id).mode==='continue'))
   const listeningEntries=listeningRows(collection,effectiveWork,workActors.filter(id=>row(id).mode==='continue'))
+  const inspections=inspectionRows(collection,effectiveWork,workActors.filter(id=>row(id).mode==='continue')).map(r=>({row:r,decision:draft.inspections?.find(d=>d.key===r.key)??{key:r.key,text:'',confirmed:false,recordedAt:new Date().toISOString()}}))
+  const inspectionsReady=inspections.every(r=>r.decision.confirmed&&!!r.decision.text.trim())
   const speechEntries=speechRows(collection,effectiveWork,workActors.filter(id=>row(id).mode==='continue'))
   const speech=speechEntries.map(r=>draft.speech?.find(d=>d.key===r.key)??emptySpeechDecision(r.key)),speechReady=speechEntries.every((r,i)=>speechDecisionReady(r,speech[i]))
   const releases=ruleRows.filter(r=>r.action.kind==='ability'&&r.action.stage==='release')
@@ -116,7 +121,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
   function remember(next: Draft) { setDraft(next); const shared = writeLobbyForm(heightsKey, next.bodyHeights ?? {}), saved = writeLobbyForm(key, next); setWarning(saved && shared ? '' : 'Решения не сохранены на устройстве. Не закрывай страницу.'); return saved }
   function change(next: Draft) { ++sequence.current; pending.current?.abort(); setPreview(null); setMessage(''); remember(next) }
   async function calculate() {
-    if (disabled || inFlight.current || stale || !timingReady || !movementReady || !rulesReady || !speechReady || !chargesReady || !replayReady || !replayLoaded || draft.command || executed) return
+    if (disabled || inFlight.current || stale || !timingReady || !movementReady || !rulesReady || !inspectionsReady || !speechReady || !chargesReady || !replayReady || !replayLoaded || draft.command || executed) return
     const abort = new AbortController(), attempt = ++sequence.current, origin = source
     pending.current = abort; inFlight.current = true; setBusy({ source, request }); setPreview(null); setMessage('')
     try {
@@ -125,7 +130,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
           ...(draft.replayEnabled?{receiptId:replayValue!.receiptId,choices:releases.map(r=>replayChoice(r.key)==='new'?{key:r.key,mode:'new'}:{key:r.key,mode:'preserve',sourceKey:replayChoice(r.key).slice(9)})}:{}), input: { timings, interactionsConfirmed: draft.interactionsConfirmed,
           continuations: workActors.map(id => ({ actorId: id, mode: row(id).mode, budgetMs: ms(row(id).budget) })),
           missingDecisions: missing.map(id => ({ actorId: id, reason: reason(id) })),
-          ...(ruleRows.length?{rules}:{}),...(speechEntries.length?{speech}:{}),...(charges.length?{charges}:{}),
+          ...(inspections.length?{inspections:inspections.map(r=>r.decision)}:{}),...(ruleRows.length?{rules}:{}),...(speechEntries.length?{speech}:{}),...(charges.length?{charges}:{}),
           ...(hasMovement ? {movement:{confirmed:!!draft.movementConfirmed,bodies:bodyRows.map(b=>({actorId:b.actorId,heightM:height(bodyHeight(b.actorId)),...(flightReason(b.actorId).trim()?{flightReason:flightReason(b.actorId).trim()}:{})}))}} : {}) } }) })
       if (!active.current || abort.signal.aborted || attempt !== sequence.current || origin !== current.current) return
       if (value.revision !== revision || value.collectionId !== collection.id || value.epoch !== collection.epoch) { setMessage('Расчёт относится к другой версии. Обнови кампанию.'); return }
@@ -168,6 +173,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         <label className="w6-field"><span>Текущий бюджет, личные мс</span><input aria-label={'Бюджет продолжения ' + name(id)} inputMode="numeric" maxLength={40} value={row(id).budget} onChange={e => change({ ...draft, continuations: [...draft.continuations.filter(c => c.actorId !== id), { ...row(id), budget: e.currentTarget.value }] })}/></label>
       </div>)}
       {missing.map(id => <label className="w6-field" key={id}><span>{name(id)} без полученного действия: решение мастера</span><textarea aria-label={'Решение для ' + name(id)} maxLength={2000} value={reason(id)} onChange={e => change({ ...draft, missing: { ...draft.missing, [id]: e.currentTarget.value } })}/></label>)}
+      {inspections.map(({row:r,decision:d})=><fieldset key={r.key}><legend>Осмотр · {name(r.actorId)}</legend><p>Только этот герой получит указанный результат после завершения действия. Скрытые свойства, награды и предметы сами не раскрываются.</p><label className="w6-field"><span>Результат осмотра</span><textarea aria-label={'Результат осмотра '+r.key} rows={3} maxLength={4000} value={d.text} onChange={e=>change({...draft,inspections:[...(draft.inspections??[]).filter(v=>v.key!==r.key),{...d,text:e.currentTarget.value,confirmed:false,recordedAt:new Date().toISOString()}]})}/></label><label><input type="checkbox" aria-label={'Подтвердить осмотр '+r.key} checked={d.confirmed} onChange={e=>change({...draft,inspections:[...(draft.inspections??[]).filter(v=>v.key!==r.key),{...d,confirmed:e.currentTarget.checked,recordedAt:new Date().toISOString()}]})}/> Проверены доступность цели и сведения, которые герой может получить</label></fieldset>)}
       <label className="w6-check"><input type="checkbox" checked={draft.interactionsConfirmed} onChange={e => change({ ...draft, interactionsConfirmed: e.currentTarget.checked })}/>Проверил расстояние, доступность и запирание объектов для взаимодействий</label>
       {hasMovement && <fieldset><legend>Движение и занимаемый объём</legend><p>Диаметр задан отметкой в сцене. Укажи высоту тела всех персонажей сцены для проверки пересечений. Эти значения сохраняются для этой сцены на устройстве. Тело считается вертикальным объёмом; специальные формы согласуются отдельно.</p>
         {!bodyRows.length && <p role="alert">Перед расчётом размести героев в сцене.</p>}
@@ -193,12 +199,12 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         </>}
       </fieldset>}
       {stale && <><p role="alert">Время или кампания изменились. Сверь решения с текущим сбором.</p><button className="w6-button" onClick={() => change({ ...draft, source, replayChoices:[], interactionsConfirmed: false, movementConfirmed: false,charges:draft.charges?.map(f=>({...f,confirmed:false})),speech:draft.speech?.map(d=>({...d,confirmed:false})),rules:draft.rules?.map(f=>({...f,confirmed:false,spatialConfirmed:false})) })}>Решения мастера проверены</button></>}
-      <button className="w6-button" disabled={stale || !timingReady || !movementReady || !rulesReady || !speechReady || !chargesReady || !replayReady || !replayLoaded || workActors.some(id => !row(id).mode || !ms(row(id).budget)) || missing.some(id => !reason(id).trim())} onClick={() => void calculate()}>{replayValue&&!draft.replayEnabled?'Рассчитать с новыми бросками':'Рассчитать последствия раунда'}</button>
+      <button className="w6-button" disabled={stale || !timingReady || !movementReady || !rulesReady || !inspectionsReady || !speechReady || !chargesReady || !replayReady || !replayLoaded || workActors.some(id => !row(id).mode || !ms(row(id).budget)) || missing.some(id => !reason(id).trim())} onClick={() => void calculate()}>{replayValue&&!draft.replayEnabled?'Рассчитать с новыми бросками':'Рассчитать последствия раунда'}</button>
     </fieldset>
     {visible && <div aria-label="Расчёт последствий"><p>Мировое время: +{visible.summary.durationSeconds} с. Завершатся {visible.summary.events.length} действий; в очереди останется {visible.summary.carried.length}.</p>
       {visible.summary.replay&&<div aria-label="Выбранные броски переигровки">{visible.summary.replay.selections.map(s=><p key={s.key}>{releaseLabel(s.key)}: {s.mode==='new'?'новые броски':'прежние броски · '+(replayValue?.actions.find(a=>a.key===s.sourceKey)?.label??'выбранный прежний выпуск')}</p>)}</div>}
       {visible.summary.charges?.map(c=><p key={c.actorId+':'+c.castId}>{name(c.actorId)} · {c.name}: {c.mode==='interrupt'?'прерван перед раундом':'сохранён'}. {c.reason} Возврат: Мана {c.refunded.mana}, Тень {c.refunded.shadow}, Выносливость {c.refunded.stamina}. Снято действий: {c.removedWorkIds.length}.</p>)}
-      {visible.summary.events.map(e => <p key={e.workId+':'+e.kind}>{name(e.actorId)} · {{speak:'реплика',wait:'ожидание',move:'перемещение',open:'открытие объекта',close:'закрытие объекта',item:'предмет',prepare:'начало подготовки',ready:'готовый заряд',release:'выпуск'}[e.kind]}{e.listening?' · '+({listen:'прислушивание',eavesdrop:'подслушивание'}[e.listening]):''}{e.objectId ? ' · ' + objectName(collection.sceneId, e.objectId) : ''} · {e.atMs.numerator}/{e.atMs.denominator} мс</p>)}
+      {visible.summary.events.map(e => <p key={e.workId+':'+e.kind}>{name(e.actorId)} · {{inspect:'осмотр',speak:'реплика',wait:'ожидание',move:'перемещение',open:'открытие объекта',close:'закрытие объекта',item:'предмет',prepare:'начало подготовки',ready:'готовый заряд',release:'выпуск'}[e.kind]}{e.listening?' · '+({listen:'прислушивание',eavesdrop:'подслушивание'}[e.listening]):''}{e.objectId ? ' · ' + objectName(collection.sceneId, e.objectId) : ''} · {e.atMs.numerator}/{e.atMs.denominator} мс</p>)}
       {!!visible.summary.rules?.length&&<div aria-label="Последствия предметов и способностей">{visible.summary.rules.map(r=><article key={r.key+':'+r.kind}><p>{r.text}</p><pre className="w6-copy">{r.details}</pre>{r.targets&&<div aria-label="Цели пространственного выпуска"><p>Получателей: {r.targets.length}</p>{r.targets.map(t=><details key={t.actorId}><summary>{t.name}</summary><pre className="w6-copy">{t.details}</pre></details>)}</div>}</article>)}</div>}
       {!!visible.summary.listeningWindows?.length&&<section aria-label="Время внимания слушателей"><h4>Заявленное внимание</h4>{visible.summary.listeningWindows.map(r=><p key={r.key}>{name(r.actorId)} · {listeningPlanLabel(r)} · {listeningFocusLabel(r,objects.filter(o=>o.sceneId===r.sceneId))} · с {Number(r.fromMs.numerator)/Number(r.fromMs.denominator)/1000} до {Number(r.toMs.numerator)/Number(r.toMs.denominator)/1000} с раунда · {r.completes?'ожидание завершится':'продолжится в следующем раунде'}</p>)}<p className="w6-copy">Это время заявленного действия, не автоматический результат слышимости или скрытности. Пограничные и одновременные события оценивает мастер.</p></section>}
       {!!visible.summary.speech?.length&&<div aria-label="Расчёт слышимости">{visible.summary.speech.map(s=><article key={s.key}><h4>{name(s.actorId)} · реплика</h4><p className="w6-prose">{s.text}</p><p>Других слушателей: {s.heard.length}</p>{s.heard.map(h=><div key={h.actorId}><strong>{name(h.actorId)} · обозначение говорящего: {h.speaker}</strong><p className="w6-prose">{h.text}</p></div>)}</article>)}</div>}

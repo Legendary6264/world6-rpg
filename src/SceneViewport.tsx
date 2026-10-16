@@ -8,7 +8,7 @@ import { artworkSource, isTiledArtwork } from './visualMedia'
 type Selection = { kind: 'object'; id: string } | { kind: 'token'; id: string } | null
 export type SceneSelection = Selection
 type Props = { scene: Scene; actors: (SceneActor & VisualActor)[]; visuals?:SceneAbilityVisual[]; selection: Selection;
-  onPoint: (point: ScenePosition) => void; onSelect: (value: Selection) => void; selecting: boolean }
+  onPoint: (point: ScenePosition) => void; onSelect: (value: Selection) => void; selecting: boolean; marker?: ScenePosition }
 
 // Small original SVG tiles. They remain sharp at any zoom and need no asset service.
 export function SceneGlyph({ kind, open = false }: { kind: SceneObjectKind; open?: boolean }) {
@@ -25,7 +25,7 @@ export function SceneGlyph({ kind, open = false }: { kind: SceneObjectKind; open
   return <svg viewBox="0 0 16 16" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true" shapeRendering="crispEdges">{tiles[kind]}</svg>
 }
 
-export default function SceneViewport({ scene, actors, selection, onPoint, onSelect, selecting, visuals }: Props) {
+export default function SceneViewport({ scene, actors, selection, onPoint, onSelect, selecting, visuals, marker }: Props) {
   const effects=visuals??sceneAbilityVisuals(scene,actors),playback=useVisualReplay(effects.some(v=>v.phase==='sequence'))
   const vertical = scene.view === 'side' ? scene.maxZ - scene.minZ : scene.depth
   const displaySize = Math.max(scene.width, vertical) * 0.022
@@ -65,6 +65,7 @@ export default function SceneViewport({ scene, actors, selection, onPoint, onSel
           <rect x={o.x - o.width / 2} y={y} width={o.width} height={height} className={selection?.kind === 'object' && selection.id === o.id ? 'gb-object-selected' : 'gb-object-hit'} vectorEffect="non-scaling-stroke"/>
         </g>
       })}
+      {marker&&<g pointerEvents="none" aria-label="Выбранная точка входа"><circle cx={marker.x} cy={scene.view==='top'?marker.y:scene.maxZ-marker.z} r={displaySize} fill="#7ce4d044" stroke="#b7ffe8" strokeWidth="2" vectorEffect="non-scaling-stroke"/><text x={marker.x} y={(scene.view==='top'?marker.y:scene.maxZ-marker.z)-displaySize*1.5} className="gb-token-label" fontSize={displaySize}>Вход</text></g>}
       {scene.tokens.map(t => {
         const actor = actors.find(a => a.id === t.actorId), y = scene.view === 'top' ? t.y : scene.maxZ - t.z - displaySize
         const flying = t.support.kind === 'air', selected = selection?.kind === 'token' && selection.id === t.actorId

@@ -1,11 +1,12 @@
 import SceneAbilityOverlay, { useVisualReplay } from './SceneAbilityOverlay'
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import type { ScenePosition } from './sceneTypes'
 import type { PerceivedMap, VisibleContact } from './scenePerception'
 import { SceneGlyph } from './SceneViewport'
 import { artworkSource, isTiledArtwork } from './visualMedia'
 import './sceneStyle.css'
 export default function PerceivedScene({ map, selected, onSelect, onPoint, onObject, selectedObject, pickedPoint, plannedRoute = [] }: { map: PerceivedMap; selected?: string; onSelect?: (id: string) => void; onPoint?: (p: ScenePosition) => void; onObject?: (id: string) => void; selectedObject?: string; pickedPoint?: ScenePosition | null; plannedRoute?: ScenePosition[] }) {
+  const [camera,setCamera]=useState<{sceneId:string;zoom:number;center:{x:number;y:number}|null}>({sceneId:map.frame.id,zoom:1,center:null})
   const playback=useVisualReplay(map.visuals?.some(v=>v.phase==='sequence')??false)
   const clip = useId().replace(/:/g, ''),visualClip=clip+'-visual', f = map.frame, side = f.view === 'side', vertical = side ? f.maxZ - f.minZ : f.depth
   const tiled=isTiledArtwork(f.background),tileSize=f.backgroundTileSizeM??4
@@ -13,12 +14,18 @@ export default function PerceivedScene({ map, selected, onSelect, onPoint, onObj
   const yPoint = (p:ScenePosition) => side ? f.maxZ-p.z : p.y
   const route = [...(self&&self.z!==undefined?[{x:self.x,y:self.y,z:self.z}]:[]),...plannedRoute]
   const yOf = (c: VisibleContact) => side ? c.z === undefined ? vertical / 2 : f.maxZ - c.z : c.y
+  const zoom=camera.sceneId===f.id?camera.zoom:1,viewWidth=f.width/zoom,viewHeight=vertical/zoom
+  const focus=camera.sceneId===f.id?camera.center:null,center=focus??(self?{x:self.x,y:yOf(self)}:{x:f.width/2,y:vertical/2})
+  const origin={x:Math.max(0,Math.min(f.width-viewWidth,center.x-viewWidth/2)),y:Math.max(0,Math.min(vertical-viewHeight,center.y-viewHeight/2))}
+  function scale(next:number){const anchor=pickedPoint?{x:pickedPoint.x,y:yPoint(pickedPoint)}:center;setCamera({sceneId:f.id,zoom:Math.max(1,Math.min(4,next)),center:anchor})}
+  function pan(dx:number,dy:number){setCamera({sceneId:f.id,zoom,center:{x:Math.max(viewWidth/2,Math.min(f.width-viewWidth/2,origin.x+viewWidth/2+dx*viewWidth*.3)),y:Math.max(viewHeight/2,Math.min(vertical-viewHeight/2,origin.y+viewHeight/2+dy*viewHeight*.3))}})}
   return <section aria-label="Доступная сцена"><h3>{map.title}</h3><p className="w6-prose">{map.description}</p>
-    <div className={'gb-scene-viewport gb-player-map gb-palette-' + f.palette}><svg viewBox={`0 0 ${f.width} ${vertical}`} onClick={event => {
+    <div className="gb-map-tools" aria-label="Масштаб и обзор карты"><button type="button" className="w6-button" aria-label="Уменьшить карту" disabled={zoom===1} onClick={()=>scale(zoom/1.5)}>−</button><span>{Math.round(zoom*100)}%</span><button type="button" className="w6-button" aria-label="Увеличить карту" disabled={zoom===4} onClick={()=>scale(zoom*1.5)}>+</button><button type="button" className="w6-button" onClick={()=>setCamera({sceneId:f.id,zoom:1,center:null})}>Вся сцена</button>{zoom>1&&<>{([[-1,0,'Обзор влево','←'],[0,-1,'Обзор вверх','↑'],[0,1,'Обзор вниз','↓'],[1,0,'Обзор вправо','→']] as const).map(([x,y,label,icon])=><button key={label} type="button" className="w6-button" aria-label={label} onClick={()=>pan(x,y)}>{icon}</button>)}</>}</div>
+    <div className={'gb-scene-viewport gb-player-map gb-palette-' + f.palette}><svg viewBox={`${origin.x} ${origin.y} ${viewWidth} ${viewHeight}`} onClick={event => {
       if (!onPoint) return
-      const box = event.currentTarget.getBoundingClientRect(), scale = Math.min(box.width / f.width, box.height / vertical)
+      const box = event.currentTarget.getBoundingClientRect(), scale = Math.min(box.width / viewWidth, box.height / viewHeight)
       if (!(scale > 0)) return
-      const x = (event.clientX - box.left - (box.width - f.width * scale) / 2) / scale, v = (event.clientY - box.top - (box.height - vertical * scale) / 2) / scale
+      const x = origin.x + (event.clientX - box.left - (box.width - viewWidth * scale) / 2) / scale, v = origin.y + (event.clientY - box.top - (box.height - viewHeight * scale) / 2) / scale
       if (x < 0 || x > f.width || v < 0 || v > vertical) return
       const self = map.contacts.find(c => c.kind === 'self'), rounded = (n: number) => Math.round(n * 1000) / 1000
       onPoint({ x: rounded(x), y: side ? self?.y ?? f.depth / 2 : rounded(v), z: side ? rounded(f.maxZ - v) : self?.z ?? f.groundZ })

@@ -72,7 +72,7 @@ test('Длинное ожидание остаётся мировым време
 test('Необъявленные действия требуют решения мастера; неподдержанные и неверные цели блокируют весь раунд', () => {
   const w = world(), original = structuredClone(w)
   assert.throws(() => calculateRound(w, collection([]), input([]), 'missing'), /мастер должен/)
-  for (const action of [{ ...door('open'), operation: 'inspect' }]) {
+  for (const action of [{ ...door('open'), operation: 'take' }]) {
     assert.throws(() => calculateRound(w, collection([entry('a', [action])]), input([timing('a', [100])], ['b']), 'unsupported'), /пока не исполняется/)
   }
   const c = collection([entry('a', [door('open')])]), p = input([timing('a', [100])], ['b'])
