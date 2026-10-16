@@ -2,6 +2,8 @@ import { castSceneVisual } from './sceneAbilityVisuals'
 import type { SceneAbilityVisual, VisualActor } from './sceneAbilityVisuals'
 import type { Scene, SceneObject, ScenePosition, SceneState } from './sceneTypes'
 import { isArtwork, isTiledArtwork } from './visualMedia'
+// These built-in terrain paintings contain no campaign objects or private labels.
+const mapBackground = (value: unknown): value is string => isTiledArtwork(value) || value === 'pixel-ground-stone' || value === 'pixel-ground-yard'
 
 // Limits protect saved data; they do not define perception distances or game rules.
 export type KnownArea = ScenePosition & { id: string; width: number; depth: number; height: number; visible: boolean }
@@ -23,7 +25,7 @@ const number = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 const unique = (ids: string[]) => new Set(ids).size === ids.length
 const kinds = ['wall', 'door', 'tree', 'rock', 'crate', 'platform', 'lamp', 'water']
 const position = (v: unknown): v is ScenePosition & Record<string, unknown> => record(v) && number(v.x) && number(v.y) && number(v.z)
-const frame = (v: unknown): v is MapFrame => record(v) && (v.background===undefined||isTiledArtwork(v.background)) && (v.backgroundTileSizeM===undefined||number(v.backgroundTileSizeM)&&v.backgroundTileSizeM>=.1&&v.backgroundTileSizeM<=1000) && id(v.id) && number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 &&
+const frame = (v: unknown): v is MapFrame => record(v) && (v.background===undefined||mapBackground(v.background)) && (v.backgroundTileSizeM===undefined||number(v.backgroundTileSizeM)&&v.backgroundTileSizeM>=.1&&v.backgroundTileSizeM<=1000) && id(v.id) && number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 &&
   number(v.minZ) && number(v.maxZ) && number(v.groundZ) && v.minZ <= v.groundZ && v.groundZ < v.maxZ && typeof v.view === 'string' && ['top', 'side'].includes(v.view) && typeof v.palette === 'string' && ['forest', 'stone', 'neon'].includes(v.palette)
 const area = (v: unknown): v is KnownArea => record(v) && position(v) && id(v.id) && number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 && number(v.height) && v.height > 0 && typeof v.visible === 'boolean'
 const observedObject = (v: unknown): v is ObservedObject => record(v) && position(v) && id(v.id) && text(v.name, 120) && typeof v.kind === 'string' && kinds.includes(v.kind) &&
@@ -55,7 +57,7 @@ export function perceptionDraft(value: HeroPerception): PerceptionDraft {
     contacts: s.contacts.map(c => ({ actorId: c.actorId, kind: c.kind, label: c.label, signs: c.signs, showHeight: c.showHeight, ...(c.showVisuals!==undefined?{showVisuals:c.showVisuals}:{}), point: { ...c.point }, radius: c.radius })) })) }
 }
 const copyArea = (a: KnownArea): KnownArea => ({ id: a.id, x: a.x, y: a.y, z: a.z, width: a.width, depth: a.depth, height: a.height, visible: a.visible })
-export const mapFrame = (s: MapFrame): MapFrame => ({ id: s.id, width: s.width, depth: s.depth, groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, view: s.view, palette: s.palette, ...(isTiledArtwork(s.background)?{background:s.background,...(s.backgroundTileSizeM!==undefined?{backgroundTileSizeM:s.backgroundTileSizeM}:{})}:{}) })
+export const mapFrame = (s: MapFrame): MapFrame => ({ id: s.id, width: s.width, depth: s.depth, groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, view: s.view, palette: s.palette, ...(mapBackground(s.background)?{background:s.background,...(s.backgroundTileSizeM!==undefined?{backgroundTileSizeM:s.backgroundTileSizeM}:{})}:{}) })
 export const publicObject = (o: SceneObject | ObservedObject): ObservedObject => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z, width: o.width, depth: o.depth, height: o.height, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}) })
 function areaInside(a: KnownArea, f: MapFrame) { return a.x >= 0 && a.y >= 0 && a.z >= f.minZ && a.x + a.width <= f.width && a.y + a.depth <= f.depth && a.z + a.height <= f.maxZ }
 export function withinArea(p: ScenePosition, a: KnownArea) { return p.x >= a.x && p.x <= a.x + a.width && p.y >= a.y && p.y <= a.y + a.depth && p.z >= a.z && p.z <= a.z + a.height }

@@ -1,3 +1,5 @@
+import GameActionBar from './GameActionBar'
+import type { PerceivedMap } from './scenePerception'
 import { spatialLabel } from './abilitySpatial'
 import { useEffect, useRef, useState } from 'react'
 import { useOnline } from './onlineContext'
@@ -10,6 +12,7 @@ type Form = { kind: string; targetKind: string; targetId: string; x: string; y: 
   itemId: string; abilityId: string; stage: string; volume: string; speech: string; operation: string; note: string; support: string; route: ScenePosition[]; itemOperation?:string; listeningMode?:string }
 type Base = { collectionId: string; epoch: number; baseVersion: number; controlStamp: string }
 type Draft = { form: Form; actions: DeclaredAction[]; base?: Base }
+const emptyQueue: DeclaredAction[] = []
 const emptyForm = (): Form => ({ kind: 'move', targetKind: 'none', targetId: '', x: '', y: '', z: '', seconds: '', quantity: '1', itemId: '', abilityId: '', stage: 'prepare', volume: 'normal', speech: '', operation: 'inspect', note: '', support: 'ground', route: [], listeningMode:'' })
 const valid = (v: unknown): v is Draft => !!v && typeof v === 'object' && (() => { const d = v as Draft
   return !!d.form && Object.keys(emptyForm()).filter(k => k !== 'route'&&k!=='listeningMode').every(k => typeof d.form[k as keyof Form] === 'string' && (d.form[k as keyof Form] as string).length <= 4000) &&
@@ -17,8 +20,8 @@ const valid = (v: unknown): v is Draft => !!v && typeof v === 'object' && (() =>
     (d.form.listeningMode===undefined||['','listen','eavesdrop'].includes(d.form.listeningMode)) &&
     (d.form.itemOperation===undefined||typeof d.form.itemOperation==='string'&&d.form.itemOperation.length<=40) && Array.isArray(d.actions) && d.actions.length <= 20 && d.actions.every(isDeclaredAction) && (!d.base || typeof d.base.collectionId === 'string' && Number.isSafeInteger(d.base.epoch) && Number.isSafeInteger(d.base.baseVersion) && typeof d.base.controlStamp === 'string') })()
 const coordinate = (s: string) => s.trim() ? Number(s.replace(',', '.')) : NaN
-export default function LobbyActionDeclarations({ accountId, lobbyId, characterId, checkingAccess, selectedContact, pickedPoint, members }: {
-  accountId: string; lobbyId: string; characterId: string; checkingAccess: boolean; selectedContact: string; pickedPoint: ScenePosition | null; members: {id:string;displayName:string}[] }) {
+export default function LobbyActionDeclarations({ accountId, lobbyId, characterId, checkingAccess, selectedContact, pickedPoint, members, map = null, selectedObject = '', onQueue }: {
+  accountId: string; lobbyId: string; characterId: string; checkingAccess: boolean; selectedContact: string; pickedPoint: ScenePosition | null; members: {id:string;displayName:string}[]; map?: PerceivedMap | null; selectedObject?: string; onQueue?: (actions: DeclaredAction[]) => void }) {
   const { request, refresh } = useOnline(), path = '/lobbies/' + lobbyId + '/characters/' + characterId + '/declarations'
   const remote = useRemote<HeroDeclarations>(path), key = lobbyFormKey('action-sequence', accountId, lobbyId, characterId)
   const [draft, setDraft] = useState(() => readLobbyForm(key, valid) ?? { form: emptyForm(), actions: [] }), [busy, setBusy] = useState(false)
@@ -54,6 +57,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
     remember({ form: emptyForm(), actions: value.entry.actions, base: base() })
   }
   const stale = !!draft.base && (!c || draft.base.collectionId !== c.id || draft.base.epoch !== c.epoch || draft.base.baseVersion !== (value?.entry?.revision ?? 0) || draft.base.controlStamp !== value?.controlStamp)
+  useEffect(() => { onQueue?.(stale ? emptyQueue : draft.actions) }, [draft.actions, stale, onQueue])
   const editable = !busy && !checkingAccess && !remote.loading, canSend = editable && !!value?.canSubmit && !!value.options && draft.actions.length > 0 && !stale && (value.entry?.status !== 'submitted' || !!c?.allowReplace)
   const targetLabel = (a: DeclaredAction) => {
     const t=actionTarget(a)
@@ -71,7 +75,8 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
         <p>Автор плана: {members.find(m => m.id === value.entry!.submittedBy)?.displayName ?? 'Участник кампании'}</p>{value.entry.actions.map((a, i) => <p key={i}>{i + 1}. {actionSummary(a)} · {targetLabel(a)}{a.note && ' · ' + a.note}</p>)}{value.entry.note && <p>Замечание мастера: {value.entry.note}</p>}
         <button className="w6-button" disabled={!editable} onClick={loadSent}>Загрузить отправленное в черновик</button></details>}
     </>}
-    <fieldset disabled={!editable}><legend>Черновик последовательности</legend>
+    <GameActionBar map={map} point={pickedPoint} contactId={selectedContact} objectId={selectedObject} options={value?.options??null} disabled={!editable||draft.actions.length>=20} onAdd={action=>{if(isDeclaredAction(action)&&draft.actions.length<20){remember({...draft,actions:[...draft.actions,action]});setMessage('Действие добавлено в ход.')}}}/>
+    <details className="gb-game-advanced"><summary>Точные параметры и сложная последовательность</summary><fieldset disabled={!editable}><legend>Черновик последовательности</legend>
       {pickedPoint && <button className="w6-button" onClick={() => remember({ ...draft, form: { ...f, targetKind: ['area','direction'].includes(f.targetKind)?f.targetKind:'point', x: String(pickedPoint.x), y: String(pickedPoint.y), z: String(pickedPoint.z) } })}>Использовать выбранные координаты ({pickedPoint.x}; {pickedPoint.y}; {pickedPoint.z})</button>}
       {value?.options?.targets.some(t => t.kind === 'contact' && t.id === selectedContact) && <button className="w6-button" onClick={() => remember({ ...draft, form: { ...f, targetKind: 'contact', targetId: selectedContact } })}>Использовать отмеченный контакт</button>}<label className="w6-field"><span>Категория действия</span><select aria-label="Категория действия" value={f.kind} onChange={e => field('kind', e.currentTarget.value)}>{actionKinds.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}</select></label>
       {(f.kind !== 'move' && f.kind !== 'wait'||f.kind==='wait'&&!!f.listeningMode) && <><label className="w6-field"><span>Вид цели</span><select aria-label="Вид цели" value={f.targetKind} onChange={e => field('targetKind', e.currentTarget.value)}><option value="none">Без конкретной цели</option><option value="self">На себя</option><option value="point">Точка</option>{f.kind==='ability'&&<><option value="area">Область · центр</option><option value="direction">Направление · опорная точка</option></>}<option value="contact">Контакт</option><option value="object">Объект</option></select></label>
@@ -87,6 +92,8 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       {f.kind === 'ability' && <><label className="w6-field"><span>Способность для действия</span><select aria-label="Способность для действия" value={f.abilityId} onChange={e => field('abilityId', e.currentTarget.value)}><option value="">Выбери утверждённую способность</option>{value?.options?.abilities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label><label className="w6-field"><span>Этап способности</span><select aria-label="Этап способности" value={f.stage} onChange={e => field('stage', e.currentTarget.value)}><option value="prepare">Подготовить заряд</option><option value="release">Применить</option></select></label></>}
       <label className="w6-field"><span>Пояснение действия</span><textarea aria-label="Пояснение действия" maxLength={1000} value={f.note} onChange={e => field('note', e.currentTarget.value)}/></label>
       <button className="w6-button" onClick={addAction}>Добавить действие в последовательность</button>
+    </fieldset></details><fieldset disabled={!editable} className="gb-game-queue"><legend>Мой ход · {draft.actions.length} / 20 действий</legend>
+      {draft.actions.length===0&&<p className="w6-copy">Выбери действие на панели над очередью. После исполнения результат появится на карте.</p>}
       {draft.actions.map((a, i) => <article className="gb-journal-entry" key={i}><p>{i + 1}. {actionSummary(a)} · {targetLabel(a)}{a.note && ' · ' + a.note}</p><button className="w6-button" onClick={() => remember({ ...draft, actions: draft.actions.filter((_, n) => n !== i) })}>Убрать действие {i + 1}</button></article>)}
       {stale && <><p role="alert">Изменились приём, управление или моё заявление. Проверь черновик и доступные цели.</p><button className="w6-button" disabled={!c} onClick={() => remember({ ...draft, base: base() })}>Последовательность проверена с текущей версией</button></>}
       <button className="w6-button" disabled={!canSend} onClick={() => void submit()}>{value?.entry?.status === 'submitted' ? 'Заменить заявление' : 'Отправить заявление'}</button>
