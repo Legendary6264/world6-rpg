@@ -166,6 +166,42 @@ async function fixture() {
 }
 const name = () => document.querySelector('[data-name]')?.value
 
+test('Игровой экран: карта, быстрые действия и одна очередь отправляются без преждевременного изменения мира', async () => {
+  const f=await fixture()
+  try {
+    f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+    f.perceptions.a={title:'Игровой двор',description:'Открытая часть двора',frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[{id:'known',x:0,y:0,z:-5,width:20,depth:20,height:25,visible:true}],
+      contacts:[{id:'self-a',kind:'self',label:'Hero a',x:3,y:3,z:0}],objects:[{id:'game-door',name:'Дверь',kind:'door',x:10,y:10,z:0,width:2,depth:1,height:2,open:false,visible:true}]}
+    f.declarations.a.options.targets=[{id:'game-door',kind:'object',label:'Дверь'}]
+    await f.open('a');await click('Открыть экран героя')
+    const map=document.querySelector('.gb-player-map>svg');assert(map)
+    await flush(()=>map.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true})))
+    await click('Идти к отметке');assert(document.querySelector('.gb-game-route'))
+    await flush(()=>document.querySelector('[aria-label="Объект: Дверь"]').dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true})))
+    await click('Открыть дверь')
+    const draft=load('lobbyFormDrafts').readLobbyForm(load('lobbyFormDrafts').lobbyFormKey('action-sequence',f.accountId,'a','hero-a'),()=>true)
+    assert.equal(draft.actions.length,2);assert.deepEqual(draft.actions[0].route,[{x:4,y:3,z:0}]);assert.equal(draft.actions[1].operation,'open')
+    assert.equal(f.worlds.a.campaign.seconds,0);assert.equal(f.perceptions.a.objects[0].open,false)
+    await click('Отправить заявление')
+    assert.equal(f.writes.length,1);assert.equal(f.writes[0].actions.length,2);assert.equal(f.worlds.a.campaign.seconds,0)
+  } finally {await f.close()}
+})
+
+test('Игровой экран: события героя отражают только полученные изменения личной карты', async () => {
+  const f=await fixture()
+  try {
+    f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+    f.perceptions.a={title:'Двор',description:'',frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[],objects:[],contacts:[{id:'self-a',kind:'self',label:'Hero a',x:3,y:3,z:0}]}
+    await f.open('a');await click('Открыть экран героя');assert(!document.querySelector('[aria-label="События моего героя"]'))
+    f.perceptions.a.contacts[0].x=5;await flush(()=>f.notify())
+    assert(document.querySelector('[aria-label="События моего героя"]').textContent.includes('5; 3; 0'))
+    assert(!document.body.textContent.includes('PRIVATE-HIDDEN-NPC'))
+    await click('Развернуть игру');assert(document.querySelector('.gb-game-fullscreen'))
+    await flush(()=>window.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape'})))
+    assert(!document.querySelector('.gb-game-fullscreen'));assert.equal(document.body.style.overflow,'')
+  } finally {await f.close()}
+})
+
 test('Выбор героя: локальный лист сохраняется в аккаунт перед отправкой в лобби', async () => {
   const hero = { ...createDefaultCharacter(), id: 'local-picker-hero', name: 'Локальный герой' }
   writeCharacters(localStorage, [hero])
@@ -2303,7 +2339,7 @@ test('R07 navigation: клавиатура переключает вкладки
   try {
     await f.open('a')
     const tabs = document.querySelector('[aria-label="Инструменты лобби"]')
-    const hero = tabs.querySelector('[role="tab"]')
+    const hero = [...tabs.querySelectorAll('[role="tab"]')].find(t=>t.textContent==='Герои')
     await flush(() => { hero.focus(); hero.dispatchEvent(new dom.window.KeyboardEvent('keydown', {key:'ArrowRight',bubbles:true})) })
     assert.equal(document.activeElement.textContent, 'Раунд')
     assert.equal(document.activeElement.getAttribute('aria-selected'), 'true')
@@ -2311,10 +2347,10 @@ test('R07 navigation: клавиатура переключает вкладки
     await f.role('ASSISTANT'); await f.permissions(['rounds'])
     assert(!document.querySelector('[aria-label="Инструменты лобби"] [role="tab"][aria-controls$="-round"]'))
     assert(!document.body.textContent.includes('Свернуть приём заявлений'))
-    assert.equal(document.querySelector('[aria-label="Инструменты лобби"] [aria-selected="true"]').textContent, 'Герои')
+    assert.equal(document.querySelector('[aria-label="Инструменты лобби"] [aria-selected="true"]').textContent, 'Играть')
     await f.role('PLAYER'); await f.permissions([])
     const labels = [...document.querySelector('[aria-label="Инструменты лобби"]').children].map(b=>b.textContent)
-    assert.deepEqual(labels, ['Герои','Мир','Чат','Подготовка'])
+    assert.deepEqual(labels, ['Играть','Герои','Мир','Чат','Подготовка'])
     assert(!document.body.textContent.includes('Общий редактор ГМ'))
   } finally { await f.close() }
 })
@@ -2377,19 +2413,21 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     const heroId=(await api(path+'/world',gm.token)).characters.find(c=>c.name===hero.name).id
     await click('Открыть экран героя')
     await until(()=>document.body.textContent.includes('Мастер ещё не открыл этому герою сцену'),'undisclosed scene')
-    assert.deepEqual([...document.querySelector('[aria-label="Инструменты лобби"]').children].map(b=>b.textContent),['Герои','Мир','Чат','Подготовка'])
+    assert.deepEqual([...document.querySelector('[aria-label="Инструменты лобби"]').children].map(b=>b.textContent),['Играть','Герои','Мир','Чат','Подготовка'])
     await account(gm,room.title)
     await click('Открыть заявку и проверяемый лист');await until(()=>enabledButton('Принять героя'),'hero review')
     await click('Принять героя в кампанию');await until(()=>document.body.textContent.includes('Решение по листу сохранено.'),'approved hero')
-    // GM fixture puts the approved hero on the existing gate; UI disclosure remains explicit.
+    // Real game preparation UI places the accepted hero and explicitly opens selected scenery.
     const placed=await api(path+'/world',gm.token), gate=placed.campaign.scenes.scenes[0]
-    gate.tokens.push({id:'play-path-token',actorId:heroId,x:5,y:6,z:0,diameter:1,visible:true,support:{kind:'ground'}})
-    await api(path+'/world',gm.token,'PUT',{revision:placed.revision,world:placed})
-    events++;await flush(render)
-    await until(()=>enabledButton('Настроить видимость героя'),'fresh disclosure access')
-    await click('Настроить видимость героя');await until(()=>document.querySelector('[aria-label="Сцена раскрытия"]'),'disclosure editor')
-    await selectValue('[aria-label="Сцена раскрытия"]',gate.id);await click('Открыть выбранную сцену герою');await click('Раскрыть всю местность')
-    await click('Сохранить раскрытие героя');await until(()=>document.body.textContent.includes('Раскрытие сохранено только'),'saved individual disclosure')
+    await lobbyTab('Играть');await click('Начать игру на сцене')
+    await until(()=>document.querySelector('[aria-label="Игровая сцена"]')&&!document.querySelector('[aria-label="Игровая сцена"]').closest('fieldset').disabled,'game scene setup')
+    await selectValue('[aria-label="Игровая сцена"]',gate.id)
+    await flush(()=>document.querySelector('[aria-label="Ввести в игру Герой друзей"]').click())
+    await input('[aria-label="Описание игровой обстановки"]','Переход открыт для истории друзей.')
+    await flush(()=>document.querySelector('[aria-label="Раскрыть местность выбранным героям"]').click())
+    await click('Разместить героев и открыть сцену')
+    await until(()=>document.body.textContent.includes('Герои размещены, выбранная обстановка открыта.'),'prepared playable scene')
+    assert((await api(path+'/characters/'+heroId+'/perception',player.token)).map)
     // A second independent account/hero is prepared by the authorized test API,
     // just as the first account/hero fixture. Both declarations below use UI.
     const hero2={...native('characterModel').createDefaultCharacter(),id:'play-path-source-two',name:'Герой второго игрока'}
@@ -2412,8 +2450,8 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     await account(player,room.title);await click('Открыть экран героя')
     await until(()=>document.querySelector('[aria-label="Категория действия"]')&&!document.querySelector('[aria-label="Категория действия"]').closest('fieldset').disabled,'editable declaration')
     assert(document.querySelector('.gb-player-map'),'Individual scene rendered')
-    await waitAction('1','Наблюдаю за переходом')
-    await lobbyTab('Чат');await lobbyTab('Герои')
+    await click('Ждать 1 с')
+    await lobbyTab('Чат');await lobbyTab('Играть')
     assert(enabledButton('Отправить заявление'),'Navigation kept the plan')
     await click('Отправить заявление');await until(()=>document.body.textContent.includes('Моё отправленное заявление'),'submitted plan')
     assert.equal((await api(path+'/world',gm.token)).campaign.seconds,0,'Declaring does not advance time')

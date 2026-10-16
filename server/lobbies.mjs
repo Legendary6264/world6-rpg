@@ -1,3 +1,4 @@
+import { gameplayRoutes } from './gameplay.mjs'
 import {starterCampaignRoutes} from './starter-campaigns.mjs'
 import {campaignEconomyRoutes} from './campaign-economy.mjs'
 import {pruneEconomy} from './generated/campaignEconomy.mjs'
@@ -61,6 +62,7 @@ export function lobbyRoutes(app,{db,auth,io}){
  lobbyAccessRoutes(app,{db,auth,updated,lockedMembership,record})
  heroReviewRoutes(app,{db,auth,updated,lockedMembership,record})
  perceptionRoutes(app,{db,auth,updated,lockedMembership,record})
+ gameplayRoutes(app,{db,auth,updated,lockedMembership,record})
  declarationRoutes(app,{db,auth,updated,lockedMembership,record})
  roundRoutes(app,{db,auth,updated,lockedMembership,record})
  roundHistoryRoutes(app,{db,auth,updated,lockedMembership,record})
