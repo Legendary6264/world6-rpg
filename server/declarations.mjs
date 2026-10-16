@@ -123,6 +123,21 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
       await save(tx, req, lobby, state, d, record, 'open-declarations')
     }); updated(req.params.id); res.status(201).json({ revision: revision + 1 })
   })
+  app.post('/api/lobbies/:id/declarations/next', auth.middleware, async (req,res) => {
+    const revision=integer(req.body.revision)
+    await db.transaction(async tx=>{
+      const {lobby,member}=await lockedMembership(tx,req);requireMaster(member);assertOpen(lobby);await requireCampaignRunning(tx,lobby.id)
+      if(lobby.revision!==revision)fail(409,'Кампания изменилась. Обнови состояние раунда.')
+      const state=JSON.parse(lobby.world_json),d=state.campaign.declarations??emptyDeclarations(),c=d.active;checkEpoch(c,req.body)
+      if(c.phase!=='closed'||!await collectionExecuted(tx,lobby.id,await roundGeneration(tx,lobby.id),c.id))fail(409,'Следующий раунд доступен после применения текущего.')
+      if(d.archive.length>=20)fail(409,'История содержит 20 сборов. Сохрани копию и освободи историю.')
+      const scene=state.campaign.scenes?.scenes.find(s=>s.id===c.sceneId),bindings=await bindingsFor(tx,lobby)
+      if(!scene||!c.participantIds.every(id=>bindings.some(b=>b.character_id===id&&b.approved)&&state.characters.some(a=>a.id===id)))fail(409,'Состав участников изменился. Подготовь новый сбор вручную.')
+      d.archive.push(c)
+      d.active={id:id(),sceneId:scene.id,sceneName:scene.name,durationSeconds:c.durationSeconds,allowReplace:c.allowReplace,phase:'open',epoch:1,participantIds:[...c.participantIds],entries:[],history:[]}
+      event(d.active,req,'open');await save(tx,req,lobby,state,d,record,'next-declaration-round')
+    });updated(req.params.id);res.status(201).json({revision:revision+1})
+  })
   app.patch('/api/lobbies/:id/declarations', auth.middleware, async (req, res) => {
     await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireMaster(member); assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
@@ -143,11 +158,12 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
     const value = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req), { state, actor, bindings, binding, c, controlStamp } = await context(tx, req, lobby)
       if (binding.owner_id !== req.user.id && binding.control.controllerId !== req.user.id) requireMaster(member)
-      const members = await tx.all("SELECT user_id FROM members WHERE lobby_id=? AND role='PLAYER'", [lobby.id])
-      const readiness = members.map(m => { const expected = bindings.filter(b => b.owner_id === m.user_id && c?.participantIds.includes(b.character_id))
-        return { userId: m.user_id, ready: expected.length > 0 && expected.every(b => !!b.approved && c.entries.some(e => e.actorId === b.character_id && e.status === 'submitted')) } })
+      const members = await tx.all('SELECT user_id FROM members WHERE lobby_id=?', [lobby.id])
+      const readiness = members.flatMap(m => { const expected = bindings.filter(b => b.control.controllerId === m.user_id && c?.participantIds.includes(b.character_id))
+        return expected.length ? [{ userId: m.user_id, ready: expected.every(b => !!b.approved && c.entries.some(e => e.actorId === b.character_id && e.status === 'submitted')) }] : [] })
       const paused=(await campaignSession(tx,lobby.id)).paused
-      return { controlStamp, paused, collection: publicCollection(c), participating: !!c?.participantIds.includes(actor.id),
+      const executed=!!(c?.phase==='closed'&&await collectionExecuted(tx,lobby.id,await roundGeneration(tx,lobby.id),c.id))
+      return { controlStamp, paused, executed, collection: publicCollection(c), participating: !!c?.participantIds.includes(actor.id),
         canSubmit: !paused && lobby.status !== 'closed' && c?.phase === 'open' && c.participantIds.includes(actor.id) && !!binding.approved && binding.control.controllerId === req.user.id &&
           (!binding.control.delegated || member.role === 'GM' || member.permissions.includes('controlDelegated')),
         entry: publicEntry(c?.entries.find(e => e.actorId === actor.id)), options: options(state, actor, c,!!binding.npc), readiness }

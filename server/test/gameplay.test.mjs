@@ -45,4 +45,57 @@ for(const dialect of ['sqlite','postgres'])test('Игровая сцена: по
   await f.restart();assert.deepEqual(await api(root+'/world',gm.token),sent)
   assert.equal((await api(root+'/characters/'+hero+'/declarations',player.token)).entry.status,'submitted')
  })
+ await t.test('Следующий раунд открывается атомарно после применения, без повторного хода и перевода часов',async()=>{
+  let state=await api(root+'/world',gm.token),c=state.campaign.declarations.active
+  const nextBody=()=>({revision:state.revision,collectionId:c.id,epoch:c.epoch})
+  await api(root+'/declarations/next',player.token,'POST',nextBody(),403)
+  await api(root+'/declarations/next',gm.token,'POST',nextBody(),409)
+  await api(root+'/declarations',gm.token,'PATCH',{collectionId:c.id,epoch:c.epoch,operation:'close'})
+  state=await api(root+'/world',gm.token);c=state.campaign.declarations.active
+  await api(root+'/declarations/next',gm.token,'POST',nextBody(),409)
+  const preview=await api(root+'/rounds/calculate',gm.token,'POST',{...nextBody(),input:{timings:[{actorId:hero,entryRevision:1,budgetMs:5000,costs:[{index:0,personalMs:1000}]}],continuations:[],missingDecisions:[],interactionsConfirmed:true,movement:{confirmed:true,bodies:state.campaign.scenes.scenes[0].tokens.map(t=>({actorId:t.actorId,heightM:2}))}}})
+  await api(root+'/rounds/apply',gm.token,'POST',{previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()})
+  state=await api(root+'/world',gm.token);c=state.campaign.declarations.active
+  const view=await api(root+'/characters/'+hero+'/declarations',player.token)
+  assert.equal(view.executed,true);assert.deepEqual(view.readiness,[{userId:player.user.id,ready:true}])
+  await api(root+'/declarations/next',gm.token,'POST',{...nextBody(),revision:state.revision-1},409)
+  const replies=await Promise.all([f.request(root+'/declarations/next',gm.token,'POST',nextBody()),f.request(root+'/declarations/next',gm.token,'POST',nextBody())])
+  assert.deepEqual(replies.map(r=>r.status).sort(),[201,409])
+  const next=await api(root+'/world',gm.token)
+  assert.equal(next.campaign.seconds,state.campaign.seconds);assert.equal(next.campaign.declarations.archive.length,1)
+  assert.equal(next.campaign.declarations.archive[0].id,c.id);assert.notEqual(next.campaign.declarations.active.id,c.id)
+  assert.deepEqual(next.campaign.declarations.active.participantIds,[hero]);assert.deepEqual(next.campaign.declarations.active.entries,[])
+  assert.equal(next.campaign.declarations.active.durationSeconds,5)
+  assert.equal((await api(root+'/characters/'+hero+'/declarations',player.token)).executed,false)
+  await f.restart();assert.deepEqual(await api(root+'/world',gm.token),next)
+ })
+ await t.test('Долгий осмотр переносится, а подтверждённый результат получает только свой герой один раз',async()=>{
+  await api('/lobbies/join',stranger.token,'POST',{code:lobby.inviteCode})
+  let d=await api(root+'/characters/'+hero+'/declarations',player.token),c=d.collection
+  await api(root+'/characters/'+hero+'/declarations',player.token,'PUT',{collectionId:c.id,epoch:c.epoch,baseVersion:0,controlStamp:d.controlStamp,actions:[{kind:'interact',target:{kind:'object',id:door.id},operation:'inspect',note:''}]})
+  await api(root+'/declarations',gm.token,'PATCH',{collectionId:c.id,epoch:c.epoch,operation:'close'})
+  let state=await api(root+'/world',gm.token);c=state.campaign.declarations.active
+  const secret='В щели виден знак, различимый только осматривающему.'
+  const decision={key:'new:'+hero+':0',confirmed:true,text:secret,recordedAt:new Date().toISOString()}
+  const base={revision:state.revision,collectionId:c.id,epoch:c.epoch,input:{timings:[{actorId:hero,entryRevision:1,budgetMs:5000,costs:[{index:0,personalMs:8000}]}],continuations:[],missingDecisions:[],interactionsConfirmed:true}}
+  await api(root+'/rounds/calculate',gm.token,'POST',base,400)
+  await api(root+'/rounds/calculate',gm.token,'POST',{...base,input:{...base.input,inspections:[{...decision,confirmed:false}]}},400)
+  const preview=await api(root+'/rounds/calculate',gm.token,'POST',{...base,input:{...base.input,inspections:[decision]}})
+  assert(!JSON.stringify(await api(root+'/characters/'+hero+'/perception',player.token)).includes(secret))
+  await api(root+'/rounds/apply',gm.token,'POST',{previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()})
+  const partial=await api(root+'/characters/'+hero+'/perception',player.token)
+  assert(!JSON.stringify(partial).includes(secret));assert.equal(partial.work.length,1)
+  state=await api(root+'/world',gm.token);c=state.campaign.declarations.active
+  await api(root+'/declarations/next',gm.token,'POST',{revision:state.revision,collectionId:c.id,epoch:c.epoch},201)
+  state=await api(root+'/world',gm.token);c=state.campaign.declarations.active
+  await api(root+'/declarations',gm.token,'PATCH',{collectionId:c.id,epoch:c.epoch,operation:'close'})
+  state=await api(root+'/world',gm.token);c=state.campaign.declarations.active
+  const finish=await api(root+'/rounds/calculate',gm.token,'POST',{revision:state.revision,collectionId:c.id,epoch:c.epoch,input:{timings:[],continuations:[{actorId:hero,mode:'continue',budgetMs:5000}],missingDecisions:[],interactionsConfirmed:true,inspections:[{...decision,key:state.campaign.roundWork.entries[0].id}]}})
+  const command={previewId:finish.id,generation:finish.generation,commandKey:crypto.randomUUID()}
+  await api(root+'/rounds/apply',gm.token,'POST',command);await api(root+'/rounds/apply',gm.token,'POST',command)
+  const own=await api(root+'/characters/'+hero+'/perception',player.token)
+  assert.equal(own.knowledge.journal.filter(e=>e.text===secret).length,1);assert.equal(own.work.length,0)
+  assert(!JSON.stringify(await api(root+'/world?view=player',stranger.token)).includes(secret))
+  await api(root+'/characters/'+hero+'/perception',stranger.token,'GET',undefined,403)
+ })
 })

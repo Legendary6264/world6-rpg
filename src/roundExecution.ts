@@ -1,3 +1,5 @@
+import { inspectionRows, inspectionDecisions, finishInspection } from './roundInspection'
+import type { InspectionDecision } from './roundInspection'
 import type { ListeningWindow } from './roundListening'
 import { finishRoundSpeech, speechRows, speechDecisionsFor } from './roundSpeech'
 import type { SpeechDecision, SpeechOutcome } from './roundSpeech'
@@ -21,15 +23,15 @@ import type { ActorTiming } from './roundTimeline'
 import type { MovementBody, MovementChange, MovementPlan } from './sceneMovement'
 import { isRoundReplay } from './roundReplay'
 import type { RoundReplay } from './roundReplay'
-export const ROUND_EXECUTOR_VERSION = 'r08-listening-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+export const ROUND_EXECUTOR_VERSION = 'r09-inspection-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
   missingDecisions: { actorId: string; reason: string }[]; interactionsConfirmed: boolean;
-  movement?: { confirmed: boolean; bodies: MovementBody[] }; rules?: RuleDecision[]; charges?: ChargeDecision[]; replay?: RoundReplay; speech?: SpeechDecision[] }
+  movement?: { confirmed: boolean; bodies: MovementBody[] }; rules?: RuleDecision[]; charges?: ChargeDecision[]; replay?: RoundReplay; speech?: SpeechDecision[]; inspections?: InspectionDecision[] }
 export type RoundExecutionEvent = { actorId: string; actionIndex: number; workId: string; atMs: ExactAmount;
-  kind: 'speak' | 'wait' | 'open' | 'close' | 'move' | 'item' | 'prepare' | 'ready' | 'release'; objectId?: string; castId?:string; listening?:'listen'|'eavesdrop' }
+  kind: 'inspect' | 'speak' | 'wait' | 'open' | 'close' | 'move' | 'item' | 'prepare' | 'ready' | 'release'; objectId?: string; castId?:string; listening?:'listen'|'eavesdrop' }
 export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
   carried: { id: string; actorId: string; actionKind: string; remaining: ExactAmount; unit: string }[];
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
@@ -45,6 +47,7 @@ const numberOf = (v: ExactAmount) => Number(v.numerator) / Number(v.denominator)
 function supported(work: RoundWorkEntry, world: World, confirmed: boolean) {
   const a = work.action
   if (a.kind === 'wait' || a.kind === 'move' || a.kind === 'ability' || a.kind === 'speak') return
+  if(a.kind==='interact'&&a.operation==='inspect') {if(!confirmed)throw Error('Подтверди возможность осмотра.');return}
   if (a.kind === 'item') {
     if(a.quantity!==1||!['self','contact'].includes(a.target.kind))throw Error('Предмет: поддержана одна доза расходника на себя/раскрытое существо или один собственный экземпляр снаряжения/артефакта.')
     return
@@ -76,6 +79,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const ruleDecisions=decisionsFor(ruleRows,input.rules)
   const releases=ruleRows.filter(r=>r.action.kind==='ability'&&r.action.stage==='release')
   if(input.replay && (input.replay.selections.length!==releases.length || input.replay.selections.some(s=>!releases.some(r=>r.key===s.key)))) throw Error('Для каждого выпуска выбери прежние либо новые броски.')
+  const inspectionChoices=inspectionDecisions(inspectionRows(collection,old,input.continuations.filter(c=>c.mode==='continue').map(c=>c.actorId)),input.inspections)
   const speechDecisions=speechDecisionsFor(speechRows(collection,old,input.continuations.filter(c=>c.mode==='continue').map(c=>c.actorId)),input.speech)
   const works=new Map<string,RoundWorkEntry>(),workKeys=new Map<string,string>()
   const held: RoundWorkEntry[] = [], queues = new Map<string, RoundWorkEntry[]>(), budgets = new Map<string, number>()
@@ -235,6 +239,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       candidate=result.world;speechOutcomes.push({...result.outcome,atMs:at})
       events.push({actorId:work.actorId,actionIndex:work.origin.actionIndex,workId:work.id,atMs:at,kind:'speak'})
     }
+    else if(a.kind==='interact'&&a.operation==='inspect'){candidate=finishInspection(candidate,work,inspectionChoices.get(workKeys.get(work.id)!)!);events.push({actorId:work.actorId,actionIndex:work.origin.actionIndex,workId:work.id,atMs:at,kind:'inspect'})}
     else if (a.kind === 'wait') events.push({ actorId: work.actorId, actionIndex: work.origin.actionIndex, workId: work.id, atMs: at, kind: 'wait',...(a.listening?{listening:a.listening.mode}:{}) })
     else if (a.kind === 'move') events.push({ actorId: work.actorId, actionIndex: work.origin.actionIndex, workId: work.id, atMs: at, kind: 'move' })
     else if (a.kind === 'interact' && a.target.kind === 'object') {

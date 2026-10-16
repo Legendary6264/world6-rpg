@@ -166,6 +166,113 @@ async function fixture() {
 }
 const name = () => document.querySelector('[data-name]')?.value
 
+async function quickMode(label){
+  const button=[...document.querySelectorAll('.gb-game-modes button')].find(b=>b.textContent===label)
+  assert(button);await flush(()=>button.click())
+}
+
+test('Доработка игры: мастер подтверждает осмотр, правка снимает подтверждение, результат приходит после применения',async()=>{
+  const f=await fixture()
+  try{
+    closedTimeline(f,'a');await timelineFields(f,'a');await click('Решения мастера проверены')
+    assert(!enabledButton('Рассчитать последствия раунда'))
+    const key='new:hero-a:0'
+    await input('[aria-label="Результат осмотра '+key+'"]','Видна резная метка')
+    await flush(()=>document.querySelector('[aria-label="Подтвердить осмотр '+key+'"]').click())
+    await input('[aria-label="Результат осмотра '+key+'"]','Видна свежая резная метка')
+    assert.equal(document.querySelector('[aria-label="Подтвердить осмотр '+key+'"]').checked,false)
+    await flush(()=>document.querySelector('[aria-label="Подтвердить осмотр '+key+'"]').click())
+    await labelledCheck('Проверил расстояние')
+    await click('Рассчитать последствия раунда')
+    assert.equal(f.executions[0].input.inspections[0].text,'Видна свежая резная метка')
+    assert.equal(f.worlds.a.characters[0].journal.length,0)
+    await click('Применить рассчитанный раунд')
+    assert.equal(f.worlds.a.characters[0].journal[0].text,'Видна свежая резная метка')
+  }finally{await f.close()}
+})
+
+test('Доработка игры: быстрая реплика переживает переключение героя и перезагрузку экрана',async()=>{
+  const f=await fixture()
+  try{
+    f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+    f.worlds.a.characters.push({...createDefaultCharacter(),id:'another-hero',name:'Другой герой',ownerId:f.accountId})
+    await f.open('a');await click('Открыть экран героя');await quickMode('Речь');await input('[aria-label="Быстрая реплика героя"]','Сохранённая реплика')
+    await selectValue('[aria-label="Активный игровой герой"]','another-hero')
+    await selectValue('[aria-label="Активный игровой герой"]','hero-a');await click('Открыть экран героя')
+    assert.equal(document.querySelector('[aria-label="Быстрая реплика героя"]').value,'Сохранённая реплика')
+    await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя')
+    assert.equal(document.querySelector('[aria-label="Быстрая реплика героя"]').value,'Сохранённая реплика')
+    await click('Добавить реплику в ход')
+    assert.equal(document.querySelector('[aria-label="Быстрая реплика героя"]').value,'')
+    await click('Отправить заявление');assert.equal(f.writes[0].actions[0].text,'Сохранённая реплика')
+  }finally{await f.close()}
+})
+
+test('Доработка игры: очередь переставляется, удаление отменяется, отправляется новый порядок',async()=>{
+  const f=await fixture()
+  try{
+    f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+    await f.open('a');await click('Открыть экран героя');await click('Ждать 1 с');await click('Прислушаться 1 с')
+    await flush(()=>document.querySelector('[aria-label="Переместить действие 2 выше"]').click())
+    await click('Убрать действие 1');await click('Отменить правку очереди');await click('Отправить заявление')
+    assert.equal(f.writes[0].actions.length,2);assert.equal(f.writes[0].actions[0].listening.mode,'listen');assert.equal(f.writes[0].actions[1].listening,undefined)
+    assert(!enabledButton('Отменить правку очереди'))
+    f.declarations.a.collection.id='collection-next';await flush(()=>f.notify());await click('Ждать 1 с')
+    assert(enabledButton('Отправить заявление'),'Чистый черновик привязывается к новому раунду')
+  }finally{await f.close()}
+})
+
+test('Доработка игры: отправка очереди не стирает ещё не добавленную реплику',async()=>{
+ const f=await fixture()
+ try{
+  f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+  await f.open('a');await click('Открыть экран героя');await quickMode('Речь');await input('[aria-label="Быстрая реплика героя"]','Пока не отправлять')
+  await quickMode('Мир');await click('Ждать 1 с');await click('Отправить заявление');await quickMode('Речь')
+  assert.equal(document.querySelector('[aria-label="Быстрая реплика героя"]').value,'Пока не отправлять');assert.equal(f.writes[0].actions.length,1);assert.equal(f.writes[0].actions[0].kind,'wait')
+ }finally{await f.close()}
+})
+
+test('Доработка игры: пространственная способность не подменяет потерянную цель самим героем',async()=>{
+  const f=await fixture()
+  try{
+    f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+    f.declarations.a.options.abilities=[{id:'sphere',name:'Область',spatial:{shape:'sphere',radiusM:2,includeCaster:false}}]
+    f.perceptions.a={title:'Двор',description:'',frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[],objects:[],contacts:[{id:'self-a',kind:'self',label:'Hero a',x:3,y:3,z:0}]}
+    await f.open('a');await click('Открыть экран героя');await quickMode('Способности');await selectValue('[aria-label="Быстрая способность"]','sphere')
+    assert(!enabledButton('Применить способность'))
+    await flush(()=>document.querySelector('.gb-player-map>svg').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true})))
+    await selectValue('[aria-label="Цель быстрой способности"]','point');await click('Применить способность');await click('Отправить заявление')
+    assert.deepEqual(f.writes[0].actions[0].target,{kind:'area',point:{x:4,y:3,z:0}})
+  }finally{await f.close()}
+})
+
+test('Доработка игры: масштаб карты сохраняет точность выбранных координат',async()=>{
+  const f=await fixture()
+  try{
+    f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+    f.perceptions.a={title:'Двор',description:'',frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[],objects:[],contacts:[{id:'self-a',kind:'self',label:'Hero a',x:3,y:3,z:0}]}
+    await f.open('a');await click('Открыть экран героя');await flush(()=>document.querySelector('[aria-label="Увеличить карту"]').click())
+    const svg=document.querySelector('.gb-player-map>svg'),view=svg.getAttribute('viewBox').split(' ').map(Number)
+    svg.getBoundingClientRect=()=>({left:0,top:0,width:200,height:200})
+    await flush(()=>svg.dispatchEvent(new dom.window.MouseEvent('click',{clientX:100,clientY:100,bubbles:true})))
+    await click('Идти к отметке');await click('Отправить заявление')
+    assert(Math.abs(f.writes[0].actions[0].route[0].x-(view[0]+view[2]/2))<.001)
+    await click('Вся сцена');assert.equal(svg.getAttribute('viewBox'),'0 0 20 20')
+  }finally{await f.close()}
+})
+
+test('Доработка игры: развёрнутая игра удерживает фокус и освобождает прокрутку при переходе',async()=>{
+  const f=await fixture()
+  try{
+    await f.open('a');await click('Развернуть игру')
+    const dialog=document.querySelector('[role="dialog"][aria-label="Игровой стол"]');assert(dialog)
+    const first=dialog.querySelector('[data-game-close]')
+    await flush(()=>first.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true})))
+    assert(dialog.contains(document.activeElement));assert.notEqual(document.activeElement,first)
+    await click('Герои кампании');assert(!document.querySelector('.gb-game-fullscreen'));assert.equal(document.body.style.overflow,'')
+  }finally{await f.close()}
+})
+
 test('Игровой экран: карта, быстрые действия и одна очередь отправляются без преждевременного изменения мира', async () => {
   const f=await fixture()
   try {
@@ -2488,6 +2595,10 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     assert.equal(repeat.duplicate,true);assert.deepEqual(await api(path+'/world',gm.token),pausedWorld)
     const history=await api(path+'/rounds/history',gm.token);assert.equal(history.session.paused,true);assert(history.checkpoints.some(c=>c.id===saved.checkpoint.id))
     await api(path+'/rounds/pause',gm.token,'POST',{revision:pausedWorld.revision,paused:false,reason:'Возвращение друзей',commandKey:crypto.randomUUID()})
+    await account(gm,room.title);await lobbyTab('Раунд');await click('Открыть инструменты заявлений')
+    await until(()=>enabledButton('Начать следующий раунд'),'next round after applied receipt');await click('Начать следующий раунд')
+    await until(()=>enabledButton('Закрыть приём заявлений'),'next collection opened')
+    const continued=await api(path+'/world',gm.token);assert.equal(continued.campaign.seconds,5);assert.equal(continued.campaign.declarations.active.entries.length,0);assert.equal(continued.campaign.declarations.archive.length,1)
     await account(player2,room.title);await click('Открыть экран героя');await until(()=>document.querySelector('.gb-player-map'),'continued scene of second player')
     assert(!calls.some(c=>c.method!=='GET'&&c.status>=400),'UI sent no rejected mutation')
   } finally { await flush(()=>tree.unmount()) }

@@ -13,7 +13,7 @@ import LobbyWorkbench from './LobbyWorkbench'
 import LobbyConversations from './LobbyConversations'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
 const LobbyActionDeclarations = lazy(() => import('./LobbyActionDeclarations'))
-type PlayerView = { seconds?: number; revision: number; hero: PlayerCharacter; map: PerceivedMap | null; canWriteNotes: boolean;
+type PlayerView = { work?: import('./roundWork').PersonalRoundWork[]; seconds?: number; revision: number; hero: PlayerCharacter; map: PerceivedMap | null; canWriteNotes: boolean;
   knowledge: { journal: Omit<JournalEntry, 'artwork' | 'eventKey'>[]; knownEffects: Omit<KnownEffect, 'createdAt' | 'updatedAt' | 'artwork'>[] }; inventory: { id: string; name: string; description: string; quantity: number }[] }
 type Note = { title: string; text: string; revision?: number }
 const valid = (v: unknown): v is Note => !!v && typeof v === 'object' && typeof (v as Note).title === 'string' && (v as Note).title.length <= 120 && typeof (v as Note).text === 'string' && (v as Note).text.length <= 8000 && ((v as Note).revision === undefined || Number.isSafeInteger((v as Note).revision))
@@ -38,10 +38,11 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
   const entries = value?.knowledge.journal.filter(e => (e.title + ' ' + e.text + ' ' + e.annotation).toLocaleLowerCase('ru').includes(query.toLocaleLowerCase('ru'))) ?? []
   return <section className="w6-fieldset gb-player-screen"><h4>Экран героя</h4><button className="w6-button" disabled={checkingAccess || busy} onClick={() => setOpened(!opened)}>{opened ? 'Свернуть экран героя' : 'Открыть экран героя'}</button>
     {opened && <><p role="status">{remote.loading ? 'Загружаем доступные герою сведения…' : remote.error}</p>{value && <>
-      <GameHeroHud hero={value.hero} map={value.map} seconds={value.seconds}/><p className="w6-copy">Сведения героя индивидуальны. Мастер управляет раскрытием; выбор отметки не перемещает героя и не тратит время.</p>
+      <GameHeroHud hero={value.hero} map={value.map} seconds={value.seconds} work={value.work}/><p className="w6-copy">Сведения героя индивидуальны. Мастер управляет раскрытием; выбор отметки не перемещает героя и не тратит время.</p>
       <LobbyWorkbench label={'Разделы героя '+character.name} sections={[
         {id:'actions',label:'Сцена и действия',content:<>
       {value.map ? <PerceivedScene map={value.map} selected={selected} onSelect={id=>{setSelected(id);setSelectedObject('')}} onObject={id=>{setSelectedObject(id);setSelected('')}} selectedObject={selectedObject} pickedPoint={pickedPoint} plannedRoute={queue.flatMap(a=>a.kind==='move'?a.route:[])} onPoint={p=>{setPointChoice({sceneId:value.map!.frame.id,point:p});setSelectedObject('');setSelected('')}}/> : <p className="gb-scene-empty">Мастер ещё не открыл этому герою сцену.</p>}
+      {value.knowledge.journal.some(e=>e.title==='Результат осмотра')&&<section className="gb-game-feed" aria-label="Последние результаты осмотра">{value.knowledge.journal.filter(e=>e.title==='Результат осмотра').slice(-3).reverse().map(e=><article key={e.id}><strong>{e.title} · {e.gameTime}</strong><p className="w6-prose">{e.text}</p></article>)}</section>}
       <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading} selectedContact={selected} pickedPoint={pickedPoint} members={members} map={value.map} selectedObject={selectedObject} onQueue={setQueue}/></Suspense>
         </>},
         {id:'state',label:'Состояние',content:<div className="gb-player-tabs">

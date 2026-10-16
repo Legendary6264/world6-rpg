@@ -23,7 +23,7 @@ export type DeclarationOptions = { frame: { width: number; depth: number; minZ: 
   targets: { id: string; kind: 'contact' | 'object'; label: string }[];
   items: { id: string; name: string; quantity: number }[]; abilities: { id: string; name: string; spatial?:AbilitySpatial }[] }
 export type HeroDeclarations = { collection: { id: string; epoch: number; phase: DeclarationCollection['phase']; durationSeconds: number; allowReplace: boolean } | null;
-  paused?: boolean; participating: boolean; canSubmit: boolean; controlStamp: string; entry: Pick<DeclarationEntry, 'revision' | 'status' | 'actions' | 'submittedAt' | 'submittedBy' | 'note'> | null;
+  paused?: boolean; executed?: boolean; participating: boolean; canSubmit: boolean; controlStamp: string; entry: Pick<DeclarationEntry, 'revision' | 'status' | 'actions' | 'submittedAt' | 'submittedBy' | 'note'> | null;
   options: DeclarationOptions | null; readiness: { userId: string; ready: boolean }[] }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const id = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(v)

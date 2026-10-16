@@ -1,3 +1,4 @@
+import { personalRoundWork } from './generated/roundWork.mjs'
 import { fail, integer, text, id, now, worldSize, playerWorld, character } from './validation.mjs'
 import { requireLobbyPermission } from './permissions.mjs'
 import { controlledBindings, requireCharacterController } from './lobby-access.mjs'
@@ -19,7 +20,7 @@ async function heroContext(tx, lobby, characterId) {
 }
 function viewHero(state, actor, binding, perception, revision) {
   const hero = playerWorld({ ...state, revision }, binding.owner_id, [binding]).characters[0]
-  return { revision, seconds: state.campaign.seconds, hero, map: perceivedMap(perception, state.campaign.scenes, state.characters,state.campaign.seconds),
+  return { revision, seconds: state.campaign.seconds, work: personalRoundWork(state.campaign.roundWork,[actor.id]), hero, map: perceivedMap(perception, state.campaign.scenes, state.characters,state.campaign.seconds),
     knowledge: { journal: actor.journal.map(publicEntry), knownEffects: actor.knownEffects.map(publicEffect) },
     inventory: actor.rpg.inventory.map(i => ({ id: i.id, name: i.name, description: i.description, quantity: i.quantity })) }
 }
