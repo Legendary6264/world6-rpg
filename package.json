@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "node scripts/test-rules.mjs && node --test --test-reporter=tap scripts/test-round-timeline.mjs scripts/test-round-work.mjs scripts/test-round-execution.mjs scripts/test-round-rules.mjs scripts/test-spatial-abilities.mjs scripts/test-charge-lifecycle.mjs scripts/test-round-cancellation.mjs scripts/test-campaign-atlas.mjs scripts/test-campaign-trade.mjs scripts/test-campaign-economy.mjs scripts/test-starter-campaign.mjs scripts/test-tutorial.mjs scripts/test-round-speech.mjs scripts/test-round-listening.mjs && node --test --test-reporter=tap scripts/test-expanded-assets.mjs scripts/test-ability-visuals.mjs && node --test --test-reporter=tap scripts/test-3d-sandbox.mjs && node --test --test-reporter=tap scripts/test-world-entities.mjs",
     "test:ui": "node scripts/build-server-rules.mjs && node --test --test-reporter=tap scripts/test-lobby-drafts.cjs && node --test --test-reporter=tap scripts/test-asset-picker.cjs && node --test --test-reporter=tap scripts/test-scene-3d-ui.cjs && node --test --test-reporter=tap scripts/test-preview-3d.cjs && node --test --test-reporter=tap scripts/test-scene-editor.cjs",
+    "test:models": "node --test --test-reporter=tap scripts/test-scene-assets.mjs",
     "test:verification": "node --test --test-reporter=tap scripts/test-local-verification.mjs",
     "verify:local": "node scripts/verify-local.mjs",
     "dev:all": "node --env-file-if-exists=server/.env scripts/dev-all.mjs",

@@ -1,0 +1,156 @@
+[
+  {
+    "id": "wooden_crate_02",
+    "file": "crate.glb",
+    "source": "https://polyhaven.com/a/wooden_crate_02",
+    "license": "CC0-1.0",
+    "bytes": 1075324,
+    "triangles": 5176,
+    "sha256": "096ca2a1e7712715008acdeaf83f510ddb4564389e63170af54e0ab494f1d1b9",
+    "sourceFiles": [
+      {
+        "uri": "textures/wooden_crate_02_diff_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_crate_02/wooden_crate_02_diff_1k.jpg",
+        "md5": "45bca8f49da9d541e06bc926ab001c81"
+      },
+      {
+        "uri": "textures/wooden_crate_02_arm_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_crate_02/wooden_crate_02_arm_1k.jpg",
+        "md5": "a7537612dbfb7fd25e756074eec5624e"
+      },
+      {
+        "uri": "wooden_crate_02.bin",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/wooden_crate_02/wooden_crate_02.bin",
+        "md5": "08d98507231cdeda1070d1a2d0646254"
+      },
+      {
+        "uri": "textures/wooden_crate_02_nor_gl_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_crate_02/wooden_crate_02_nor_gl_1k.jpg",
+        "md5": "314226b31765168cd8070898f8a7e18e"
+      }
+    ]
+  },
+  {
+    "id": "wooden_lantern_01",
+    "file": "lantern.glb",
+    "source": "https://polyhaven.com/a/wooden_lantern_01",
+    "license": "CC0-1.0",
+    "bytes": 1689176,
+    "triangles": 8321,
+    "sha256": "a00fbfa1c9557c70f6c651378a8cdced35d58bea256be19baa8c411660caccde",
+    "sourceFiles": [
+      {
+        "uri": "textures/wooden_lantern_01_nor_gl_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_lantern_01/wooden_lantern_01_nor_gl_1k.jpg",
+        "md5": "9db1fa975880b3cf6da5e6c30853e0cf"
+      },
+      {
+        "uri": "textures/wooden_lantern_01_diff_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_lantern_01/wooden_lantern_01_diff_1k.jpg",
+        "md5": "8f9f537ab312b1ec85acb1f5aaf7ad17"
+      },
+      {
+        "uri": "textures/wooden_lantern_01_glass_nor_gl_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_lantern_01/wooden_lantern_01_glass_nor_gl_1k.jpg",
+        "md5": "38549e36957f90dc61587010c3a8ff3a"
+      },
+      {
+        "uri": "textures/wooden_lantern_01_glass_arm_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_lantern_01/wooden_lantern_01_glass_arm_1k.jpg",
+        "md5": "890c1dd6ad9c37521f9f0a0d9d08fba2"
+      },
+      {
+        "uri": "textures/wooden_lantern_01_arm_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_lantern_01/wooden_lantern_01_arm_1k.jpg",
+        "md5": "87b5bdc9f3d5853caef38a00589541ae"
+      },
+      {
+        "uri": "textures/wooden_lantern_01_glass_diff_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_lantern_01/wooden_lantern_01_glass_diff_1k.jpg",
+        "md5": "c1e45d48f344f86726d02c81679af6a4"
+      },
+      {
+        "uri": "wooden_lantern_01.bin",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/wooden_lantern_01/wooden_lantern_01.bin",
+        "md5": "3784667126369ce5c21db3c7436409cb"
+      }
+    ]
+  },
+  {
+    "id": "pine_sapling_small",
+    "file": "pine.glb",
+    "source": "https://polyhaven.com/a/pine_sapling_small",
+    "license": "CC0-1.0",
+    "bytes": 6520144,
+    "triangles": 91551,
+    "sha256": "290cf3fb5e3e9e03c36b343c2f39d4ce88ac876934e3b52f8220794fb8b231a6",
+    "sourceFiles": [
+      {
+        "uri": "textures/pine_sapling_small_twig_arm_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/pine_sapling_small/pine_sapling_small_twig_arm_1k.jpg",
+        "md5": "b5062030fc42ec7bd12eb3f052054104"
+      },
+      {
+        "uri": "textures/pine_sapling_small_twig_diff_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/pine_sapling_small/pine_sapling_small_twig_diff_1k.jpg",
+        "md5": "dacc918bb421968e9ccc1956d78a2dbe"
+      },
+      {
+        "uri": "textures/pine_sapling_small_bark_nor_gl_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/pine_sapling_small/pine_sapling_small_bark_nor_gl_1k.jpg",
+        "md5": "bb6e3a6eea777d992cef48fabfdc538c"
+      },
+      {
+        "uri": "pine_sapling_small.bin",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/pine_sapling_small/pine_sapling_small.bin",
+        "md5": "76dd1802d8de128c812f2e124a258b35"
+      },
+      {
+        "uri": "textures/pine_sapling_small_bark_diff_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/pine_sapling_small/pine_sapling_small_bark_diff_1k.jpg",
+        "md5": "7d3a558ed614c7e75594c7be3bf80311"
+      },
+      {
+        "uri": "textures/pine_sapling_small_bark_arm_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/pine_sapling_small/pine_sapling_small_bark_arm_1k.jpg",
+        "md5": "21d1abd15e40951825a4f3da110b20ea"
+      },
+      {
+        "uri": "textures/pine_sapling_small_twig_nor_gl_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/pine_sapling_small/pine_sapling_small_twig_nor_gl_1k.jpg",
+        "md5": "eebc5a81f8f6231d8e18ec4ad7292798"
+      }
+    ]
+  },
+  {
+    "id": "rock_moss_set_01",
+    "file": "rocks.glb",
+    "source": "https://polyhaven.com/a/rock_moss_set_01",
+    "license": "CC0-1.0",
+    "bytes": 2086048,
+    "triangles": 63127,
+    "sha256": "269a301020d654e3372ce17c387b9679a636dcf08eb866152a9eb107762df806",
+    "sourceFiles": [
+      {
+        "uri": "textures/rock_moss_set_01_nor_gl_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/rock_moss_set_01/rock_moss_set_01_nor_gl_1k.jpg",
+        "md5": "eb7ebd31ad08e78d0497900652ff1568"
+      },
+      {
+        "uri": "rock_moss_set_01.bin",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/rock_moss_set_01/rock_moss_set_01.bin",
+        "md5": "207a51c9f56d34732e9814bbf9cc07b1"
+      },
+      {
+        "uri": "textures/rock_moss_set_01_rough_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/rock_moss_set_01/rock_moss_set_01_rough_1k.jpg",
+        "md5": "ed9d8a2c863262f76f881346e8047c6a"
+      },
+      {
+        "uri": "textures/rock_moss_set_01_diff_1k.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/rock_moss_set_01/rock_moss_set_01_diff_1k.jpg",
+        "md5": "b8742301e6b4bc5683d2de712e83f772"
+      }
+    ]
+  }
+]

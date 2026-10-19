@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import {RoomEnvironment} from 'three/examples/jsm/environments/RoomEnvironment.js'
 import type { ScenePosition } from './sceneTypes'
 import type { KnownArea } from './scenePerception'
 import { entityAreas } from './scene3dModel'
 import {populateEntityModel} from './scene3dMeshes'
 import type {Surface} from './scene3dMeshes'
+import {SceneAssetLibrary,detailedAsset} from './scene3dAssets'
+import {SceneSurfaceLibrary,surfaceUV} from './scene3dSurfaces'
 import type { RenderEntity, RenderSelection, SceneRenderModel } from './scene3dModel'
 
 type Props = { model: SceneRenderModel; selection?: RenderSelection | null; selecting?: boolean;
@@ -25,6 +28,7 @@ export default function Scene3D(props: Props) {
   const updateSelection=useRef<((selection:RenderSelection|null)=>void)|null>(null)
   const [quality, setQuality] = useState('balanced'), [grid, setGrid] = useState(true), [labels, setLabels] = useState(true)
   const [failure, setFailure] = useState(''), [hover, setHover] = useState('')
+  const [assetStatus,setAssetStatus]=useState('')
   const cameraState = useRef<{ id: string; position: THREE.Vector3; target: THREE.Vector3 } | null>(null)
   useEffect(() => { latest.current = props })
   useEffect(() => {
@@ -40,7 +44,7 @@ export default function Scene3D(props: Props) {
     setFailure('')
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === 'low' ? 1 : quality === 'high' ? 2 : 1.5))
     renderer.localClippingEnabled = true
-    renderer.shadowMap.enabled = quality === 'high'
+    renderer.shadowMap.enabled = quality !== 'low' && !model.restricted
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.setClearColor('#101725')
     renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15
@@ -74,14 +78,24 @@ export default function Scene3D(props: Props) {
       }
       controls.update()
     }
-    scene.add(new THREE.HemisphereLight('#c2dcec', '#25202e', 2.2))
-    const sun = new THREE.DirectionalLight('#ffe4bf', 2.5)
+    scene.add(new THREE.HemisphereLight('#c2dcec', '#343c2b', 1.5))
+    const sun = new THREE.DirectionalLight('#ffe4bf', 3)
     sun.position.set(center.x - span * .5, f.groundZ + span, center.z + span * .3); sun.target.position.copy(center)
-    sun.castShadow = !model.restricted && quality === 'high'; sun.shadow.mapSize.set(1024, 1024)
+    sun.castShadow = !model.restricted && quality !== 'low'; sun.shadow.mapSize.set(quality==='high'?2048:1024,quality==='high'?2048:1024)
     sun.shadow.camera.left = sun.shadow.camera.bottom = -span; sun.shadow.camera.right = sun.shadow.camera.top = span
     sun.shadow.camera.far = span * 4; sun.shadow.normalBias = .05; scene.add(sun, sun.target)
     const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()
     const keep = <T extends THREE.BufferGeometry | THREE.Material | THREE.Texture,>(v: T): T => { resources.add(v); return v }
+    let environment:THREE.WebGLRenderTarget|undefined
+    if(quality!=='low'&&renderer.capabilities?.maxTextures){
+      const room=new RoomEnvironment(),generator=new THREE.PMREMGenerator(renderer)
+      environment=generator.fromScene(room,.06);scene.environment=environment.texture;scene.environmentIntensity=.45
+      room.dispose();generator.dispose()
+    }
+    const assetLibrary=new SceneAssetLibrary(Math.min(quality==='high'?8:4,renderer.capabilities?.getMaxAnisotropy()??4))
+    const surfaceLibrary=new SceneSurfaceLibrary(()=>requestDraw(),Math.min(quality==='high'?8:4,renderer.capabilities?.getMaxAnisotropy()??4))
+    let assetsPending=0,assetsFailed=0
+    const assetNotice=()=>{if(!disposed)setAssetStatus(quality==='low'?'Упрощённые модели':assetsPending?'Загрузка детальных моделей…':assetsFailed?'Часть моделей недоступна · показаны упрощённые':'Детальные модели · PBR')}
     const material = (color: string, opacity = 1, planes: THREE.Plane[] = []) => keep(new THREE.MeshStandardMaterial({ color,
       roughness: .85, metalness: .08, transparent: opacity < 1, opacity, clippingPlanes: planes, side: THREE.DoubleSide }))
     const floorColor = f.palette === 'forest' ? '#304f42' : f.palette === 'stone' ? '#454c5b' : '#2e3e55'
@@ -91,6 +105,12 @@ export default function Scene3D(props: Props) {
       if (f.groundZ < a.z || f.groundZ > a.z + a.height) return
       const mesh = new THREE.Mesh(keep(new THREE.PlaneGeometry(a.width, a.depth)), material(a.visible ? floorColor : '#292e3d'))
       mesh.rotation.x = -Math.PI / 2; mesh.position.set(a.x + a.width / 2, f.groundZ, a.y + a.depth / 2)
+      if(quality!=='low'){
+        const uv=mesh.geometry.getAttribute('uv'),p=mesh.geometry.getAttribute('position')
+        for(let i=0;i<p.count;i++)uv.setXY(i,(p.getX(i)+mesh.position.x)/3,(-p.getY(i)+mesh.position.z)/3)
+        surfaceLibrary.apply(mesh.material as THREE.MeshStandardMaterial,f.palette==='forest'?'forest':'paving')
+        if(!a.visible)(mesh.material as THREE.MeshStandardMaterial).color.set('#555b65')
+      }
       mesh.receiveShadow = true; mesh.userData.area = a; scene.add(mesh); groundMeshes.push(mesh)
       if (grid) {
         // Bound line count even for imported million-metre scenes.
@@ -108,10 +128,21 @@ export default function Scene3D(props: Props) {
       populateEntityModel(e,(geometry,color,x,y,z,options:Surface={})=>{
         const key=JSON.stringify([color,options]),alpha=opacity*(options.opacity??1)
         let mat=surfaces.get(key)
-        if(!mat){mat=keep(new THREE.MeshStandardMaterial({color,roughness:options.roughness??.82,metalness:options.metalness??.08,transparent:alpha<1,opacity:alpha,clippingPlanes:planes,side:THREE.DoubleSide,...(options.emissive?{emissive:options.emissive,emissiveIntensity:1.8}:{})}));surfaces.set(key,mat)}
+        if(!mat){const standard=keep(new THREE.MeshStandardMaterial({color,roughness:options.roughness??.82,metalness:options.metalness??.08,transparent:alpha<1,opacity:alpha,clippingPlanes:planes,side:THREE.DoubleSide,...(options.emissive?{emissive:options.emissive,emissiveIntensity:1.8}:{})}));if(options.texture&&quality!=='low')surfaceLibrary.apply(standard,options.texture);mat=standard;surfaces.set(key,mat)}
+        if(options.texture)surfaceUV(geometry,new THREE.Vector3(x,y,z))
         const part=new THREE.Mesh(keep(geometry),mat);part.position.set(x,y,z);part.castShadow=!model.restricted;part.receiveShadow=true;group.add(part);return part
       },quality==='low')
       scene.add(group); pickables.push(group);anchors.set(e.interaction.kind+':'+e.interaction.id,group)
+      if(quality!=='low'&&detailedAsset(e)){
+        assetsPending++
+        void assetLibrary.instantiate(e,planes,model.restricted).then(detailed=>{
+          if(disposed||!detailed)return
+          const old=new Set<THREE.BufferGeometry|THREE.Material>()
+          group.traverse(part=>{if(part instanceof THREE.Mesh){old.add(part.geometry);for(const mat of Array.isArray(part.material)?part.material:[part.material])old.add(mat)}})
+          group.clear();old.forEach(resource=>{resources.delete(resource);resource.dispose()})
+          group.add(detailed);requestDraw()
+        }).catch(()=>{assetsFailed++}).finally(()=>{assetsPending--;assetNotice()})
+      }
     }
     for (const entity of structuredClone(model.entities)) {
       if (model.restricted && entity.interaction.kind === 'object') {
@@ -145,6 +176,7 @@ export default function Scene3D(props: Props) {
       }
     }
     let pending = 0, disposed = false
+    queueMicrotask(assetNotice)
     const draw = () => {
       pending = 0; if (disposed) return
       for(const outline of outlines)outline.helper.setFromObject(outline.target)
@@ -257,7 +289,7 @@ export default function Scene3D(props: Props) {
       canvas.removeEventListener('pointerdown',captureDown,true);canvas.removeEventListener('pointermove',dragMove,true);canvas.removeEventListener('pointerup',dragUp,true);canvas.removeEventListener('pointercancel',dragCancel);canvas.removeEventListener('lostpointercapture',dragCancel);canvas.removeEventListener('keydown',keyboard)
       canvas.removeEventListener('pointerup', clickUp); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('webglcontextlost', lost)
       window.removeEventListener('blur',blur)
-      resources.forEach(v => v.dispose()); sun.shadow.map?.dispose(); renderer.dispose(); canvas.remove(); labelElements.forEach(v => v.node.remove())
+      assetLibrary.dispose();surfaceLibrary.dispose();environment?.dispose();resources.forEach(v => v.dispose()); sun.shadow.map?.dispose(); renderer.dispose(); canvas.remove(); labelElements.forEach(v => v.node.remove())
     }
     // Changing a callback alone must not rebuild GPU resources or reset the camera.
   }, [model, marker, route, quality, grid, labels])
@@ -272,6 +304,7 @@ export default function Scene3D(props: Props) {
       <label><input type="checkbox" checked={grid} onChange={e => setGrid(e.currentTarget.checked)}/> Сетка</label>
       <label><input type="checkbox" checked={labels} onChange={e => setLabels(e.currentTarget.checked)}/> Подписи</label>
       <label>Качество <select aria-label="Качество 3D" value={quality} onChange={e => setQuality(e.currentTarget.value)}><option value="low">Экономное</option><option value="balanced">Сбалансированное</option><option value="high">Высокое</option></select></label>
+      <span className="gb-model-status" role="status">{assetStatus}</span>
     </div>
     <div className="gb-3d-canvas" ref={host}/>
     {failure && <p role="alert" className="gb-scene-state">{failure}</p>}
