@@ -1,6 +1,7 @@
 import {fail,integer,now,world as validateWorld} from './validation.mjs'
 import {projectWorldEntities,restoreWorldEntities,diffEntitySnapshots} from './generated/worldEntities.mjs'
 import {isDeepStrictEqual} from 'node:util'
+import {persistComponentChange} from './component-storage.mjs'
 
 // One persistence boundary for authoritative world changes. The caller keeps
 // permission checks, receipts, history and audit in the same DB transaction;
@@ -17,5 +18,6 @@ export async function commitWorld(tx,lobby,candidate,{at=now(),revision=lobby.re
  const delta=diffEntitySnapshots(before,snapshot)
  const result=await tx.run('UPDATE lobbies SET world_json=?,revision=?,updated_at=? WHERE id=? AND revision=?',[json,revision,at,lobby.id,lobby.revision])
  if(Number(result.changes)!==1)fail(409,'Конфликт версии кампании. Загрузи актуальное состояние.')
+ await persistComponentChange(tx,lobby,snapshot,json,{at})
  return {revision,snapshot,delta}
 }

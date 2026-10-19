@@ -151,11 +151,11 @@ for(const dialect of ['sqlite','postgres'])test('Общая база, досту
  })
  if(dialect==='postgres')await t.test('Приватная схема PostgreSQL не доступна публичной роли',async()=>{
   const rows=await server.db.all("SELECT c.relname,c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='world6' AND c.relkind='r'")
-  assert.equal(rows.length,44);assert(rows.every(row=>row.relrowsecurity))
+  assert.equal(rows.length,48);assert(rows.every(row=>row.relrowsecurity))
   await server.db.run('CREATE ROLE world6_guest NOLOGIN')
   await assert.rejects(server.db.transaction(async tx=>{await tx.run('SET LOCAL ROLE world6_guest');await tx.get('SELECT * FROM world6.users')}),e=>e.code==='42501')
   await server.db.run('GRANT USAGE ON SCHEMA world6 TO world6_guest')
-  for(const table of ['lobby_permissions','character_delegations','character_control_events','lobby_creation_conditions','character_submissions','round_generations','round_previews','round_receipts','round_calculation_data','round_history_data','round_change_previews','round_change_receipts','round_replay_contexts','round_branch_states','campaign_checkpoints','campaign_sessions','campaign_archive_previews','campaign_archive_receipts','campaign_archive_origins','round_lineage_anchors','checkpoint_lineage_anchors','campaign_retired_commands','campaign_cleanup_previews','campaign_cleanup_receipts','round_replay_collections','lobby_npcs','lobby_npc_commands','campaign_atlas_commands','campaign_trade_commands','campaign_trade_previews'])
+  for(const table of ['lobby_permissions','character_delegations','character_control_events','lobby_creation_conditions','character_submissions','round_generations','round_previews','round_receipts','round_calculation_data','round_history_data','round_change_previews','round_change_receipts','round_replay_contexts','round_branch_states','campaign_checkpoints','campaign_sessions','campaign_archive_previews','campaign_archive_receipts','campaign_archive_origins','round_lineage_anchors','checkpoint_lineage_anchors','campaign_retired_commands','campaign_cleanup_previews','campaign_cleanup_receipts','round_replay_collections','lobby_npcs','lobby_npc_commands','campaign_atlas_commands','campaign_trade_commands','campaign_trade_previews','world_component_heads','world_entities','world_components','world_component_events'])
    await assert.rejects(server.db.transaction(async tx=>{await tx.run('SET LOCAL ROLE world6_guest');await tx.get('SELECT * FROM world6.'+table)}),e=>e.code==='42501')
  })
  await t.test('Перезапуск сохраняет аккаунты, форум, лобби и поддержку',async()=>{
