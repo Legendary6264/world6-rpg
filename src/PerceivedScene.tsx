@@ -1,11 +1,14 @@
 import SceneAbilityOverlay, { useVisualReplay } from './SceneAbilityOverlay'
-import { useId, useState } from 'react'
+import { lazy, Suspense, useId, useMemo, useState } from 'react'
+import SceneRenderMode from './SceneRenderMode'
+import { perceivedRenderModel } from './scene3dModel'
 import type { ScenePosition } from './sceneTypes'
 import type { PerceivedMap, VisibleContact } from './scenePerception'
 import { SceneGlyph } from './SceneViewport'
 import { artworkSource, isTiledArtwork } from './visualMedia'
 import './sceneStyle.css'
-export default function PerceivedScene({ map, selected, onSelect, onPoint, onObject, selectedObject, pickedPoint, plannedRoute = [] }: { map: PerceivedMap; selected?: string; onSelect?: (id: string) => void; onPoint?: (p: ScenePosition) => void; onObject?: (id: string) => void; selectedObject?: string; pickedPoint?: ScenePosition | null; plannedRoute?: ScenePosition[] }) {
+type Props = { map: PerceivedMap; selected?: string; onSelect?: (id: string) => void; onPoint?: (p: ScenePosition) => void; onObject?: (id: string) => void; selectedObject?: string; pickedPoint?: ScenePosition | null; plannedRoute?: ScenePosition[] }
+export function SvgPerceivedScene({ map, selected, onSelect, onPoint, onObject, selectedObject, pickedPoint, plannedRoute = [] }: Props) {
   const [camera,setCamera]=useState<{sceneId:string;zoom:number;center:{x:number;y:number}|null}>({sceneId:map.frame.id,zoom:1,center:null})
   const playback=useVisualReplay(map.visuals?.some(v=>v.phase==='sequence')??false)
   const clip = useId().replace(/:/g, ''),visualClip=clip+'-visual', f = map.frame, side = f.view === 'side', vertical = side ? f.maxZ - f.minZ : f.depth
@@ -61,4 +64,30 @@ export default function PerceivedScene({ map, selected, onSelect, onPoint, onObj
     <div className="gb-scene-entities">{map.contacts.map(c => <button className={'w6-button' + (selected === c.id ? ' w6-active' : '')} type="button" key={c.id} onClick={e => { e.stopPropagation(); onSelect?.(c.id); if (c.kind === 'sound') onPoint?.({x:c.x,y:c.y,z:c.z??map.contacts.find(t=>t.kind==='self')?.z??f.groundZ}) }}>{c.label}<small>{c.kind === 'sound' ? 'Приблизительная отметка звука' : c.z === undefined ? 'Высота не раскрыта' : (c.flying ? 'В воздухе · ' : c.support === 'object' ? 'На опоре · ' : c.support === 'ground' ? 'На земле · ' : '') + 'Z ' + c.z + ' м'}{c.signs ? ' · ' + c.signs : ''}</small></button>)}</div>
     {side && map.contacts.some(c => c.z === undefined) && <p className="w6-copy">Отметки без известной высоты показаны условно в середине схемы.</p>}
   </section>
+}
+
+const Scene3D = lazy(() => import('./Scene3D'))
+export default function PerceivedScene(props: Props) {
+  const [mode, setMode] = useState<'3d' | 'map'>('3d'), { map } = props
+  const [unavailable, setUnavailable] = useState(false)
+  const model = useMemo(() => perceivedRenderModel(map), [map])
+  const route = useMemo(() => {
+    const self = map.contacts.find(c => c.kind === 'self')
+    return [...(self && self.z !== undefined ? [{ x: self.x, y: self.y, z: self.z }] : []), ...(props.plannedRoute ?? [])]
+  }, [map, props.plannedRoute])
+  return <div><SceneRenderMode mode={mode} onChange={next => { setUnavailable(false); setMode(next) }}/>{unavailable && <p role="status">3D недоступно: открыта схема. Проверь аппаратное ускорение браузера, чтобы включить 3D.</p>}{mode === 'map' ? <SvgPerceivedScene {...props}/> :
+    <section aria-label="Доступная сцена"><h3>{map.title}</h3><p className="w6-prose">{map.description}</p>
+      <Suspense fallback={<p role="status">Загружаем 3D-сцену…</p>}><Scene3D model={model} marker={props.pickedPoint} route={route}
+        selection={props.selectedObject ? { kind: 'object', id: props.selectedObject } : props.selected ? { kind: 'contact', id: props.selected } : null}
+        onPoint={props.onPoint} onUnavailable={() => { setUnavailable(true); setMode('map') }} onSelect={s => {
+          if (s.kind === 'object') props.onObject?.(s.id)
+          else { props.onSelect?.(s.id); const contact = map.contacts.find(c => c.id === s.id)
+            if (contact?.kind === 'sound') props.onPoint?.({ x: contact.x, y: contact.y, z: contact.z ?? map.contacts.find(c => c.kind === 'self')?.z ?? map.frame.groundZ }) }
+        }}/></Suspense>
+      <p className="w6-copy">Тёмное пространство не раскрыто. Приглушённые объекты показывают последнее известное состояние. Рост фигур условный; высота без раскрытия обозначается плоской отметкой.</p>
+      <div className="gb-scene-entities">{map.contacts.map(c => <button className={'w6-button' + (props.selected === c.id ? ' w6-active' : '')} type="button" key={c.id} onClick={() => {
+        props.onSelect?.(c.id); if (c.kind === 'sound') props.onPoint?.({ x: c.x, y: c.y, z: c.z ?? map.frame.groundZ })
+      }}>{c.label}<small>{c.z === undefined ? 'Высота не раскрыта' : 'Z ' + c.z + ' м'}{c.signs ? ' · ' + c.signs : ''}</small></button>)}</div>
+      {!!props.onObject && <div className="gb-scene-entities" aria-label="Раскрытые объекты">{map.objects.map(o => <button type="button" className={'w6-button' + (props.selectedObject === o.id ? ' w6-active' : '')} key={o.id} onClick={() => props.onObject?.(o.id)}>{o.name}{o.visible ? '' : ' · последнее известное состояние'}</button>)}</div>}
+    </section>}</div>
 }

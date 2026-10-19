@@ -9,6 +9,7 @@ import { ArtworkPicker } from './VisualElements'
 import SceneViewport, { SceneGlyph } from './SceneViewport'
 import type { SceneSelection } from './SceneViewport'
 import './sceneStyle.css'
+import { snapScenePoint } from './scene3dModel'
 
 type Props = { value?: SceneState; visuals?:Record<string,SceneAbilityVisual[]>; actors: SceneActor[]; disabled?: boolean;
   onChange: (value: SceneState) => { ok: boolean; message: string } }
@@ -28,6 +29,7 @@ export default function SceneEditor({ value, actors, disabled = false, onChange,
   const state = value ?? emptyScenes(), scene = state.scenes.find(s => s.id === state.activeSceneId)
   const [tool, setTool] = useState<Tool>('select'), [selection, setSelection] = useState<SceneSelection>(null)
   const [toolArtwork,setToolArtwork]=useState('auto')
+  const [snap, setSnap] = useState(false), [snapStep, setSnapStep] = useState(1)
   const [actorId, setActorId] = useState(''), [message, setMessage] = useState('')
   const selectedObject = selection?.kind === 'object' ? scene?.objects.find(o => o.id === selection.id) : undefined
   const selectedToken = selection?.kind === 'token' ? scene?.tokens.find(t => t.actorId === selection.id) : undefined
@@ -39,6 +41,7 @@ export default function SceneEditor({ value, actors, disabled = false, onChange,
   function select(next: SceneSelection) { setSelection(next); setTool('select') }
   function place(point: ScenePosition) {
     if (!scene || disabled) return
+    point = snapScenePoint(point, snap, snapStep, scene)
     if (tool === 'select') { setSelection(null); return }
     if (tool === 'move') {
       if (selectedObject) perform(() => moveSceneObject(state, scene.id, { ...selectedObject, ...point,
@@ -106,6 +109,8 @@ export default function SceneEditor({ value, actors, disabled = false, onChange,
     </div>
     {scene ? <>
       <div className="gb-scene-tools">
+        <label><input type="checkbox" checked={snap} onChange={e => setSnap(e.currentTarget.checked)}/> Привязка к сетке</label>
+        <label>Шаг (м) <select aria-label="Шаг привязки к сетке" value={snapStep} onChange={e => setSnapStep(Number(e.currentTarget.value))}>{[.25, .5, 1, 2].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
         <button className={'w6-button' + (tool === 'select' ? ' w6-active' : '')} type="button" onClick={() => setTool('select')}>Выбрать</button>
         <button className={'w6-button' + (tool === 'move' ? ' w6-active' : '')} type="button" disabled={disabled || !selectedObject && !selectedToken} onClick={() => setTool('move')}>Передвинуть по клику</button>
         <Label label="Персонаж для размещения"><select aria-label="Персонаж для размещения" value={actorId} onChange={e => setActorId(e.currentTarget.value)}>
