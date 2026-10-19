@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import { personalRoundWork } from './generated/roundWork.mjs'
 import { fail, integer, text, id, now, worldSize, playerWorld, character } from './validation.mjs'
 import { requireLobbyPermission } from './permissions.mjs'
@@ -26,7 +27,7 @@ function viewHero(state, actor, binding, perception, revision) {
 }
 async function writeWorld(tx, req, lobby, state, action, record) {
   worldSize(state)
-  await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?', [JSON.stringify(state), now(), lobby.id])
+  await commitWorld(tx,lobby,state,{at:now()})
   await record(tx, req, action)
 }
 export function perceptionRoutes(app, { db, auth, updated, lockedMembership, record }) {

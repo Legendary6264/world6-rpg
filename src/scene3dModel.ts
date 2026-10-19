@@ -1,6 +1,7 @@
 import type { Scene, SceneActor, ScenePosition } from './sceneTypes'
 import type { KnownArea, MapFrame, PerceivedMap } from './scenePerception'
 import type { SceneAbilityVisual } from './sceneAbilityVisuals'
+import { objectEntity } from './worldEntities'
 
 // Render components are an adapter over existing version-1 saves. They do not
 // migrate authoritative entities or infer information absent from a disclosure.
@@ -23,10 +24,13 @@ export function masterRenderModel(scene: Scene, actors: SceneActor[], visuals: S
   return { frame: scene, title: scene.name, restricted: false,
     areas: [{ id: 'ground', x: 0, y: 0, z: scene.minZ, width: scene.width, depth: scene.depth,
       height: scene.maxZ - scene.minZ, visible: true }],
-    entities: [...scene.objects.map(o => ({ id: o.id, transform: { position: { x: o.x, y: o.y, z: o.z } },
-      geometry: { kind: o.kind, width: o.width, depth: o.depth, height: o.height, open: o.open },
-      appearance: { color: colors[o.kind], remembered: false, heightKnown: true }, identity: { label: o.name },
-      interaction: { kind: 'object' as const, id: o.id } })),
+    entities: [...scene.objects.map(o => {
+      const c = objectEntity(scene.id, o).components, p = c.position.data, g = c.geometry.data
+      return { id: c.identity.data.id, transform: { position: { x: p.x, y: p.y, z: p.z } },
+        geometry: { ...g, open: c.collision.data.open },
+        appearance: { color: colors[g.kind], remembered: false, heightKnown: true }, identity: { label: c.identity.data.name },
+        interaction: { kind: 'object' as const, id: c.identity.data.id } }
+    }),
     ...scene.tokens.map(t => ({ id: t.actorId, transform: { position: { x: t.x, y: t.y, z: t.z } },
       geometry: { kind: 'actor' as const, width: t.diameter, depth: t.diameter, height: 1.7 },
       appearance: { color: '#81e6da', remembered: false, heightKnown: true },

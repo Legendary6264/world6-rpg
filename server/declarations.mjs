@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import { fail, id, integer, now, worldSize } from './validation.mjs'
 import { requireLobbyPermission } from './permissions.mjs'
 import { controlledBindings, requireCharacterController } from './lobby-access.mjs'
@@ -71,7 +72,7 @@ function event(c, req, kind, entry) {
 async function save(tx, req, lobby, state, declarations, record, action) {
   if (!isActionDeclarations(declarations)) fail(400, 'Не удалось проверить заявления.')
   state.campaign.declarations = declarations; worldSize(state)
-  await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?', [JSON.stringify(state), now(), lobby.id])
+  await commitWorld(tx,lobby,state,{at:now()})
   await record(tx, req, action)
 }
 export function declarationRoutes(app, { db, auth, updated, lockedMembership, record }) {

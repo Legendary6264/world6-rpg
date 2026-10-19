@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import { sceneAbilityVisuals } from './generated/sceneAbilityVisuals.mjs'
 import {pruneAtlas} from './generated/campaignAtlas.mjs'
 import { pruneDeclarations } from './generated/actionDeclarations.mjs'
@@ -84,7 +85,7 @@ export function lobbyAccessRoutes(app, { db, auth, updated, lockedMembership, re
       if (!roundWorkReferencesValid(state.campaign.roundWork, scenes, state.characters.map(c => c.id))) fail(409, 'Сцена нужна переносимой работе. Сначала явно разреши её судьбу.')
       state.campaign.scenes = scenes
       if(state.campaign.atlas)state.campaign.atlas=pruneAtlas(state.campaign.atlas,state.characters.map(c=>c.id),scenes.scenes.map(s=>s.id)); if(state.campaign.declarations)state.campaign.declarations=pruneDeclarations(state.campaign.declarations,scenes,state.characters.map(c=>c.id)); if(state.campaign.perceptions)state.campaign.perceptions=prunePerceptions(state.campaign.perceptions,scenes,state.characters.map(c=>c.id)); worldSize(state)
-      await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?', [JSON.stringify(state), now(), lobby.id])
+      await commitWorld(tx,lobby,state,{at:now()})
       await record(tx, req, 'publish-scenes')
     }); updated(req.params.id); res.json({ revision: revision + 1 })
   })

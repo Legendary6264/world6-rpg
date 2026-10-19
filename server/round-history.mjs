@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import {editedReplayRoutes,setReplayContext,replayContext} from './edited-round-replay.mjs'
 import {lineageAnchors,setLineageAnchors,checkpointAnchors,setCheckpointAnchors,rejectRetiredCommand} from './campaign-retention-state.mjs'
 import {createHash} from 'node:crypto'
@@ -150,7 +151,7 @@ export function roundHistoryRoutes(app,{db,auth,updated,lockedMembership,record}
    if(p.operation==='rollback'){await invalidateRoundGeneration(tx,lobby.id);await setRoundBranch(tx,lobby.id,resultGeneration,branch);await setLineageAnchors(tx,lobby.id,resultGeneration,anchors)}
    else await tx.run('DELETE FROM round_replay_contexts WHERE lobby_id=?',[lobby.id])
    if(p.operation==='rollback'&&replayReceipt)await setReplayContext(tx,lobby.id,resultGeneration,replayReceipt,p.world_json,replayExact)
-   await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?',[p.world_json,receipt.appliedAt,lobby.id]);await record(tx,req,p.operation==='rollback'?'rollback-round':'cancel-pending-actions')
+   await commitWorld(tx,lobby,p.world_json,{at:receipt.appliedAt});await record(tx,req,p.operation==='rollback'?'rollback-round':'cancel-pending-actions')
    await tx.run('DELETE FROM round_previews WHERE lobby_id=?',[lobby.id]);await tx.run('DELETE FROM round_change_previews WHERE lobby_id=?',[lobby.id])
    return {receipt,duplicate:false}
   });if(!result.duplicate)updated(req.params.id);res.json(result)

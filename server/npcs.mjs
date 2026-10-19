@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import {createHash} from 'node:crypto'
 import {isDeepStrictEqual} from 'node:util'
 import {character,world as validateWorld,fail,integer,id,now,text} from './validation.mjs'
@@ -71,7 +72,7 @@ export function npcRoutes(app,{db,auth,updated,lockedMembership,record:recordAud
    const receipt={id:actorId,revision:revision+1,operation,...(operation==='edit'?{reason:text(b.reason,2000)}:{})},json=JSON.stringify(receipt)
    const receiptBytes=Buffer.byteLength(json)+Buffer.byteLength(hash+b.commandKey)
    if(Number(size.bytes)+receiptBytes>4*1024*1024)fail(409,'Достигнут предел подтверждений команд NPC.')
-   await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?',[JSON.stringify(state),now(),lobby.id])
+   await commitWorld(tx,lobby,state,{at:now()})
    await recordAudit(tx,req,operation+'-npc')
    await tx.run('INSERT INTO lobby_npc_commands(lobby_id,command_key,author_id,request_hash,result_json,payload_bytes) VALUES(?,?,?,?,?,?)',[lobby.id,b.commandKey,req.user.id,hash,json,receiptBytes])
    return {...receipt,duplicate:false}

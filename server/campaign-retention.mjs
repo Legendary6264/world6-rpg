@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import {fail,id,integer,now,text,validId,world as validateWorld} from './validation.mjs'
 import {requireCampaignEditor,requireLobbyPermission} from './permissions.mjs'
 import {roundGeneration,controlsStamp} from './rounds.mjs'
@@ -84,7 +85,7 @@ export function campaignRetentionRoutes(app,{db,auth,updated,lockedMembership,re
    const receipt={id:id(),revision:lobby.revision+1,generation,appliedAt:now(),reason,summary},receiptJson=JSON.stringify(receipt),bytes=Buffer.byteLength(receiptJson)
    if(await retentionBytes(tx,lobby.id)+bytes>MAX_RETENTION_BYTES)fail(409,'Реестр выполненных команд достиг предела 16 МиБ.')
    await tx.run('INSERT INTO campaign_cleanup_receipts(id,lobby_id,author_id,command_key,request_hash,generation,receipt_json,payload_bytes) VALUES(?,?,?,?,?,?,?,?)',[receipt.id,lobby.id,req.user.id,b.commandKey,hash,generation,receiptJson,bytes])
-   await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?',[json,receipt.appliedAt,lobby.id]);await tx.run('DELETE FROM campaign_cleanup_previews WHERE lobby_id=?',[lobby.id]);await record(tx,req,'cleanup-campaign-history');return {receipt,duplicate:false}
+   await commitWorld(tx,lobby,json,{at:receipt.appliedAt});await tx.run('DELETE FROM campaign_cleanup_previews WHERE lobby_id=?',[lobby.id]);await record(tx,req,'cleanup-campaign-history');return {receipt,duplicate:false}
   });if(!result.duplicate)updated(req.params.id);res.json(result)
  })
 }

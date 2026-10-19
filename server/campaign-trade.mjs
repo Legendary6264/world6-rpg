@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import {copyEconomy,emptyEconomy} from './generated/campaignEconomy.mjs'
 import {createHash} from 'node:crypto'
 import {fail,id,integer,now,text,world as validateWorld} from './validation.mjs'
@@ -25,7 +26,7 @@ export function campaignTradeRoutes(app,{db,auth,updated,lockedMembership,record
  const store=async(tx,lobby,user,key,requestHash,state,receipt,req)=>{
   state=validateWorld(state);const json=JSON.stringify(receipt),bytes=Buffer.byteLength(json+requestHash+key),size=await tx.get('SELECT COUNT(*) AS n,COALESCE(SUM(payload_bytes),0) AS bytes FROM campaign_trade_commands WHERE lobby_id=?',[lobby.id])
   if(Number(size.n)>=10000||Number(size.bytes)+bytes>4*1024*1024)fail(409,'Достигнут предел подтверждений имущества. Прежние команды не удалены.')
-  await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?',[JSON.stringify(state),receipt.appliedAt,lobby.id]);await record(tx,req,receipt.operation)
+  await commitWorld(tx,lobby,state,{at:receipt.appliedAt});await record(tx,req,receipt.operation)
   await tx.run('INSERT INTO campaign_trade_commands(lobby_id,command_key,author_id,request_hash,receipt_json,payload_bytes) VALUES(?,?,?,?,?,?)',[lobby.id,key,user.id,requestHash,json,bytes]);return {receipt,duplicate:false}
  }
  app.get('/api/lobbies/:id/trade',auth.middleware,async(req,res)=>{
