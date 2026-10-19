@@ -4,10 +4,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { ScenePosition } from './sceneTypes'
 import type { KnownArea } from './scenePerception'
 import { entityAreas } from './scene3dModel'
+import {populateEntityModel} from './scene3dMeshes'
+import type {Surface} from './scene3dMeshes'
 import type { RenderEntity, RenderSelection, SceneRenderModel } from './scene3dModel'
 
 type Props = { model: SceneRenderModel; selection?: RenderSelection | null; selecting?: boolean;
   onPoint?: (point: ScenePosition) => void; onSelect?: (selection: RenderSelection) => void;
+  onMove?: (selection:RenderSelection,point:ScenePosition)=>boolean|void; snapStep?:number;
   marker?: ScenePosition | null; route?: ScenePosition[]; onUnavailable?: () => void }
 const vector = (p: ScenePosition) => new THREE.Vector3(p.x, p.z, p.y)
 const clipping = (a: KnownArea) => [new THREE.Plane(new THREE.Vector3(1, 0, 0), -a.x),
@@ -18,6 +21,7 @@ const clipping = (a: KnownArea) => [new THREE.Plane(new THREE.Vector3(1, 0, 0), 
 export default function Scene3D(props: Props) {
   const { model, selection, marker, route } = props
   const host = useRef<HTMLDivElement>(null), latest = useRef(props), reset = useRef<(() => void) | null>(null)
+  const cameraAction=useRef<((action:'top'|'front'|'iso'|'focus')=>void)|null>(null),restoreFocus=useRef(false)
   const [quality, setQuality] = useState('balanced'), [grid, setGrid] = useState(true), [labels, setLabels] = useState(true)
   const [failure, setFailure] = useState(''), [hover, setHover] = useState('')
   const cameraState = useRef<{ id: string; position: THREE.Vector3; target: THREE.Vector3 } | null>(null)
@@ -38,10 +42,12 @@ export default function Scene3D(props: Props) {
     renderer.shadowMap.enabled = quality === 'high'
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.setClearColor('#101725')
+    renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15
     renderer.domElement.setAttribute('aria-label', model.title + ' · трёхмерная сцена')
     renderer.domElement.setAttribute('role', 'img')
     renderer.domElement.tabIndex = 0
     element.appendChild(renderer.domElement)
+    if(restoreFocus.current)renderer.domElement.focus({preventScroll:true})
     const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(46, 1, .05, Math.max(500, f.width * 8, f.depth * 8, (f.maxZ - f.minZ) * 8))
     const span = Math.max(f.width, f.depth, 5), center = new THREE.Vector3(f.width / 2, f.groundZ, f.depth / 2)
     const controls = new OrbitControls(camera, renderer.domElement)
@@ -51,6 +57,21 @@ export default function Scene3D(props: Props) {
     const saved = cameraState.current
     if (saved?.id === f.id) { camera.position.copy(saved.position); controls.target.copy(saved.target); controls.update() } else home()
     reset.current = home
+    cameraAction.current=action=>{
+      if(action==='focus'){
+        const selected=latest.current.selection,entity=pickables.find(g=>g.userData.selection?.id===selected?.id&&g.userData.selection?.kind===selected?.kind)
+        if(!entity)return
+        const bounds=new THREE.Box3().setFromObject(entity),target=bounds.getCenter(new THREE.Vector3()),size=bounds.getSize(new THREE.Vector3())
+        const direction=camera.position.clone().sub(controls.target).normalize(),distance=Math.max(2,Math.max(size.x,size.y,size.z)*2.8)
+        controls.target.copy(target);camera.position.copy(target).addScaledVector(direction,distance)
+      }else{
+        controls.target.copy(center)
+        if(action==='top')camera.position.set(center.x+.001,center.y+span*1.25,center.z+.001)
+        else if(action==='front')camera.position.set(center.x,center.y+span*.04,center.z+span*1.5)
+        else{home();return}
+      }
+      controls.update()
+    }
     scene.add(new THREE.HemisphereLight('#c2dcec', '#25202e', 2.2))
     const sun = new THREE.DirectionalLight('#ffe4bf', 2.5)
     sun.position.set(center.x - span * .5, f.groundZ + span, center.z + span * .3); sun.target.position.copy(center)
@@ -62,7 +83,8 @@ export default function Scene3D(props: Props) {
     const material = (color: string, opacity = 1, planes: THREE.Plane[] = []) => keep(new THREE.MeshStandardMaterial({ color,
       roughness: .85, metalness: .08, transparent: opacity < 1, opacity, clippingPlanes: planes, side: THREE.DoubleSide }))
     const floorColor = f.palette === 'forest' ? '#304f42' : f.palette === 'stone' ? '#454c5b' : '#2e3e55'
-    const pickables: THREE.Object3D[] = [], groundMeshes: THREE.Mesh[] = [], labelElements: { node: HTMLSpanElement; position: THREE.Vector3 }[] = []
+    const outlines:{helper:THREE.BoxHelper;target:THREE.Object3D}[]=[],anchors=new Map<string,THREE.Object3D>()
+    const pickables: THREE.Object3D[] = [], groundMeshes: THREE.Mesh[] = [], labelElements: { node: HTMLSpanElement; position: THREE.Vector3; anchor?:THREE.Object3D; offset:number }[] = []
     function floor(a: KnownArea) {
       if (f.groundZ < a.z || f.groundZ > a.z + a.height) return
       const mesh = new THREE.Mesh(keep(new THREE.PlaneGeometry(a.width, a.depth)), material(a.visible ? floorColor : '#292e3d'))
@@ -78,53 +100,28 @@ export default function Scene3D(props: Props) {
     }
     model.areas.forEach(floor)
     function entityMesh(e: RenderEntity, planes: THREE.Plane[]) {
-      const group = new THREE.Group(), g = e.geometry, p = e.transform.position
+      const group = new THREE.Group(), p = e.transform.position
       group.position.copy(vector(p)); group.userData.selection = { ...e.interaction }; group.userData.label = e.identity.label
-      const opacity = e.appearance.remembered ? .4 : 1, main = material(e.appearance.color, opacity, planes)
-      function mesh(geometry: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) {
-        const result = new THREE.Mesh(keep(geometry), mat); result.position.set(x, y, z)
-        result.castShadow = !model.restricted; result.receiveShadow = true; group.add(result); return result
-      }
-      const h = Math.max(g.height, .035)
-      if (g.kind === 'actor') {
-        const r = Math.max(.12, g.width / 2)
-        mesh(new THREE.CylinderGeometry(r, r, .08, 16), main, 0, .04, 0)
-        if (e.appearance.heightKnown) {
-          mesh(new THREE.CapsuleGeometry(r * .45, Math.max(.1, h - r * 1.8), 3, 8), main, 0, h * .5, 0)
-          mesh(new THREE.SphereGeometry(r * .45, 10, 8), main, 0, h * .95, 0)
-        }
-      } else if (g.kind === 'sound') {
-        const ring = mesh(new THREE.TorusGeometry(g.width / 2, .035, 4, 32), main, 0, .08, 0); ring.rotation.x = Math.PI / 2
-      } else if (g.kind === 'tree') {
-        mesh(new THREE.CylinderGeometry(g.width * .09, g.width * .14, h * .55, 7), material('#735641', opacity, planes), 0, h * .275, 0)
-        const canopy = mesh(new THREE.IcosahedronGeometry(1, 1), main, 0, h * .68, 0); canopy.scale.set(g.width / 2, h * .32, g.depth / 2)
-      } else if (g.kind === 'rock') {
-        const rock = mesh(new THREE.DodecahedronGeometry(1, 0), main, 0, h / 2, 0); rock.scale.set(g.width / 2, h / 2, g.depth / 2)
-      } else if (g.kind === 'lamp') {
-        mesh(new THREE.CylinderGeometry(.055, .09, h * .85, 6), material('#737a90', opacity, planes), 0, h * .425, 0)
-        mesh(new THREE.BoxGeometry(g.width * .3, h * .15, g.depth * .3), keep(new THREE.MeshStandardMaterial({ color: '#b5fff2', emissive: '#53aab3', emissiveIntensity: 1.5, clippingPlanes: planes })), 0, h * .9, 0)
-      } else {
-        if (g.kind === 'door' && g.open) {
-          mesh(new THREE.BoxGeometry(Math.min(.15, g.width), h, g.depth), main, -g.width / 2 + Math.min(.15, g.width) / 2, h / 2, 0)
-        } else mesh(new THREE.BoxGeometry(g.width, h, g.depth), main, 0, h / 2, 0)
-        if (g.kind === 'crate') {
-          const edges = new THREE.LineSegments(keep(new THREE.EdgesGeometry(keep(new THREE.BoxGeometry(g.width * 1.005, h * 1.005, g.depth * 1.005)))), keep(new THREE.LineBasicMaterial({ color: '#d9bc8b', clippingPlanes: planes })))
-          edges.position.y = h / 2; group.add(edges)
-        }
-      }
+      const opacity = e.appearance.remembered ? .4 : 1, surfaces=new Map<string,THREE.Material>()
+      populateEntityModel(e,(geometry,color,x,y,z,options:Surface={})=>{
+        const key=JSON.stringify([color,options]),alpha=opacity*(options.opacity??1)
+        let mat=surfaces.get(key)
+        if(!mat){mat=keep(new THREE.MeshStandardMaterial({color,roughness:options.roughness??.82,metalness:options.metalness??.08,transparent:alpha<1,opacity:alpha,clippingPlanes:planes,side:THREE.DoubleSide,...(options.emissive?{emissive:options.emissive,emissiveIntensity:1.8}:{})}));surfaces.set(key,mat)}
+        const part=new THREE.Mesh(keep(geometry),mat);part.position.set(x,y,z);part.castShadow=!model.restricted;part.receiveShadow=true;group.add(part);return part
+      },quality==='low')
       if (!model.restricted && selection?.id === e.interaction.id && selection.kind === e.interaction.kind) {
         group.updateMatrixWorld(true)
-        const outline = new THREE.BoxHelper(group, '#89fff0'); keep(outline.geometry); keep(outline.material); scene.add(outline)
+        const outline = new THREE.BoxHelper(group, '#89fff0'); keep(outline.geometry); keep(outline.material); scene.add(outline);outlines.push({helper:outline,target:group})
       }
-      scene.add(group); pickables.push(group)
+      scene.add(group); pickables.push(group);anchors.set(e.interaction.kind+':'+e.interaction.id,group)
     }
     for (const entity of structuredClone(model.entities)) {
       if (model.restricted && entity.interaction.kind === 'object') {
         for (const area of entityAreas(entity, model)) entityMesh(entity, clipping(area))
       } else entityMesh(entity, [])
-      if (labels) {
+      if (labels&&anchors.has(entity.interaction.kind+':'+entity.interaction.id)) {
         const node = document.createElement('span'); node.className = 'gb-3d-label'; node.textContent = entity.identity.label
-        element.appendChild(node); labelElements.push({ node, position: vector({ ...entity.transform.position, z: entity.transform.position.z + entity.geometry.height + .45 }) })
+        element.appendChild(node); labelElements.push({ node, anchor:anchors.get(entity.interaction.kind+':'+entity.interaction.id),offset:entity.geometry.height+.45,position: vector({ ...entity.transform.position, z: entity.transform.position.z + entity.geometry.height + .45 }) })
       }
     }
     function line(points: ScenePosition[], color: string, planes: THREE.Plane[] = []) {
@@ -152,10 +149,11 @@ export default function Scene3D(props: Props) {
     let pending = 0, disposed = false
     const draw = () => {
       pending = 0; if (disposed) return
+      for(const outline of outlines)outline.helper.setFromObject(outline.target)
       renderer.render(scene, camera)
       const box = element.getBoundingClientRect()
       for (const label of labelElements) {
-        const p = label.position.clone().project(camera), visible = p.z > -1 && p.z < 1 && Math.abs(p.x) < .98 && Math.abs(p.y) < .98
+        const p = (label.anchor?label.anchor.position.clone().add(new THREE.Vector3(0,label.offset,0)):label.position.clone()).project(camera), visible = p.z > -1 && p.z < 1 && Math.abs(p.x) < .98 && Math.abs(p.y) < .98
         label.node.hidden = !visible; label.node.style.transform = `translate(-50%, -100%) translate(${(p.x + 1) * box.width / 2}px,${(1 - p.y) * box.height / 2}px)`
       }
     }
@@ -184,27 +182,81 @@ export default function Scene3D(props: Props) {
       const ground = raycaster.intersectObjects(groundMeshes)[0]
       if (ground) current.onPoint?.({ x: Math.round(ground.point.x * 1000) / 1000, y: Math.round(ground.point.z * 1000) / 1000, z: f.groundZ })
     }
+    type Drag={pointerId:number;group:THREE.Object3D;selection:RenderSelection;origin:THREE.Vector3;start:THREE.Vector3;plane:THREE.Plane;moved:boolean}
+    let drag:Drag|null=null
+    const dragPoint=new THREE.Vector3()
+    const endDrag=(commit:boolean)=>{
+      if(!drag)return
+      const active=drag;drag=null;controls.enabled=true
+      const p=active.group.position,point={x:p.x,y:p.z,z:p.y}
+      let accepted=false
+      if(commit&&active.moved&&latest.current.onMove)try{accepted=latest.current.onMove(active.selection,point)!==false}catch{setHover('Перемещение не применено.')}
+      if(!accepted)active.group.position.copy(active.origin)
+      if(canvas.hasPointerCapture?.(active.pointerId))canvas.releasePointerCapture(active.pointerId)
+      requestDraw()
+    }
+    const dragDown=(event:PointerEvent)=>{
+      canvas.focus({preventScroll:true})
+      if(event.button!==0||model.restricted||!latest.current.onMove)return
+      hits(event)
+      const hit=raycaster.intersectObjects(pickables,true)[0],entity=hit&&identify(hit.object),selected=latest.current.selection
+      if(!entity||entity.selection.kind==='contact'||entity.selection.id!==selected?.id||entity.selection.kind!==selected.kind)return
+      const group=pickables.find(g=>g.userData.selection?.id===selected.id&&g.userData.selection.kind===selected.kind)
+      if(!group)return
+      const plane=new THREE.Plane(new THREE.Vector3(0,1,0),-group.position.y)
+      if(!raycaster.ray.intersectPlane(plane,dragPoint))return
+      event.stopImmediatePropagation();event.preventDefault();controls.enabled=false
+      drag={pointerId:event.pointerId,group,selection:entity.selection,origin:group.position.clone(),start:dragPoint.clone(),plane,moved:false}
+      canvas.setPointerCapture?.(event.pointerId)
+    }
+    const dragMove=(event:PointerEvent)=>{
+      if(!drag||drag.pointerId!==event.pointerId)return
+      event.stopImmediatePropagation();hits(event)
+      if(!raycaster.ray.intersectPlane(drag.plane,dragPoint))return
+      if(Math.hypot(event.clientX-down.x,event.clientY-down.y)<5&&!drag.moved)return
+      const step=latest.current.snapStep,snap=(n:number,max:number)=>Math.max(0,Math.min(max,step?Math.round(n/step)*step:n))
+      drag.group.position.set(snap(drag.origin.x+dragPoint.x-drag.start.x,f.width),drag.origin.y,snap(drag.origin.z+dragPoint.z-drag.start.z,f.depth))
+      drag.moved=true;requestDraw()
+    }
+    const dragUp=(event:PointerEvent)=>{if(drag&&drag.pointerId===event.pointerId){event.stopImmediatePropagation();endDrag(true)}}
+    const dragCancel=()=>endDrag(false)
+    const keyboard=(event:globalThis.KeyboardEvent)=>{
+      if(event.key==='Escape'&&drag){event.preventDefault();event.stopPropagation();endDrag(false);return}
+      if(event.ctrlKey||event.metaKey||event.altKey||event.shiftKey)return
+      const action=event.key.toLowerCase()==='f'?'focus':event.key==='1'?'top':event.key==='2'?'front':event.key==='3'?'iso':null
+      if(action){event.preventDefault();cameraAction.current?.(action)}
+    }
+    const clickUp=(event:PointerEvent)=>pointerUp(event)
     const pointerMove = (event: PointerEvent) => { hits(event); const hit = raycaster.intersectObjects(pickables, true)[0]; setHover(hit ? identify(hit.object)?.label ?? '' : '') }
     const lost = (event: Event) => { event.preventDefault(); setFailure('3D-контекст потерян. Переключись на схему; изменения кампании сохраняются отдельно.'); latest.current.onUnavailable?.() }
     const canvas = renderer.domElement
-    canvas.addEventListener('pointerdown', pointerDown); canvas.addEventListener('pointerup', pointerUp); canvas.addEventListener('pointermove', pointerMove); canvas.addEventListener('webglcontextlost', lost)
+    const captureDown=(event:PointerEvent)=>{pointerDown(event);dragDown(event)}
+    canvas.addEventListener('pointerdown',captureDown,true);canvas.addEventListener('pointermove',dragMove,true);canvas.addEventListener('pointerup',dragUp,true);canvas.addEventListener('pointercancel',dragCancel);canvas.addEventListener('lostpointercapture',dragCancel);canvas.addEventListener('keydown',keyboard)
+    canvas.addEventListener('pointerup', clickUp); canvas.addEventListener('pointermove', pointerMove); canvas.addEventListener('webglcontextlost', lost)
     requestDraw()
     return () => {
+      restoreFocus.current=document.activeElement===canvas
       cameraState.current = { id: f.id, position: camera.position.clone(), target: controls.target.clone() }
-      reset.current = null; disposed = true; cancelAnimationFrame(pending); observer.disconnect(); controls.dispose()
-      canvas.removeEventListener('pointerdown', pointerDown); canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('webglcontextlost', lost)
+      reset.current = null;cameraAction.current=null;disposed = true;endDrag(false);cancelAnimationFrame(pending);observer.disconnect();controls.dispose()
+      canvas.removeEventListener('pointerdown',captureDown,true);canvas.removeEventListener('pointermove',dragMove,true);canvas.removeEventListener('pointerup',dragUp,true);canvas.removeEventListener('pointercancel',dragCancel);canvas.removeEventListener('lostpointercapture',dragCancel);canvas.removeEventListener('keydown',keyboard)
+      canvas.removeEventListener('pointerup', clickUp); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('webglcontextlost', lost)
       resources.forEach(v => v.dispose()); sun.shadow.map?.dispose(); renderer.dispose(); canvas.remove(); labelElements.forEach(v => v.node.remove())
     }
     // Changing a callback alone must not rebuild GPU resources or reset the camera.
   }, [model, selection, marker, route, quality, grid, labels])
   return <div className="gb-scene-3d">
     <div className="gb-render-toolbar"><button className="w6-button" type="button" onClick={() => reset.current?.()}>Вся сцена</button>
+      <button className="w6-button" type="button" onClick={()=>cameraAction.current?.('top')} title="1">Сверху</button>
+      <button className="w6-button" type="button" onClick={()=>cameraAction.current?.('front')} title="2">Спереди</button>
+      <button className="w6-button" type="button" onClick={()=>cameraAction.current?.('iso')} title="3">Перспектива</button>
+      <button className="w6-button" type="button" disabled={!selection} onClick={()=>cameraAction.current?.('focus')} title="F">К выбранному</button>
+      <button className="w6-button" type="button" onClick={()=>{if(document.fullscreenElement)void document.exitFullscreen?.().catch(()=>{});else void host.current?.requestFullscreen?.().catch(()=>{})}}>Во весь экран</button>
       <label><input type="checkbox" checked={grid} onChange={e => setGrid(e.currentTarget.checked)}/> Сетка</label>
       <label><input type="checkbox" checked={labels} onChange={e => setLabels(e.currentTarget.checked)}/> Подписи</label>
       <label>Качество <select aria-label="Качество 3D" value={quality} onChange={e => setQuality(e.currentTarget.value)}><option value="low">Экономное</option><option value="balanced">Сбалансированное</option><option value="high">Высокое</option></select></label>
     </div>
     <div className="gb-3d-canvas" ref={host}/>
     {failure && <p role="alert" className="gb-scene-state">{failure}</p>}
-    <p className="gb-map-caption">ЛКМ — выбор или точка · перетаскивание — поворот · ПКМ — сдвиг · колесо — масштаб. XYZ в метрах. {hover}</p>
+    <p className="gb-map-caption">ЛКМ — выбор · перетаскивание — {props.onMove?'перенос выбранного, Esc отменяет; на пустом месте — поворот':'поворот'} · ПКМ — сдвиг · колесо — масштаб · F — к выбранному · 1/2/3 — виды. XYZ в метрах. {hover}</p>
   </div>
 }

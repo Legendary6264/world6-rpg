@@ -33,7 +33,7 @@ export function masterRenderModel(scene: Scene, actors: SceneActor[], visuals: S
     }),
     ...scene.tokens.map(t => ({ id: t.actorId, transform: { position: { x: t.x, y: t.y, z: t.z } },
       geometry: { kind: 'actor' as const, width: t.diameter, depth: t.diameter, height: 1.7 },
-      appearance: { color: '#81e6da', remembered: false, heightKnown: true },
+      appearance: { color: ['#78baa5','#9d92c9','#bd9567','#7d9fb7'][[...t.actorId].reduce((n,c)=>n+c.charCodeAt(0),0)%4], remembered: false, heightKnown: true },
       identity: { label: actors.find(a => a.id === t.actorId)?.name || 'Без имени' },
       interaction: { kind: 'token' as const, id: t.actorId } }))], visuals }
 }

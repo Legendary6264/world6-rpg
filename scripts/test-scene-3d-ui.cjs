@@ -66,3 +66,42 @@ test('3D UI: неизвестная территория не достраива
  await flush(()=>r.domElement.dispatchEvent(new dom.window.Event('webglcontextlost',{cancelable:true})));assert.equal(unavailable,1)
  await flush(()=>root.render(null));assert(r.disposed);assert.equal(document.querySelectorAll('canvas,.gb-3d-label').length,0)
 })
+
+test('3D UI: виды камеры, фокус, перетаскивание с привязкой и отмена Escape',async()=>{
+ const {world}=create3DSandbox('drag'),scene=world.campaign.scenes.scenes[0],crate=scene.objects.find(o=>o.kind==='crate')
+ const moves=[];let points=0
+ await mount({model:masterRenderModel(scene,world.characters),selection:{kind:'object',id:crate.id},marker:null,onPoint:()=>points++,onMove:(s,p)=>{moves.push({s,p});return true},snapStep:1})
+ const r=instances.at(-1)
+ const top=[...document.querySelectorAll('button')].find(b=>b.textContent==='Сверху');await flush(()=>top.click())
+ const point=screenPoint(r,crate.x,crate.y,.6),end=screenPoint(r,crate.x+2,crate.y+1,.6)
+ await flush(()=>r.domElement.dispatchEvent(new dom.window.MouseEvent('pointerdown',{...point,button:0,bubbles:true})))
+ await flush(()=>r.domElement.dispatchEvent(new dom.window.MouseEvent('pointermove',{...end,button:0,bubbles:true})))
+ assert.equal(moves.length,0,'Dragging previews geometry without intermediate world writes')
+ await flush(()=>r.domElement.dispatchEvent(new dom.window.MouseEvent('pointerup',{...end,button:0,bubbles:true})))
+ assert.equal(moves.length,1);assert.deepEqual(moves[0].s,{kind:'object',id:crate.id});assert.deepEqual(moves[0].p,{x:9,y:16,z:0});assert.equal(points,0)
+ await mount({model:masterRenderModel(scene,world.characters)})
+ const next=instances.at(-1);await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Сверху').click())
+ const start=screenPoint(next,crate.x,crate.y,.6),finish=screenPoint(next,crate.x+2,crate.y+1,.6)
+ await flush(()=>{next.domElement.dispatchEvent(new dom.window.MouseEvent('pointerdown',{...start,button:0,bubbles:true}));next.domElement.dispatchEvent(new dom.window.MouseEvent('pointermove',{...finish,button:0,bubbles:true}))})
+ await flush(()=>next.domElement.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})))
+ assert.equal(moves.length,1)
+ const group=next.scene.children.find(g=>g.userData.selection?.id===crate.id);assert.equal(group.position.x,crate.x)
+ await flush(()=>next.domElement.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'f',bubbles:true})))
+ assert(Math.abs(next.camera.position.x-crate.x)<.1)
+ next.domElement.focus();await mount({selection:null});assert.equal(document.activeElement,instances.at(-1).domElement,'Selection rebuild retains keyboard focus')
+})
+test('3D-модели: детали, габариты, экономный режим и нераскрытая высота',()=>{
+ const {populateEntityModel}=load('scene3dMeshes')
+ for(const kind of ['actor','tree','rock','wall','door','crate','platform','lamp','water']){
+  const e={geometry:{kind,width:2,depth:2,height:2},appearance:{color:'#789abc',heightKnown:true}}
+  const build=low=>{const group=new THREE.Group();populateEntityModel(e,(geometry,color,x,y,z)=>{const m=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color}));m.position.set(x,y,z);group.add(m);return m},low);return group}
+  const rich=build(false),low=build(true),bounds=new THREE.Box3().setFromObject(rich)
+  assert(bounds.min.x>=-1.001&&bounds.max.x<=1.001,kind+' width');assert(bounds.min.z>=-1.001&&bounds.max.z<=1.001,kind+' depth')
+  assert(bounds.min.y>=-.001&&bounds.max.y<=2.001,kind+' height');assert(rich.children.length>=low.children.length,kind)
+  for(const group of [rich,low])group.traverse(o=>{if(o.isMesh){o.geometry.dispose();o.material.dispose()}})
+ }
+ const e={geometry:{kind:'actor',width:1,depth:1,height:1.7},appearance:{color:'#aaa',heightKnown:false}},parts=[]
+ populateEntityModel(e,(g,c,x,y,z)=>{const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:c}));m.position.set(x,y,z);parts.push(m);return m})
+ assert.equal(parts.length,1,'Unknown height remains a flat footprint')
+ parts.forEach(m=>{m.geometry.dispose();m.material.dispose()})
+})

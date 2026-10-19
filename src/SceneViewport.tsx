@@ -11,6 +11,7 @@ import { artworkSource, isTiledArtwork } from './visualMedia'
 type Selection = { kind: 'object'; id: string } | { kind: 'token'; id: string } | null
 export type SceneSelection = Selection
 type Props = { scene: Scene; actors: (SceneActor & VisualActor)[]; visuals?:SceneAbilityVisual[]; selection: Selection;
+  onMove?: (selection: NonNullable<Selection>, point: ScenePosition) => boolean | void; snapStep?: number;
   onPoint: (point: ScenePosition) => void; onSelect: (value: Selection) => void; selecting: boolean; marker?: ScenePosition }
 
 // Small original SVG tiles. They remain sharp at any zoom and need no asset service.
@@ -96,5 +97,5 @@ export default function SceneViewport(props: Props) {
   const model = useMemo(() => masterRenderModel(props.scene, props.actors, props.visuals ?? sceneAbilityVisuals(props.scene, props.actors)), [props.scene, props.actors, props.visuals])
   return <div><SceneRenderMode mode={mode} onChange={next => { setUnavailable(false); setMode(next) }}/>{unavailable && <p role="status">3D недоступно: открыта схема. Проверь аппаратное ускорение браузера, чтобы включить 3D.</p>}{mode === 'map' ? <SvgSceneViewport {...props}/> :
     <Suspense fallback={<p role="status">Загружаем 3D-сцену…</p>}><Scene3D model={model} selection={props.selection} marker={props.marker}
-      selecting={props.selecting} onPoint={props.onPoint} onUnavailable={() => { setUnavailable(true); setMode('map') }} onSelect={s => { if (s.kind !== 'contact') props.onSelect({ kind: s.kind, id: s.id }) }}/></Suspense>}</div>
+      selecting={props.selecting} onPoint={props.onPoint} onMove={props.onMove?(s,p)=>s.kind==='contact'?false:props.onMove?.({kind:s.kind,id:s.id},p):undefined} snapStep={props.snapStep} onUnavailable={() => { setUnavailable(true); setMode('map') }} onSelect={s => { if (s.kind !== 'contact') props.onSelect({ kind: s.kind, id: s.id }) }}/></Suspense>}</div>
 }
