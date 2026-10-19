@@ -22,6 +22,7 @@ export default function Scene3D(props: Props) {
   const { model, selection, marker, route } = props
   const host = useRef<HTMLDivElement>(null), latest = useRef(props), reset = useRef<(() => void) | null>(null)
   const cameraAction=useRef<((action:'top'|'front'|'iso'|'focus')=>void)|null>(null),restoreFocus=useRef(false)
+  const updateSelection=useRef<((selection:RenderSelection|null)=>void)|null>(null)
   const [quality, setQuality] = useState('balanced'), [grid, setGrid] = useState(true), [labels, setLabels] = useState(true)
   const [failure, setFailure] = useState(''), [hover, setHover] = useState('')
   const cameraState = useRef<{ id: string; position: THREE.Vector3; target: THREE.Vector3 } | null>(null)
@@ -51,6 +52,7 @@ export default function Scene3D(props: Props) {
     const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(46, 1, .05, Math.max(500, f.width * 8, f.depth * 8, (f.maxZ - f.minZ) * 8))
     const span = Math.max(f.width, f.depth, 5), center = new THREE.Vector3(f.width / 2, f.groundZ, f.depth / 2)
     const controls = new OrbitControls(camera, renderer.domElement)
+    controls.mouseButtons.MIDDLE=THREE.MOUSE.PAN
     controls.maxPolarAngle = Math.PI / 2 - .02; controls.minDistance = .5; controls.maxDistance = span * 4
     controls.enableDamping = false
     const home = () => { controls.target.copy(center); camera.position.set(center.x + span * .65, center.y + span * .9, center.z + span * .85); controls.update() }
@@ -109,10 +111,6 @@ export default function Scene3D(props: Props) {
         if(!mat){mat=keep(new THREE.MeshStandardMaterial({color,roughness:options.roughness??.82,metalness:options.metalness??.08,transparent:alpha<1,opacity:alpha,clippingPlanes:planes,side:THREE.DoubleSide,...(options.emissive?{emissive:options.emissive,emissiveIntensity:1.8}:{})}));surfaces.set(key,mat)}
         const part=new THREE.Mesh(keep(geometry),mat);part.position.set(x,y,z);part.castShadow=!model.restricted;part.receiveShadow=true;group.add(part);return part
       },quality==='low')
-      if (!model.restricted && selection?.id === e.interaction.id && selection.kind === e.interaction.kind) {
-        group.updateMatrixWorld(true)
-        const outline = new THREE.BoxHelper(group, '#89fff0'); keep(outline.geometry); keep(outline.material); scene.add(outline);outlines.push({helper:outline,target:group})
-      }
       scene.add(group); pickables.push(group);anchors.set(e.interaction.kind+':'+e.interaction.id,group)
     }
     for (const entity of structuredClone(model.entities)) {
@@ -158,6 +156,16 @@ export default function Scene3D(props: Props) {
       }
     }
     const requestDraw = () => { if (!pending && !disposed) pending = requestAnimationFrame(draw) }
+    // Selection is an overlay update. It must never dispose the canvas, meshes
+    // or pointer capture while a user is starting a drag on an unselected object.
+    updateSelection.current=selected=>{
+      const target=selected&&!model.restricted?anchors.get(selected.kind+':'+selected.id):undefined
+      if(target&&outlines[0]?.target===target)return
+      for(const {helper} of outlines.splice(0)){scene.remove(helper);resources.delete(helper.geometry);resources.delete(helper.material);helper.geometry.dispose();helper.material.dispose()}
+      if(target){target.updateMatrixWorld(true);const helper=new THREE.BoxHelper(target,'#89fff0');keep(helper.geometry);keep(helper.material);scene.add(helper);outlines.push({helper,target})}
+      requestDraw()
+    }
+    updateSelection.current(latest.current.selection??null)
     controls.addEventListener('change', requestDraw)
     const resize = () => { const width = element.clientWidth, height = element.clientHeight; if (!width || !height) return; camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setSize(width, height); requestDraw() }
     const observer = new ResizeObserver(resize); observer.observe(element); resize()
@@ -173,7 +181,7 @@ export default function Scene3D(props: Props) {
     const down = { x: 0, y: 0, button: -1 }
     const pointerDown = (event: PointerEvent) => { down.x = event.clientX; down.y = event.clientY; down.button = event.button }
     const pointerUp = (event: PointerEvent) => {
-      if (down.button !== 0 || event.button !== 0 || Math.hypot(down.x - event.clientX, down.y - event.clientY) > 5) return
+      if (down.button !== 0 || event.button !== 0 || event.altKey || Math.hypot(down.x - event.clientX, down.y - event.clientY) > 5) return
       hits(event)
       // Raycaster does not apply material clipping: only pick intersections inside disclosure bounds.
       const hit = raycaster.intersectObjects(pickables, true).find(h => !model.restricted || model.areas.some(a => h.point.x >= a.x && h.point.x <= a.x + a.width && h.point.z >= a.y && h.point.z <= a.y + a.depth && h.point.y >= a.z && h.point.y <= a.z + a.height))
@@ -182,7 +190,7 @@ export default function Scene3D(props: Props) {
       const ground = raycaster.intersectObjects(groundMeshes)[0]
       if (ground) current.onPoint?.({ x: Math.round(ground.point.x * 1000) / 1000, y: Math.round(ground.point.z * 1000) / 1000, z: f.groundZ })
     }
-    type Drag={pointerId:number;group:THREE.Object3D;selection:RenderSelection;origin:THREE.Vector3;start:THREE.Vector3;plane:THREE.Plane;moved:boolean}
+    type Drag={pointerId:number;group:THREE.Object3D;selection:RenderSelection;origin:THREE.Vector3;start:THREE.Vector3;plane:THREE.Plane;moved:boolean;clientX:number;clientY:number}
     let drag:Drag|null=null
     const dragPoint=new THREE.Vector3()
     const endDrag=(commit:boolean)=>{
@@ -192,34 +200,41 @@ export default function Scene3D(props: Props) {
       let accepted=false
       if(commit&&active.moved&&latest.current.onMove)try{accepted=latest.current.onMove(active.selection,point)!==false}catch{setHover('Перемещение не применено.')}
       if(!accepted)active.group.position.copy(active.origin)
+      canvas.style.cursor='grab'
       if(canvas.hasPointerCapture?.(active.pointerId))canvas.releasePointerCapture(active.pointerId)
       requestDraw()
     }
     const dragDown=(event:PointerEvent)=>{
       canvas.focus({preventScroll:true})
-      if(event.button!==0||model.restricted||!latest.current.onMove)return
+      if(drag){event.stopImmediatePropagation();return}
+      if(event.button!==0||event.altKey||model.restricted||!latest.current.onMove)return
       hits(event)
-      const hit=raycaster.intersectObjects(pickables,true)[0],entity=hit&&identify(hit.object),selected=latest.current.selection
-      if(!entity||entity.selection.kind==='contact'||entity.selection.id!==selected?.id||entity.selection.kind!==selected.kind)return
-      const group=pickables.find(g=>g.userData.selection?.id===selected.id&&g.userData.selection.kind===selected.kind)
+      const hit=raycaster.intersectObjects(pickables,true)[0],entity=hit&&identify(hit.object)
+      if(!entity||entity.selection.kind==='contact')return
+      const group=anchors.get(entity.selection.kind+':'+entity.selection.id)
       if(!group)return
-      const plane=new THREE.Plane(new THREE.Vector3(0,1,0),-group.position.y)
+      // Work through the grabbed surface, retaining the cursor-to-pivot offset.
+      const plane=new THREE.Plane(new THREE.Vector3(0,1,0),-hit.point.y)
       if(!raycaster.ray.intersectPlane(plane,dragPoint))return
       event.stopImmediatePropagation();event.preventDefault();controls.enabled=false
-      drag={pointerId:event.pointerId,group,selection:entity.selection,origin:group.position.clone(),start:dragPoint.clone(),plane,moved:false}
+      drag={pointerId:event.pointerId,group,selection:entity.selection,origin:group.position.clone(),start:dragPoint.clone(),plane,moved:false,clientX:event.clientX,clientY:event.clientY}
+      canvas.style.cursor='grabbing'
       canvas.setPointerCapture?.(event.pointerId)
+      updateSelection.current?.(entity.selection)
+      latest.current.onSelect?.(entity.selection)
     }
     const dragMove=(event:PointerEvent)=>{
       if(!drag||drag.pointerId!==event.pointerId)return
       event.stopImmediatePropagation();hits(event)
       if(!raycaster.ray.intersectPlane(drag.plane,dragPoint))return
-      if(Math.hypot(event.clientX-down.x,event.clientY-down.y)<5&&!drag.moved)return
+      if(Math.hypot(event.clientX-drag.clientX,event.clientY-drag.clientY)<5&&!drag.moved)return
       const step=latest.current.snapStep,snap=(n:number,max:number)=>Math.max(0,Math.min(max,step?Math.round(n/step)*step:n))
       drag.group.position.set(snap(drag.origin.x+dragPoint.x-drag.start.x,f.width),drag.origin.y,snap(drag.origin.z+dragPoint.z-drag.start.z,f.depth))
       drag.moved=true;requestDraw()
     }
     const dragUp=(event:PointerEvent)=>{if(drag&&drag.pointerId===event.pointerId){event.stopImmediatePropagation();endDrag(true)}}
-    const dragCancel=()=>endDrag(false)
+    const dragCancel=(event:PointerEvent)=>{if(drag?.pointerId===event.pointerId)endDrag(false)}
+    const blur=()=>endDrag(false)
     const keyboard=(event:globalThis.KeyboardEvent)=>{
       if(event.key==='Escape'&&drag){event.preventDefault();event.stopPropagation();endDrag(false);return}
       if(event.ctrlKey||event.metaKey||event.altKey||event.shiftKey)return
@@ -227,23 +242,26 @@ export default function Scene3D(props: Props) {
       if(action){event.preventDefault();cameraAction.current?.(action)}
     }
     const clickUp=(event:PointerEvent)=>pointerUp(event)
-    const pointerMove = (event: PointerEvent) => { hits(event); const hit = raycaster.intersectObjects(pickables, true)[0]; setHover(hit ? identify(hit.object)?.label ?? '' : '') }
+    const pointerMove = (event: PointerEvent) => { hits(event); const hit = raycaster.intersectObjects(pickables, true)[0];canvas.style.cursor=hit&&latest.current.onMove&&!model.restricted&&!event.altKey?'grab':'default';setHover(hit ? identify(hit.object)?.label ?? '' : '') }
     const lost = (event: Event) => { event.preventDefault(); setFailure('3D-контекст потерян. Переключись на схему; изменения кампании сохраняются отдельно.'); latest.current.onUnavailable?.() }
     const canvas = renderer.domElement
     const captureDown=(event:PointerEvent)=>{pointerDown(event);dragDown(event)}
     canvas.addEventListener('pointerdown',captureDown,true);canvas.addEventListener('pointermove',dragMove,true);canvas.addEventListener('pointerup',dragUp,true);canvas.addEventListener('pointercancel',dragCancel);canvas.addEventListener('lostpointercapture',dragCancel);canvas.addEventListener('keydown',keyboard)
+    window.addEventListener('blur',blur)
     canvas.addEventListener('pointerup', clickUp); canvas.addEventListener('pointermove', pointerMove); canvas.addEventListener('webglcontextlost', lost)
     requestDraw()
     return () => {
       restoreFocus.current=document.activeElement===canvas
       cameraState.current = { id: f.id, position: camera.position.clone(), target: controls.target.clone() }
-      reset.current = null;cameraAction.current=null;disposed = true;endDrag(false);cancelAnimationFrame(pending);observer.disconnect();controls.dispose()
+      reset.current = null;cameraAction.current=null;updateSelection.current=null;disposed = true;endDrag(false);cancelAnimationFrame(pending);observer.disconnect();controls.dispose()
       canvas.removeEventListener('pointerdown',captureDown,true);canvas.removeEventListener('pointermove',dragMove,true);canvas.removeEventListener('pointerup',dragUp,true);canvas.removeEventListener('pointercancel',dragCancel);canvas.removeEventListener('lostpointercapture',dragCancel);canvas.removeEventListener('keydown',keyboard)
       canvas.removeEventListener('pointerup', clickUp); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('webglcontextlost', lost)
+      window.removeEventListener('blur',blur)
       resources.forEach(v => v.dispose()); sun.shadow.map?.dispose(); renderer.dispose(); canvas.remove(); labelElements.forEach(v => v.node.remove())
     }
     // Changing a callback alone must not rebuild GPU resources or reset the camera.
-  }, [model, selection, marker, route, quality, grid, labels])
+  }, [model, marker, route, quality, grid, labels])
+  useEffect(()=>{updateSelection.current?.(selection??null)},[selection])
   return <div className="gb-scene-3d">
     <div className="gb-render-toolbar"><button className="w6-button" type="button" onClick={() => reset.current?.()}>Вся сцена</button>
       <button className="w6-button" type="button" onClick={()=>cameraAction.current?.('top')} title="1">Сверху</button>
@@ -257,6 +275,6 @@ export default function Scene3D(props: Props) {
     </div>
     <div className="gb-3d-canvas" ref={host}/>
     {failure && <p role="alert" className="gb-scene-state">{failure}</p>}
-    <p className="gb-map-caption">ЛКМ — выбор · перетаскивание — {props.onMove?'перенос выбранного, Esc отменяет; на пустом месте — поворот':'поворот'} · ПКМ — сдвиг · колесо — масштаб · F — к выбранному · 1/2/3 — виды. XYZ в метрах. {hover}</p>
+    <p className="gb-map-caption">{props.onMove?'Зажми объект ЛКМ и тяни · Esc — отмена · Alt+ЛКМ или пустое место — вращение камеры':'ЛКМ — выбор · перетаскивание — поворот'} · ПКМ/СКМ — сдвиг · колесо — масштаб · F — к выбранному · 1/2/3 — виды. XYZ в метрах. {hover}</p>
   </div>
 }

@@ -105,3 +105,37 @@ test('3D-модели: детали, габариты, экономный реж
  assert.equal(parts.length,1,'Unknown height remains a flat footprint')
  parts.forEach(m=>{m.geometry.dispose();m.material.dispose()})
 })
+
+test('Прямой захват: первый жест, стабильный renderer при выделении, одна команда на отпускании',async()=>{
+ const {world}=create3DSandbox('direct'),scene=world.campaign.scenes.scenes[0],crate=scene.objects.find(o=>o.kind==='crate')
+ let selected=null;const moves=[]
+ await mount({model:masterRenderModel(scene,world.characters),selection:null,selecting:true,marker:null,snapStep:1,onSelect:s=>{selected=s},onMove:(s,p)=>{moves.push({s,p});return true}})
+ const r=instances.at(-1);await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Сверху').click())
+ const start=screenPoint(r,crate.x,crate.y,.6),end=screenPoint(r,crate.x+2,crate.y+1,.6)
+ await flush(()=>r.domElement.dispatchEvent(new dom.window.MouseEvent('pointerdown',{...start,button:0,bubbles:true})))
+ assert.deepEqual(selected,{kind:'object',id:crate.id});assert.equal(r.domElement.style.cursor,'grabbing')
+ await mount({selection:selected})
+ assert.equal(instances.at(-1),r,'Selection updates preserve renderer and pointer capture');assert(!r.disposed);assert(r.domElement.isConnected)
+ await flush(()=>r.domElement.dispatchEvent(new dom.window.MouseEvent('pointermove',{...end,button:0,bubbles:true})))
+ assert.equal(moves.length,0)
+ await flush(()=>r.domElement.dispatchEvent(new dom.window.MouseEvent('pointerup',{...end,button:0,bubbles:true})))
+ assert.equal(moves.length,1);assert.deepEqual(moves[0].p,{x:9,y:16,z:0})
+ const tree=scene.objects.find(o=>o.kind==='tree'),treeAt=screenPoint(r,tree.x,tree.y,2)
+ await clickAt(r,treeAt);assert.deepEqual(selected,{kind:'object',id:tree.id});assert.equal(moves.length,1,'Clicking alone never writes')
+})
+test('Прямой захват: Alt оставляет камеру, отказ и потеря фокуса возвращают исходную позицию',async()=>{
+ const {world}=create3DSandbox('cancel'),scene=world.campaign.scenes.scenes[0],crate=scene.objects.find(o=>o.kind==='crate')
+ let moves=0,selections=0
+ await mount({model:masterRenderModel(scene,world.characters),selection:null,snapStep:undefined,onSelect:()=>selections++,onMove:()=>{moves++;return false}})
+ const r=instances.at(-1);await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Сверху').click())
+ const start=screenPoint(r,crate.x,crate.y,.6),end=screenPoint(r,crate.x+1,crate.y+1,.6)
+ await flush(()=>{r.domElement.dispatchEvent(new dom.window.MouseEvent('pointerdown',{...start,button:0,altKey:true,bubbles:true}));r.domElement.dispatchEvent(new dom.window.MouseEvent('pointerup',{...start,button:0,altKey:true,bubbles:true}))})
+ assert.equal(moves,0);assert.equal(selections,0)
+ const group=r.scene.children.find(g=>g.userData.selection?.id===crate.id)
+ async function drag(){await flush(()=>{r.domElement.dispatchEvent(new dom.window.MouseEvent('pointerdown',{...start,button:0,bubbles:true}));r.domElement.dispatchEvent(new dom.window.MouseEvent('pointermove',{...end,button:0,bubbles:true}))})}
+ await drag();assert.notEqual(group.position.x,crate.x)
+ await flush(()=>window.dispatchEvent(new dom.window.Event('blur')))
+ assert.equal(moves,0);assert.equal(group.position.x,crate.x)
+ await drag();await flush(()=>r.domElement.dispatchEvent(new dom.window.MouseEvent('pointerup',{...end,button:0,bubbles:true})))
+ assert.equal(moves,1);assert.equal(group.position.x,crate.x);assert.equal(group.position.z,crate.y)
+})

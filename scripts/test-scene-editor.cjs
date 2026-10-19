@@ -62,3 +62,12 @@ test('Команды редактора сохраняют опоры, исхо�
  const copy=duplicateEditorObject(s,platform.id,'new-platform');assert.equal(copy.scenes[2].tokens.length,scene.tokens.length)
  assert.equal(copy.scenes[2].tokens[0].support.objectId,platform.id)
 })
+
+test('Редактор: прямой перенос доступен сразу, без выбора инструмента G, и отменяется одним шагом',async()=>{
+ await fixture();assert.equal(typeof viewport.onMove,'function')
+ const o=active().objects.find(o=>o.kind==='crate'),before=structuredClone(o)
+ await flush(()=>viewport.onSelect({kind:'object',id:o.id}));assert(viewport.onMove)
+ await flush(()=>viewport.onMove({kind:'object',id:o.id},{x:o.x+2,y:o.y+1,z:o.z}))
+ assert.equal(writes,1);assert.equal(active().objects.find(v=>v.id===o.id).x,o.x+2)
+ await key('z',{ctrlKey:true});assert.deepEqual(active().objects.find(v=>v.id===o.id),before)
+})
