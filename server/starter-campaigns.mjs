@@ -3,7 +3,8 @@ import {fail,integer,text,now,id,world} from './validation.mjs'
 import {requireChief} from './permissions.mjs'
 import {controlEvent} from './lobby-access.mjs'
 import {createNightCrossing} from './generated/starterCampaign.mjs'
-import {NIGHT_CROSSING} from './generated/starterCampaignInfo.mjs'
+import {THREE_D_SANDBOX,starterExample} from './generated/starterCampaignInfo.mjs'
+import {create3DSandbox} from './generated/sandboxCampaign.mjs'
 
 const hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex')
 const object=v=>!!v&&typeof v==='object'&&!Array.isArray(v)
@@ -11,7 +12,8 @@ export function starterCampaignRoutes(app,{db,auth,publicUpdated}) {
  app.post('/api/lobbies/from-example',auth.middleware,async(req,res)=>{
   const b=req.body,fields=['exampleId','version','title','slots','commandKey']
   if(!object(b)||Object.keys(b).length!==fields.length||Object.keys(b).some(k=>!fields.includes(k))||
-    b.exampleId!==NIGHT_CROSSING.id||b.version!==NIGHT_CROSSING.version||typeof b.commandKey!=='string'||!/^starter:[a-zA-Z0-9_-]{8,140}$/.test(b.commandKey))fail(400,'Проверь версию примера и поля создания лобби.')
+    !starterExample(b.exampleId,b.version)||typeof b.commandKey!=='string'||!/^starter:[a-zA-Z0-9_-]{8,140}$/.test(b.commandKey))fail(400,'Проверь версию примера и поля создания лобби.')
+  const definition=starterExample(b.exampleId,b.version),sandbox=definition.id===THREE_D_SANDBOX.id
   const title=text(b.title,120),slots=integer(b.slots,1,12),requestHash=hash([b.exampleId,b.version,b.title,b.slots,b.commandKey])
   // Stable identity + a locked account serialize concurrent retries and the per-owner quota.
   // Receipts reuse the private command ledger and survive restores in the same lobby.
@@ -28,9 +30,9 @@ export function starterCampaignRoutes(app,{db,auth,publicUpdated}) {
    }
    const count=await tx.get("SELECT COUNT(*) AS n FROM lobbies WHERE owner_id=? AND status<>'closed'",[req.user.id])
    if(Number(count.n)>=20)fail(409,'Сначала закрой старое лобби: максимум 20 активных.')
-   const example=createNightCrossing(lobbyId),state=world(example.world),at=now()
+   const example=sandbox?create3DSandbox(lobbyId):createNightCrossing(lobbyId),state=world(example.world),at=now()
    await tx.run('INSERT INTO lobbies(id,owner_id,title,description,genre,slots,energy,rank,visibility,invite_code,world_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
-    [lobbyId,req.user.id,title,NIGHT_CROSSING.description,'Приключение',slots,'mana','mortal','private',randomBytes(18).toString('base64url'),JSON.stringify(state),at,at])
+    [lobbyId,req.user.id,title,definition.description,'Приключение',slots,sandbox?'any':'mana','mortal','private',randomBytes(18).toString('base64url'),JSON.stringify(state),at,at])
    await tx.run('INSERT INTO members(lobby_id,user_id,role,joined_at) VALUES(?,?,?,?)',[lobbyId,req.user.id,'GM',at])
    for(const actorId of example.npcIds){
     await tx.run('INSERT INTO character_bindings(lobby_id,character_id,owner_id,approved) VALUES(?,?,?,1)',[lobbyId,actorId,req.user.id])

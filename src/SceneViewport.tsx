@@ -2,12 +2,16 @@ import SceneAbilityOverlay, { useVisualReplay } from './SceneAbilityOverlay'
 import { sceneAbilityVisuals } from './sceneAbilityVisuals'
 import type { SceneAbilityVisual, VisualActor } from './sceneAbilityVisuals'
 import type { PointerEvent } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
+import SceneRenderMode from './SceneRenderMode'
+import { masterRenderModel } from './scene3dModel'
 import type { Scene, SceneActor, SceneObjectKind, ScenePosition } from './sceneTypes'
 import { artworkSource, isTiledArtwork } from './visualMedia'
 
 type Selection = { kind: 'object'; id: string } | { kind: 'token'; id: string } | null
 export type SceneSelection = Selection
 type Props = { scene: Scene; actors: (SceneActor & VisualActor)[]; visuals?:SceneAbilityVisual[]; selection: Selection;
+  onMove?: (selection: NonNullable<Selection>, point: ScenePosition) => boolean | void; snapStep?: number;
   onPoint: (point: ScenePosition) => void; onSelect: (value: Selection) => void; selecting: boolean; marker?: ScenePosition }
 
 // Small original SVG tiles. They remain sharp at any zoom and need no asset service.
@@ -25,7 +29,7 @@ export function SceneGlyph({ kind, open = false }: { kind: SceneObjectKind; open
   return <svg viewBox="0 0 16 16" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true" shapeRendering="crispEdges">{tiles[kind]}</svg>
 }
 
-export default function SceneViewport({ scene, actors, selection, onPoint, onSelect, selecting, visuals, marker }: Props) {
+export function SvgSceneViewport({ scene, actors, selection, onPoint, onSelect, selecting, visuals, marker }: Props) {
   const effects=visuals??sceneAbilityVisuals(scene,actors),playback=useVisualReplay(effects.some(v=>v.phase==='sequence'))
   const vertical = scene.view === 'side' ? scene.maxZ - scene.minZ : scene.depth
   const displaySize = Math.max(scene.width, vertical) * 0.022
@@ -84,4 +88,14 @@ export default function SceneViewport({ scene, actors, selection, onPoint, onSel
     {effects.length>0&&playback.controls}
     <p className="gb-map-caption">{scene.view === 'top' ? 'X / Y' : 'X / Z'} · метры · {scene.width} × {scene.view === 'top' ? scene.depth : vertical} · высота земли {scene.groundZ} м</p>
   </div>
+}
+
+const Scene3D = lazy(() => import('./Scene3D'))
+export default function SceneViewport(props: Props) {
+  const [mode, setMode] = useState<'3d' | 'map'>('3d')
+  const [unavailable, setUnavailable] = useState(false)
+  const model = useMemo(() => masterRenderModel(props.scene, props.actors, props.visuals ?? sceneAbilityVisuals(props.scene, props.actors)), [props.scene, props.actors, props.visuals])
+  return <div><SceneRenderMode mode={mode} onChange={next => { setUnavailable(false); setMode(next) }}/>{unavailable && <p role="status">3D недоступно: открыта схема. Проверь аппаратное ускорение браузера, чтобы включить 3D.</p>}{mode === 'map' ? <SvgSceneViewport {...props}/> :
+    <Suspense fallback={<p role="status">Загружаем 3D-сцену…</p>}><Scene3D model={model} selection={props.selection} marker={props.marker}
+      selecting={props.selecting} onPoint={props.onPoint} onMove={props.onMove?(s,p)=>s.kind==='contact'?false:props.onMove?.({kind:s.kind,id:s.id},p):undefined} snapStep={props.snapStep} onUnavailable={() => { setUnavailable(true); setMode('map') }} onSelect={s => { if (s.kind !== 'contact') props.onSelect({ kind: s.kind, id: s.id }) }}/></Suspense>}</div>
 }

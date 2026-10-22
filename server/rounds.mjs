@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import {isSpeechDecision} from './generated/roundSpeech.mjs'
 import {rejectRetiredCommand} from './campaign-retention-state.mjs'
 import { collectionExecuted, roundBranch, setRoundBranch, requireCampaignRunning } from './round-branch.mjs'
@@ -67,7 +68,7 @@ export function roundRoutes(app, { db, auth, updated, lockedMembership, record }
       await tx.run('INSERT INTO round_history_data(receipt_id,lobby_id,generation,applied_revision,applied_at,input_json,execution_seed,executor_version) VALUES(?,?,?,?,?,?,?,?)',[receipt.id,lobby.id,generation,receipt.revision,receipt.appliedAt,data.input_json,data.execution_seed,ROUND_EXECUTOR_VERSION])
       await setRoundBranch(tx,lobby.id,generation,[...branch,receipt.id])
       await tx.run('DELETE FROM round_replay_contexts WHERE lobby_id=?',[lobby.id])
-      await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?', [preview.world_json, receipt.appliedAt, lobby.id])
+      await commitWorld(tx,lobby,preview.world_json,{at:receipt.appliedAt})
       await record(tx, req, 'apply-round')
       await tx.run('DELETE FROM round_previews WHERE lobby_id=?', [lobby.id])
       return { receipt, duplicate: false }

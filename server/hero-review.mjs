@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import { isDeepStrictEqual } from 'node:util'
 import { fail, integer, text, now, character, worldSize } from './validation.mjs'
 import { requireChief, requireLobbyPermission } from './permissions.mjs'
@@ -140,7 +141,7 @@ export function heroReviewRoutes(app, { db, auth, updated, lockedMembership, rec
       await tx.run(`INSERT INTO character_submissions(lobby_id,character_id,source_character_id,submitted_json,status,submitted_at) VALUES(?,?,?,?,?,?)
         ON CONFLICT(lobby_id,character_id) DO UPDATE SET source_character_id=excluded.source_character_id,submitted_json=excluded.submitted_json,status=excluded.status,submitted_at=excluded.submitted_at`,
         [lobby.id, actor.id, sourceId, JSON.stringify(actor), 'pending', now()])
-      await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?', [JSON.stringify(state), now(), lobby.id]); await record(tx, req, 'resubmit-character')
+      await commitWorld(tx,lobby,state,{at:now()}); await record(tx, req, 'resubmit-character')
     }); updated(req.params.id); res.json({ revision: revision + 1 })
   })
 }
