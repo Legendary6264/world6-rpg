@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   const presentation = readSitePresentation(loadEnv(mode, process.cwd(), 'VITE_'))
   return {
     base: './',
-    server: { proxy: { '/api': 'http://127.0.0.1:3001', '/socket.io': { target: 'http://127.0.0.1:3001', ws: true } } },
+    server: { allowedHosts: ['terminal.local'], proxy: { '/api': 'http://127.0.0.1:3001', '/socket.io': { target: 'http://127.0.0.1:3001', ws: true } } },
     build: { chunkSizeWarningLimit: 650 },
     plugins: [react(), {
       name: 'grani-bytiya-presentation',

@@ -16,3 +16,7 @@ Models and textures are from [Poly Haven](https://polyhaven.com), distributed un
 Adaptations: self-contained GLB packing, compacted vertex/index buffers, silhouette-preserving pine simplification, JPEG recompression at original 1K resolution, saved-dimension fitting, deterministic variant selection and per-instance visibility materials. No runtime dependency on Poly Haven servers.
 
 `models/sources.json` and `materials/sources.json` record exact source downloads, source MD5 values, output sizes and SHA-256 hashes. Rebuild from the repository root with `node scripts/import-scene-models.mjs /tmp/world6-assets` (curl, Python/Pillow, installed Three.js required). Run `npm run test:models` to validate.
+
+## v0.7 constructed models
+
+The current wall, arched door, crate, platform and lantern geometry is authored in `src/scene3dCrafted.ts`. Pine/scanned rock and the shared material textures continue to use the sources above; pine roots are additional authored geometry. The previous crate/lantern GLBs remain attributed reference resources and are not downloaded by the current scene renderer. Outdoor lighting uses an authored analytic sky environment; Working mode uses Three.js RoomEnvironment.

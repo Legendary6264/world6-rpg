@@ -45,3 +45,13 @@ test('Повреждённая копия восстанавливается; с
  window.confirm=()=>false;await click('Сбросить копию');assert.equal(JSON.parse(localStorage.getItem(key)).scenes[0].name,'Моя сцена')
  window.confirm=()=>true;await click('Сбросить копию');assert(JSON.parse(localStorage.getItem(key)).scenes[0].name.includes('поселение'))
 })
+
+test('Мастерская открывается в сохранённой копии и повторно не дублирует сцену',async()=>{
+ await mount();const before=JSON.parse(localStorage.getItem(key)),ids=before.scenes.map(s=>s.id)
+ await click('Детальная сцена');assert(viewport.scene.name.includes('Мастерская'));assert.equal(viewport.scene.objects.length,9)
+ let saved=JSON.parse(localStorage.getItem(key));assert.equal(saved.scenes.length,ids.length+1)
+ assert.deepEqual(saved.scenes.slice(0,ids.length).map(s=>s.id),ids)
+ const id=viewport.scene.id;await click('Редактор');await click('Детальная сцена')
+ saved=JSON.parse(localStorage.getItem(key));assert.equal(saved.activeSceneId,id);assert.equal(saved.scenes.length,ids.length+1)
+ await mount();assert.equal(viewport.scene.id,id)
+})

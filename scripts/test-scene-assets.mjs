@@ -31,24 +31,27 @@ test('Бинарные ассеты: целостность, встроенны�
   assert(!doc.buffers.some(b=>b.uri));assert.equal(asset.license,'CC0-1.0')
  }
  const library=new SceneAssetLibrary()
- for(const kind of ['tree','rock','crate','lamp'])for(let i=0;i<(kind==='rock'?12:kind==='tree'?6:1);i++){
+ for(const kind of ['tree','rock'])for(let i=0;i<(kind==='rock'?12:6);i++){
   const root=await library.instantiate(entity(kind,'variant-'+i),[],false),bounds=new THREE.Box3().setFromObject(root)
   assert(root);assert(bounds.min.x>=-1.0001&&bounds.max.x<=1.0001,kind+' width')
   assert(bounds.min.z>=-.7501&&bounds.max.z<=.7501,kind+' depth')
-  assert(Math.abs(bounds.min.y)<.0001&&Math.abs(bounds.max.y-3)<.0001,kind+' height')
+  assert(Math.abs(bounds.min.y)<.0001&&bounds.max.y<=3.0001,kind+' height')
+  root.traverse(part=>{if(part.userData.detailedModel)assert.equal(part.scale.x,part.scale.y,'Natural proportions are not stretched')})
   assert(meshes(root).some(m=>m.material.map&&m.material.normalMap&&m.material.roughnessMap),kind+' PBR')
   assert(meshes(root).every(m=>m.geometry.getAttribute('position').array.every(Number.isFinite)))
  }
- assert.equal(requests.length,4,'One download per kind, independent of instance count')
+ assert.equal(requests.length,2,'Only natural model bundles are downloaded; crafted objects are local geometry')
  library.dispose()
 })
 test('PBR: приватное отсечение, память и общая геометрия без общей видимости',async()=>{
- const library=new SceneAssetLibrary(),planes=[new THREE.Plane(new THREE.Vector3(1,0,0),-1)],e=entity('crate')
+ const library=new SceneAssetLibrary(),planes=[new THREE.Plane(new THREE.Vector3(1,0,0),-1)],e=entity('rock')
  const full=await library.instantiate(e,[],false),remembered=await library.instantiate({...e,appearance:{...e.appearance,remembered:true}},planes,true)
  const a=meshes(full)[0],b=meshes(remembered)[0]
  assert.equal(a.geometry,b.geometry);assert.notEqual(a.material,b.material)
  assert.equal(a.material.opacity,1);assert.equal(b.material.opacity,.4);assert.equal(b.material.clippingPlanes,planes)
  assert(b.material.clipShadows);assert(!b.castShadow);assert(a.castShadow)
+ const clay=await library.instantiate(e,planes,true,true),gray=meshes(clay)[0].material
+ assert.equal(gray.map,null);assert.equal(gray.normalMap,null);assert.equal(gray.clippingPlanes,planes)
  let disposed=0;a.material.addEventListener('dispose',()=>disposed++)
  library.dispose();assert.equal(disposed,1)
  const rebuilding=new SceneAssetLibrary(),next=await rebuilding.instantiate(e,[],false)

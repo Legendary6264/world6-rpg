@@ -2,12 +2,14 @@ import * as THREE from 'three'
 import {RoundedBoxGeometry} from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import type {RenderEntity} from './scene3dModel'
 import type {SurfaceKind} from './scene3dSurfaces'
+import {populateCraftedEntity} from './scene3dCrafted'
 
 export type Surface={metalness?:number;roughness?:number;emissive?:string;opacity?:number;texture?:SurfaceKind}
-type Mesh=(geometry:THREE.BufferGeometry,color:string,x:number,y:number,z:number,surface?:Surface)=>THREE.Mesh
+export type ModelMesh=(geometry:THREE.BufferGeometry,color:string,x:number,y:number,z:number,surface?:Surface)=>THREE.Mesh
 // Procedural presentation only. Every part stays within the saved object's
 // dimensions; gameplay continues to use the existing collision/support data.
-export function populateEntityModel(e:RenderEntity,mesh:Mesh,low=false){
+export function populateEntityModel(e:RenderEntity,mesh:ModelMesh,low=false){
+ if(!low&&populateCraftedEntity(e,mesh))return
  const g=e.geometry,w=g.width,d=g.depth,h=Math.max(g.height,.035),color=e.appearance.color
  const box=(a:number,b:number,c:number,x:number,y:number,z:number,tint=color,surface?:Surface)=>mesh(!low&&surface?.texture?new RoundedBoxGeometry(Math.max(.001,a),Math.max(.001,b),Math.max(.001,c),2,Math.min(a,b,c)*.075):new THREE.BoxGeometry(Math.max(.001,a),Math.max(.001,b),Math.max(.001,c)),tint,x,y,z,surface)
  if(g.kind==='actor'){

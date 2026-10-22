@@ -22,7 +22,8 @@ export class SceneSurfaceLibrary {
   material.map=texture('color');material.normalMap=texture('normal')
   material.roughnessMap=material.aoMap=texture('arm')
   material.roughness=1;material.metalness=0;material.aoMapIntensity=.65;material.normalScale.set(.65,.65)
-  material.color.set('#e4e4e4')
+  // Retain the per-block timber/stone variation instead of flattening every
+  // part to the same tint; maps supply the fine grain.
  }
  dispose(){this.disposed=true;this.textures.forEach(t=>t.dispose());this.textures.clear()}
 }

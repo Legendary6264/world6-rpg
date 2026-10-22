@@ -62,7 +62,7 @@ test('3D UI: неизвестная территория не достраива
  const r=instances.at(-1),ground=r.scene.children.filter(m=>m.geometry?.type==='PlaneGeometry')
  assert.equal(ground.length,1);assert.equal(ground[0].geometry.parameters.width,3)
  let clipped=0;r.scene.traverse(m=>{if(m.isMesh&&m.material.clippingPlanes?.length===6)clipped++});assert(clipped>0)
- const light=r.scene.children.find(n=>n.isDirectionalLight);assert(!light.castShadow)
+ const light=r.scene.getObjectByProperty('isDirectionalLight',true);assert(!light.castShadow)
  await flush(()=>r.domElement.dispatchEvent(new dom.window.Event('webglcontextlost',{cancelable:true})));assert.equal(unavailable,1)
  await flush(()=>root.render(null));assert(r.disposed);assert.equal(document.querySelectorAll('canvas,.gb-3d-label').length,0)
 })
@@ -138,4 +138,26 @@ test('Прямой захват: Alt оставляет камеру, отказ
  assert.equal(moves,0);assert.equal(group.position.x,crate.x)
  await drag();await flush(()=>r.domElement.dispatchEvent(new dom.window.MouseEvent('pointerup',{...end,button:0,bubbles:true})))
  assert.equal(moves,1);assert.equal(group.position.x,crate.x);assert.equal(group.position.z,crate.y)
+})
+
+test('Свет и геометрия: экспозиция без пересоздания canvas, ночной фонарь, нейтральный вид',async()=>{
+ const {world}=create3DSandbox('lighting'),scene=world.campaign.scenes.scenes[0]
+ await mount({model:masterRenderModel(scene,world.characters),selection:null,onMove:undefined})
+ let renderer=instances.at(-1)
+ const exposure=document.querySelector('[aria-label="Экспозиция 3D"]'),before=renderer.toneMappingExposure
+ await flush(()=>{
+  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(exposure,'1.35')
+  exposure.dispatchEvent(new dom.window.Event('input',{bubbles:true}));exposure.dispatchEvent(new dom.window.Event('change',{bubbles:true}))
+ })
+ assert.equal(instances.at(-1),renderer,'Exposure does not allocate another renderer')
+ assert(renderer.toneMappingExposure>before)
+ const light=document.querySelector('[aria-label="Освещение 3D"]')
+ await flush(()=>{light.value='night';light.dispatchEvent(new dom.window.Event('change',{bubbles:true}))});await flush()
+ renderer=instances.at(-1);assert(renderer.scene.getObjectByProperty('isPointLight',true),'Lantern illuminates the night scene')
+ const clay=[...document.querySelectorAll('label')].find(l=>l.textContent===' Без текстур').querySelector('input')
+ await flush(()=>clay.click());await flush()
+ renderer=instances.at(-1)
+ renderer.scene.traverse(o=>{if(o.isMesh){for(const material of Array.isArray(o.material)?o.material:[o.material])assert.equal(material.map,null)}})
+ await flush(()=>{const select=document.querySelector('[aria-label="Освещение 3D"]');select.value='studio';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}))});await flush()
+ assert(!instances.at(-1).scene.getObjectByProperty('isPointLight',true),'Working light excludes coloured local lamps')
 })

@@ -2,10 +2,10 @@ import * as THREE from 'three'
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type {RenderEntity} from './scene3dModel'
 
-const files={tree:'pine',rock:'rocks',crate:'crate',lamp:'lantern'} as const
+const files={tree:'pine',rock:'rocks'} as const
 type Asset=typeof files[keyof typeof files]
 type Resource=THREE.BufferGeometry|THREE.Material|THREE.Texture
-// Download cache is bounded by the four bundled files.
+// Download cache is bounded by the two natural model bundles.
 const downloads=new Map<Asset,Promise<ArrayBuffer>>()
 function bytes(asset:Asset){
  let pending=downloads.get(asset)
@@ -72,7 +72,7 @@ export class SceneAssetLibrary {
   if(!shared){shared=acquire(asset,this.anisotropy);this.leases.set(asset,shared)}
   return shared.promise
  }
- async instantiate(e:RenderEntity,planes:THREE.Plane[],restricted:boolean):Promise<THREE.Group|null>{
+ async instantiate(e:RenderEntity,planes:THREE.Plane[],restricted:boolean,clay=false):Promise<THREE.Group|null>{
   const asset=detailedAsset(e)
   if(!asset||this.disposed)return null
   const template=await this.template(asset)
@@ -88,7 +88,7 @@ export class SceneAssetLibrary {
    const adapt=(source:THREE.Material)=>{
     let material=materials.get(source)
     if(!material){
-     material=this.keep(source.clone());material.clippingPlanes=planes;material.clipShadows=true
+     material=this.keep(clay?new THREE.MeshStandardMaterial({color:'#b5b3a9',roughness:.68,transparent:source.transparent,opacity:source.opacity,alphaTest:0,side:source.side}):source.clone());material.clippingPlanes=planes;material.clipShadows=true
      if(e.appearance.remembered){material.transparent=true;material.opacity*=.4;material.depthWrite=false}
      materials.set(source,material)
     }
@@ -97,24 +97,36 @@ export class SceneAssetLibrary {
    object.material=Array.isArray(object.material)?object.material.map(adapt):adapt(object.material)
    object.castShadow=!restricted;object.receiveShadow=true
   })
-  // Normalize the complete rotated silhouette into the saved dimensions. No
-  // source origin/scale/variant may move or enlarge a gameplay obstruction.
-  const bounds=new THREE.Box3().setFromObject(root),size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3())
+  // Uniform fitting preserves branches and scanned rock proportions. The
+  // saved collision envelope remains the maximum occupied volume.
+  const bounds=new THREE.Box3().setFromObject(root),size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3()),sourceOrigin=model.getWorldPosition(new THREE.Vector3())
   if(!Number.isFinite(size.length())||Math.min(size.x,size.y,size.z)<=0)throw Error('Invalid model bounds')
   const normalized=new THREE.Group(),offset=new THREE.Group()
   offset.position.set(-center.x,-bounds.min.y,-center.z);offset.add(root);normalized.add(offset)
-  const height=Math.max(.035,e.geometry.height),headHeight=asset==='lantern'&&height>1.2?Math.min(height*.4,Math.min(e.geometry.width,e.geometry.depth)*2):height
-  normalized.scale.set(e.geometry.width/size.x,headHeight/size.y,e.geometry.depth/size.z)
+  const height=Math.max(.035,e.geometry.height),scale=Math.min(e.geometry.width/size.x,height/size.y,e.geometry.depth/size.z)
+  normalized.scale.setScalar(scale)
   normalized.userData.detailedModel=asset
-  if(headHeight===height)return normalized
-  const lamp=new THREE.Group(),postHeight=height-headHeight,radius=Math.min(e.geometry.width,e.geometry.depth)*.065
-  normalized.position.y=postHeight;lamp.add(normalized);lamp.userData.detailedModel=asset
-  const metal=this.keep(new THREE.MeshStandardMaterial({color:'#403c34',metalness:.8,roughness:.38,clippingPlanes:planes,clipShadows:true,transparent:e.appearance.remembered,opacity:e.appearance.remembered?.4:1}))
-  for(const [r1,r2,h,y] of [[radius,radius*1.25,postHeight,postHeight/2],[radius*2.4,radius*3.2,height*.035,height*.0175]]){
-   const pole=new THREE.Mesh(this.keep(new THREE.CylinderGeometry(r1,r2,h,16)),metal)
-   pole.position.y=y;pole.castShadow=!restricted;pole.receiveShadow=true;lamp.add(pole)
+  if(asset==='pine'){
+   const tree=new THREE.Group();tree.add(normalized);tree.userData.detailedModel=asset
+   const origin=sourceOrigin.sub(new THREE.Vector3(center.x,bounds.min.y,center.z)).multiplyScalar(scale)
+   let bark:THREE.Material|undefined
+   model.traverse(object=>{if(object instanceof THREE.Mesh&&!bark){const candidate=Array.isArray(object.material)?object.material[0]:object.material;if(/bark/i.test(candidate.name)||!bark)bark=candidate}})
+   const width=e.geometry.width,depth=e.geometry.depth,rootHeight=Math.min(height*.1,size.y*scale*.11),radius=Math.min(width,depth)*.022
+   const bound=(n:number,max:number)=>Math.max(-max*.45,Math.min(max*.45,n))
+   for(let i=0;i<5;i++){
+    const angle=i*Math.PI*2/5+(variant%31)*.1,x=bound(origin.x,width),z=bound(origin.z,depth)
+    const path=new THREE.CatmullRomCurve3([new THREE.Vector3(x,rootHeight,z),new THREE.Vector3(bound(x+Math.cos(angle)*width*.12,width),rootHeight*.3,bound(z+Math.sin(angle)*depth*.12,depth)),new THREE.Vector3(bound(x+Math.cos(angle)*width*.27,width),radius*.2,bound(z+Math.sin(angle)*depth*.27,depth))])
+    const geometry=new THREE.TubeGeometry(path,14,radius,8,false),position=geometry.getAttribute('position')
+    for(let j=0;j<position.count;j++){
+     const u=Math.floor(j/9)/14,centerline=path.getPointAt(u),v=new THREE.Vector3(position.getX(j),position.getY(j),position.getZ(j)).sub(centerline).multiplyScalar(1-u*.85).add(centerline)
+     position.setXYZ(j,v.x,Math.max(0,v.y),v.z)
+    }
+    geometry.computeVertexNormals()
+    const rootMesh=new THREE.Mesh(this.keep(geometry),bark);rootMesh.castShadow=!restricted;rootMesh.receiveShadow=true;tree.add(rootMesh)
+   }
+   return tree
   }
-  return lamp
+  return normalized
  }
  dispose(){this.disposed=true;releaseResources(this.resources);this.leases.forEach((shared,asset)=>relinquish(asset,shared));this.leases.clear()}
 }
