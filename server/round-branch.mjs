@@ -34,6 +34,7 @@ export async function collectionExecuted(tx,lobbyId,generation,collectionId){
  return !!await tx.get('SELECT id FROM round_receipts WHERE lobby_id=? AND collection_id=? AND id IN ('+ids.map(()=>'?').join(',')+')',[lobbyId,collectionId,...ids])
 }
 export async function campaignSession(tx,lobbyId){
- const s=await tx.get('SELECT paused,changed_at,author_id,reason FROM campaign_sessions WHERE lobby_id=?',[lobbyId]);return s?{paused:!!s.paused,changedAt:s.changed_at,authorId:s.author_id,reason:s.reason}:{paused:false,changedAt:null,authorId:null,reason:''}
+ const s=await tx.get('SELECT c.paused,c.changed_at,c.author_id,c.reason,l.world_json FROM lobbies l LEFT JOIN campaign_sessions c ON c.lobby_id=l.id WHERE l.id=?',[lobbyId]),finished=s&&JSON.parse(s.world_json).campaign.gameSession?.status==='finished'
+ return {paused:!!s?.paused||!!finished,changedAt:s?.changed_at??null,authorId:s?.author_id??null,reason:finished?'Игра завершена. Продолжить её можно на панели совместной сессии.':s?.reason??''}
 }
 export async function requireCampaignRunning(tx,lobbyId){if((await campaignSession(tx,lobbyId)).paused)fail(409,'Кампания на паузе. Мастер должен продолжить её перед исполнением или изменением заявлений.')}

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { Lobby, PlayerCharacter } from './onlineTypes'
 import { hasLobbyPermission } from './lobbyAccess'
 import LobbyPlayerScreen from './LobbyPlayerScreen'
+import LobbyGameSession from './LobbyGameSession'
 import './gameplay.css'
 const LobbySceneLaunch=lazy(()=>import('./LobbySceneLaunch'))
 export default function LobbyGameTable({accountId,lobby,characters,checkingAccess,onHeroes,onRound,active=true}:{accountId:string;lobby:Lobby;characters:PlayerCharacter[];checkingAccess:boolean;onHeroes:()=>void;onRound:()=>void;active?:boolean}){
@@ -31,6 +32,7 @@ export default function LobbyGameTable({accountId,lobby,characters,checkingAcces
  function leave(callback:()=>void){setExpanded(false);callback()}
  return <section ref={root} tabIndex={-1} role={expanded?'dialog':undefined} aria-modal={expanded?true:undefined} className={'gb-game-table'+(expanded?' gb-game-fullscreen':'')} aria-label="Игровой стол">
   <header className="gb-game-header"><div><small>{master?'Мастер кампании':'Совместное приключение'}</small><h3>{lobby.title}</h3></div><div className="w6-buttons"><button data-game-close className="w6-button" onClick={()=>setExpanded(!expanded)}>{expanded?'Выйти из игрового режима':'Развернуть игру'}</button>{canLeadRound&&<button className="w6-button" onClick={()=>leave(onRound)}>Вести раунд</button>}<button className="w6-button" onClick={()=>leave(onHeroes)}>Герои кампании</button></div></header>
+  <LobbyGameSession key={JSON.stringify([accountId,lobby.id])} accountId={accountId} lobbyId={lobby.id} disabled={checkingAccess} onHeroes={()=>leave(onHeroes)} onScene={()=>setSetup(true)} onRound={()=>leave(onRound)}/>
   {master&&<><div className="w6-buttons"><button className="w6-button w6-primary" aria-expanded={setup} onClick={()=>setSetup(!setup)}>{setup?'Свернуть подготовку сцены':'Начать игру на сцене'}</button></div>{setup&&<Suspense fallback={<p>Загружаем подготовку…</p>}><LobbySceneLaunch key={lobby.id} accountId={accountId} lobbyId={lobby.id} disabled={checkingAccess}/></Suspense>}<p className="gb-game-help">Сначала прими героев, затем размести их на сцене. Игроки составляют ходы одновременно; последствия применяются во вкладке «Раунд».</p></>}
   {!!playable.length&&<><label className="w6-field"><span>Кем играть</span><select aria-label="Активный игровой герой" value={selected?.id??''} onChange={e=>setChosen(e.currentTarget.value)}>{playable.map(c=><option key={c.id} value={c.id}>{c.name}{c.approved?'':' · ожидает мастера'}</option>)}</select></label>
     {selected&&<LobbyPlayerScreen key={JSON.stringify([accountId,lobby.id,selected.id])} accountId={accountId} lobbyId={lobby.id} character={selected} checkingAccess={checkingAccess} members={lobby.members}/>}</>}

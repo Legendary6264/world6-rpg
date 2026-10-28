@@ -1,3 +1,4 @@
+import {gameSessionRoutes} from './game-sessions.mjs'
 import { gameplayRoutes } from './gameplay.mjs'
 import {starterCampaignRoutes} from './starter-campaigns.mjs'
 import {campaignEconomyRoutes} from './campaign-economy.mjs'
@@ -56,6 +57,7 @@ export function lobbyRoutes(app,{db,auth,io}){
   await tx.run('INSERT INTO audit(id,actor_id,action,target_id,created_at) VALUES(?,?,?,?,?)',[id(),req.user.id,action,req.params.id,now()])
  }
  const economicCommands=campaignTradeRoutes(app,{db,auth,updated,lockedMembership,record})
+ gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembership,record,...economicCommands})
  campaignEconomyRoutes(app,{db,auth,updated,lockedMembership,record,...economicCommands})
  campaignAtlasRoutes(app,{db,auth,updated,lockedMembership,record})
  npcRoutes(app,{db,auth,updated,lockedMembership,record})

@@ -3,6 +3,7 @@ import { useOnline } from './onlineContext'
 import { blockedLoad, readCharacters } from './characterStorage'
 import type { CloudCharacter } from './onlineTypes'
 import { RemoteStatus } from './NetworkCommon'
+import QuickSessionHero from './QuickSessionHero'
 
 function localHeroes() {
   try { return readCharacters(window.localStorage) } catch { return blockedLoad() }
@@ -65,10 +66,11 @@ export default function LobbyCharacterPicker({ accountId, lobbyId, revision, clo
     </label>
     <RemoteStatus error={error} loading={loading}/>
     {local.blocked && <p role="alert">{local.message}</p>}
-    {!loading && cloud !== null && !error && !cloud.length && !localOnly.length && <p className="w6-copy">Сохранённых героев пока нет. Создай и сохрани героя в разделе «Персонажи», затем вернись в лобби.</p>}
+    {!loading && cloud !== null && !error && !cloud.length && !localOnly.length && <p className="w6-copy">Сохранённых героев пока нет. Создай базового персонажа ниже или подготовь подробный лист в разделе «Персонажи».</p>}
     <p className="w6-copy">{localSource ? 'Выбранный герой с этого устройства будет сохранён в твой аккаунт и отправлен мастеру на проверку.' : 'Выбери героя из аккаунта или сохранённого на этом устройстве. Для героя из аккаунта используется его сохранённая версия.'}</p>
     <div className="w6-buttons"><button className="w6-button w6-primary" disabled={locked || (!source && !localSource)}>{localSource ? 'Сохранить в аккаунт и добавить' : 'Добавить героя в кампанию'}</button>
       <button type="button" className="w6-button" disabled={busy} onClick={() => { setLocal(localHeroes()); refresh() }}>Обновить список героев</button></div>
     <p className="w6-notice" role="status">{message}</p>
+    <QuickSessionHero key={accountId} accountId={accountId} disabled={locked} onCreated={id=>{setSelectedId(id);refresh()}}/>
   </form>
 }

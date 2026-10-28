@@ -1,3 +1,4 @@
+import type {GameSession} from './gameSession'
 import type { AbilityVisualSpec } from './abilityVisuals'
 import type { CampaignEconomy } from './campaignEconomy'
 import type { CampaignTrade } from './campaignTrade'
@@ -95,4 +96,4 @@ export type RpgState = {
   physiology: Physiology; impact: Record<string, ImpactProfile>; casts: Cast[]; logs: ActionLog[]; dead: boolean
 }
 export type AnatomyTemplate = { id: string; name: string; parts: Record<string, BodyPart>; anatomy?: DetailedAnatomy; physiology?: Physiology }
-export type Campaign = { economy?:CampaignEconomy; trade?:CampaignTrade; atlas?:CampaignAtlas; seconds: number; revision: number; items: ItemTemplate[]; abilities: AbilityTemplate[]; anatomies: AnatomyTemplate[]; logs: ActionLog[]; scenes?: SceneState; perceptions?: ScenePerceptions; declarations?: ActionDeclarations; roundWork?: RoundWork }
+export type Campaign = { gameSession?:GameSession; economy?:CampaignEconomy; trade?:CampaignTrade; atlas?:CampaignAtlas; seconds: number; revision: number; items: ItemTemplate[]; abilities: AbilityTemplate[]; anatomies: AnatomyTemplate[]; logs: ActionLog[]; scenes?: SceneState; perceptions?: ScenePerceptions; declarations?: ActionDeclarations; roundWork?: RoundWork }

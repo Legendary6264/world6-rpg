@@ -1,3 +1,4 @@
+import {emptyGameSession} from './generated/gameSession.mjs'
 import {createHash,randomBytes} from 'node:crypto'
 import {fail,integer,text,now,id,world} from './validation.mjs'
 import {requireChief} from './permissions.mjs'
@@ -29,6 +30,7 @@ export function starterCampaignRoutes(app,{db,auth,publicUpdated}) {
    const count=await tx.get("SELECT COUNT(*) AS n FROM lobbies WHERE owner_id=? AND status<>'closed'",[req.user.id])
    if(Number(count.n)>=20)fail(409,'Сначала закрой старое лобби: максимум 20 активных.')
    const example=createNightCrossing(lobbyId),state=world(example.world),at=now()
+   state.campaign.gameSession=emptyGameSession(['Договориться о переходе','Разобраться во дворе запасов','Открыть боковую галерею'])
    await tx.run('INSERT INTO lobbies(id,owner_id,title,description,genre,slots,energy,rank,visibility,invite_code,world_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
     [lobbyId,req.user.id,title,NIGHT_CROSSING.description,'Приключение',slots,'mana','mortal','private',randomBytes(18).toString('base64url'),JSON.stringify(state),at,at])
    await tx.run('INSERT INTO members(lobby_id,user_id,role,joined_at) VALUES(?,?,?,?)',[lobbyId,req.user.id,'GM',at])
