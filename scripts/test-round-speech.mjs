@@ -8,7 +8,7 @@ import ts from 'typescript'
 const directory=await mkdtemp(join(tmpdir(),'grani-speech-'))
 test.after(()=>rm(directory,{recursive:true,force:true}))
 for(const file of await readdir('src'))if(file.endsWith('.ts')){
- const js=ts.transpileModule(await readFile('src/'+file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2023,module:ts.ModuleKind.ESNext}}).outputText.replace(/(from\s+['"]\.\/[^'"]+)(['"])/g,(_,a,b)=>a+'.mjs'+b)
+ const js=ts.transpileModule(await readFile('src/'+file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2023,module:ts.ModuleKind.ESNext}}).outputText.replace(/(from\s+['"]\.\/[^'"]+)(['"])/g,(_,a,b)=>a.replace(/\.ts$/,'')+'.mjs'+b)
  await writeFile(join(directory,file.replace(/\.ts$/,'.mjs')),js)
 }
 const module=name=>import(pathToFileURL(join(directory,name+'.mjs')))

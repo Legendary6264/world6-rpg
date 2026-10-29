@@ -9,7 +9,7 @@ const directory=await mkdtemp(join(tmpdir(),'grani-tutorial-'))
 test.after(()=>rm(directory,{recursive:true,force:true}))
 for(const file of await readdir('src')){
  if(!file.endsWith('.ts'))continue
- const js=ts.transpileModule(await readFile('src/'+file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2023,module:ts.ModuleKind.ESNext}}).outputText.replace(/(from\s+['"]\.\/[^'"]+)(['"])/g,(_,a,b)=>a+'.mjs'+b)
+ const js=ts.transpileModule(await readFile('src/'+file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2023,module:ts.ModuleKind.ESNext}}).outputText.replace(/(from\s+['"]\.\/[^'"]+)(['"])/g,(_,a,b)=>a.replace(/\.ts$/,'')+'.mjs'+b)
  await writeFile(join(directory,file.replace(/\.ts$/,'.mjs')),js)
 }
 const module=name=>import(pathToFileURL(join(directory,name+'.mjs')))
@@ -27,6 +27,14 @@ test('Обучение: независимые исходники, один ге
  assert.equal(a.world.campaign.trade,undefined);assert.equal(a.world.campaign.atlas,undefined);assert.equal(a.world.campaign.economy,undefined);assert.deepEqual(a.world.campaign.logs,[])
  a.world.characters[0].name='Другой';a.world.campaign.scenes.scenes[0].objects[0].name='Правка';assert.deepEqual(b,before)
  for(const field of ['accountId','ownerId','permissions','token','lobbyId'])assert.equal(a[field],undefined)
+})
+
+test('Обучение: локальный HTTP с Web Crypto без randomUUID создаёт независимые учебные копии',()=>{
+ const descriptor=Object.getOwnPropertyDescriptor(globalThis,'crypto'),random=globalThis.crypto
+ try{
+  Object.defineProperty(globalThis,'crypto',{configurable:true,value:{getRandomValues:random.getRandomValues.bind(random)}})
+  const a=create('master'),b=create('master');assert.notEqual(a.id,b.id);assert.match(a.id,/^tutorial_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);assert(isSceneState(a.world.campaign.scenes))
+ }finally{Object.defineProperty(globalThis,'crypto',descriptor)}
 })
 test('Обучение: три сцены, расстановка, индивидуальное раскрытие, опора и Z=3',()=>{
  let s=create('master');assert(!tutorial.tutorialMap(s).contacts.some(c=>c.kind==='identified'))

@@ -1,3 +1,6 @@
+import type {AbilityVisualSpec} from './abilityVisuals'
+import {operationLabels} from './tabletopInteractions'
+import type {ObjectOperation} from './tabletopInteractions'
 import type { AbilitySpatial } from './rpgTypes'
 import type { ScenePosition, SceneState } from './sceneTypes'
 
@@ -9,7 +12,7 @@ export const listeningLabels = {listen:'Прислушиваться',eavesdrop:
 export type DeclaredAction = { note: string } & (
   { kind: 'move'; route: ScenePosition[]; support: 'ground' | 'air' } |
   { kind: 'wait'; seconds: number; listening?:ListeningIntent } |
-  { kind: 'interact'; target: DeclarationTarget; operation: 'inspect' | 'open' | 'close' | 'take' | 'activate' } |
+  { kind: 'interact'; target: DeclarationTarget; operation: 'inspect' | 'take' | 'relocate' | ObjectOperation; destination?:ScenePosition } |
   { kind: 'speak'; target: DeclarationTarget; volume: 'whisper' | 'normal' | 'shout'; text: string } |
   { kind: 'item'; itemId: string; target: DeclarationTarget; quantity: number; operation?: 'equip' | 'unequip' | 'activate' | 'consume' } |
   { kind: 'ability'; abilityId: string; stage: 'prepare' | 'release'; target: DeclarationTarget })
@@ -21,7 +24,7 @@ export type DeclarationCollection = { id: string; sceneId: string; sceneName: st
 export type ActionDeclarations = { version: 1; active: DeclarationCollection | null; archive: DeclarationCollection[] }
 export type DeclarationOptions = { frame: { width: number; depth: number; minZ: number; maxZ: number } | null;
   targets: { id: string; kind: 'contact' | 'object'; label: string }[];
-  items: { id: string; name: string; quantity: number }[]; abilities: { id: string; name: string; spatial?:AbilitySpatial }[] }
+  items: { id: string; name: string; quantity: number }[]; abilities: { id: string; name: string; spatial?:AbilitySpatial;rangeM?:number;visualEffect?:AbilityVisualSpec }[] }
 export type HeroDeclarations = { collection: { id: string; epoch: number; phase: DeclarationCollection['phase']; durationSeconds: number; allowReplace: boolean } | null;
   paused?: boolean; executed?: boolean; participating: boolean; canSubmit: boolean; controlStamp: string; entry: Pick<DeclarationEntry, 'revision' | 'status' | 'actions' | 'submittedAt' | 'submittedBy' | 'note'> | null;
   options: DeclarationOptions | null; readiness: { userId: string; ready: boolean }[] }
@@ -43,7 +46,7 @@ export function isDeclaredAction(v: unknown): v is DeclaredAction {
   if (v.kind === 'wait') return seconds(v.seconds)&&(v.listening===undefined||record(v.listening)&&Object.keys(v.listening).length===2&&Object.hasOwn(v.listening,'mode')&&Object.hasOwn(v.listening,'target')&&choice(v.listening.mode,['listen','eavesdrop'])&&isDeclarationTarget(v.listening.target)&&!['area','direction'].includes(v.listening.target.kind))
   if(v.listening!==undefined)return false
   if (!isDeclarationTarget(v.target) || v.kind!=='ability'&&['area','direction'].includes(v.target.kind)) return false
-  if (v.kind === 'interact') return choice(v.operation, ['inspect', 'open', 'close', 'take', 'activate']) && v.target.kind !== 'none'
+  if (v.kind === 'interact') return choice(v.operation, ['inspect', 'open', 'close', 'take', 'activate', 'deactivate', 'lock', 'unlock', 'ignite', 'extinguish', 'relocate']) && v.target.kind !== 'none' && (v.operation==='relocate'?v.target.kind==='object'&&point(v.destination):v.destination===undefined)
   if (v.kind === 'speak') return choice(v.volume, ['whisper', 'normal', 'shout']) && text(v.text, 4000) && !!v.text.trim()
   if (v.kind === 'item') return id(v.itemId) && integer(v.quantity, 100000) && v.quantity > 0 && (v.operation === undefined || choice(v.operation,['equip','unequip','activate','consume']))
   return v.kind === 'ability' && id(v.abilityId) && choice(v.stage, ['prepare', 'release'])
@@ -58,7 +61,7 @@ export function copyDeclaredAction(a: DeclaredAction): DeclaredAction {
   if (a.kind === 'move') return { kind: a.kind, note, route: a.route.map(copyPoint), support: a.support }
   if (a.kind === 'wait') return { kind: a.kind, note, seconds: a.seconds,...(a.listening?{listening:{mode:a.listening.mode,target:copyTarget(a.listening.target)}}:{}) }
   const target = copyTarget(a.target)
-  if (a.kind === 'interact') return { kind: a.kind, note, target, operation: a.operation }
+  if (a.kind === 'interact') return { kind: a.kind, note, target, operation: a.operation, ...(a.operation==='relocate'&&a.destination?{destination:copyPoint(a.destination)}:{}) }
   if (a.kind === 'speak') return { kind: a.kind, note, target, volume: a.volume, text: a.text }
   if (a.kind === 'item') return { kind: a.kind, note, target, itemId: a.itemId, quantity: a.quantity, ...(a.operation ? {operation:a.operation} : {}) }
   return { kind: a.kind, note, target, abilityId: a.abilityId, stage: a.stage }
@@ -101,7 +104,7 @@ export function actionSummary(a: DeclaredAction): string {
   if (a.kind === 'move') return 'Идти: ' + a.route.map(p => `(${p.x}; ${p.y}; ${p.z})`).join(' → ') + (a.support === 'air' ? ' · воздух' : ' · земля')
   if (a.kind === 'wait') return (a.listening?listeningLabels[a.listening.mode]:'Ждать')+': '+a.seconds+' с'
   if (a.kind === 'speak') return 'Говорить · ' + ({ whisper: 'шёпот', normal: 'обычная речь', shout: 'крик' }[a.volume]) + ': ' + a.text
-  if (a.kind === 'interact') return 'Взаимодействовать · ' + ({ inspect: 'осмотреть', open: 'открыть', close: 'закрыть', take: 'взять', activate: 'активировать' }[a.operation])
+  if (a.kind === 'interact') return 'Взаимодействовать · ' + ({ inspect: 'осмотреть', take: 'взять', relocate:'передвинуть', ...operationLabels }[a.operation])
   if (a.kind === 'item') return (a.operation ? {equip:'Экипировать',unequip:'Снять',activate:'Активировать артефакт',consume:'Использовать расходник'}[a.operation] : 'Использовать предмет') + ' · ' + a.quantity + ' шт.'
   return 'Способность · ' + (a.stage === 'prepare' ? 'подготовить' : 'применить')
 }

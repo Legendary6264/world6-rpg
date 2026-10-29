@@ -11,9 +11,9 @@ export function isQuickActionDraft(v:unknown):v is QuickActionDraft {
   return ['world','speak','item','ability'].includes(q.mode)&&['ground','air'].includes(q.movement)&&['whisper','normal','shout'].includes(q.volume)&&['self','point','selected'].includes(q.aim)&&
     typeof q.text==='string'&&q.text.length<=4000&&[q.item,q.ability].every(id=>typeof id==='string'&&id.length<=160)
 }
-export function quickAbilityTarget(spatial:AbilitySpatial|undefined,aim:QuickActionDraft['aim'],point:ScenePosition|null,selected:DeclarationTarget|null):DeclarationTarget|null {
-  if(spatial)return aim==='point'&&point?{kind:spatial.shape==='point'?'point':spatial.shape==='sphere'?'area':'direction',point}:null
-  return aim==='self'?{kind:'self'}:aim==='selected'&&selected?.kind==='contact'?selected:null
+export function quickAbilityTarget(spatial:AbilitySpatial|undefined,aim:QuickActionDraft['aim'],point:ScenePosition|null,selected:DeclarationTarget|null,selectedPoint:ScenePosition|null=null):DeclarationTarget|null {
+  if(spatial){const p=aim==='selected'?selectedPoint:aim==='point'?point:null;return p&&[p.x,p.y,p.z].every(Number.isFinite)?{kind:spatial.shape==='point'?'point':spatial.shape==='sphere'?'area':'direction',point:{...p}}:null}
+  return aim==='self'?{kind:'self'}:aim==='selected'&&(selected?.kind==='contact'||selected?.kind==='self')?selected:null
 }
 export function gameActionLabel(a:DeclaredAction,options:DeclarationOptions|null|undefined):string {
   const name=a.kind==='item'?options?.items.find(i=>i.id===a.itemId)?.name:a.kind==='ability'?options?.abilities.find(b=>b.id===a.abilityId)?.name:null

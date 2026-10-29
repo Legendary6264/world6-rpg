@@ -9,7 +9,7 @@ const directory = await mkdtemp(join(tmpdir(), 'grani-execution-'))
 test.after(() => rm(directory, { recursive: true, force: true }))
 for (const file of await readdir('src')) {
   if (!file.endsWith('.ts')) continue
-  const js = ts.transpileModule(await readFile('src/' + file, 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext } }).outputText.replace(/(from\s+['"]\.\/[^'"]+)(['"])/g, (_, a, b) => a + '.mjs' + b)
+  const js = ts.transpileModule(await readFile('src/' + file, 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext } }).outputText.replace(/(from\s+['"]\.\/[^'"]+)(['"])/g, (_, a, b) => a.replace(/\.ts$/, '') + '.mjs' + b)
   await writeFile(join(directory, file.replace(/\.ts$/, '.mjs')), js)
 }
 const module = name => import(pathToFileURL(join(directory, name + '.mjs')))
@@ -242,4 +242,39 @@ test('Движение: полёт без крыльев требует осно
   assert.equal(ownToken(calculateRound(w,c,p,'wings-flight').world).z,4)
   body.parts.leftWing.current=0
   assert.throws(()=>calculateRound(w,c,p,'broken-flight'),/явное основание/)
+})
+
+test('Состояния настольных объектов: замок, открытие, свет и ловушки исполняются в точном порядке и атомарно',async()=>{
+ const {createTabletopObject}=await module('tabletopCatalog')
+ const w=world();w.campaign.scenes.scenes[0].objects=[createTabletopObject('timber-door','door',{x:3,y:3,z:0})]
+ w.campaign.scenes.scenes[0].objects[0].locked=true
+ const before=structuredClone(w),unlockThenOpen=collection([entry('a',[door('unlock')]),entry('b',[door('open')])])
+ const opened=calculateRound(w,unlockThenOpen,input([timing('a',[100]),timing('b',[200])]),'unlock-open')
+ assert.equal(opened.world.campaign.scenes.scenes[0].objects[0].open,true);assert.equal(opened.world.campaign.scenes.scenes[0].objects[0].locked,false)
+ assert.deepEqual(opened.summary.events.map(e=>[e.kind,e.atMs]),[['unlock',amount(1000)],['open',amount(2000)]])
+ assert.deepEqual(w,before)
+ assert.throws(()=>calculateRound(w,collection([entry('a',[door('open')])]),input([timing('a',[100])],['b']),'locked'),/заперт/)
+ for(const [asset,operation,expected] of [['candle','extinguish',false],['candle','ignite',true],['trap-fire','activate',true],['trap-spikes','deactivate',false],['chest','open',true]]){
+  w.campaign.scenes.scenes[0].objects=[createTabletopObject(asset,'door',{x:3,y:3,z:0})]
+  const result=calculateRound(w,collection([entry('a',[door(operation)])]),input([timing('a',[100])],['b']),'operation-'+asset)
+  assert.equal(result.world.campaign.scenes.scenes[0].objects[0][operation==='open'?'open':'active'],expected)
+  assert.equal(result.summary.events[0].kind,operation);assert.equal(result.world.campaign.seconds,10)
+ }
+ w.campaign.scenes.scenes[0].objects=[createTabletopObject('table','door',{x:3,y:3,z:0})]
+ assert.throws(()=>calculateRound(w,collection([entry('a',[door('open')])]),input([timing('a',[100])],['b']),'table-open'),/не поддерживает/)
+})
+test('Перенос мебели: цель копируется, частичная работа не телепортирует, завершение переносит опору и соблюдает границы',async()=>{
+ const {createTabletopObject}=await module('tabletopCatalog'),{isDeclaredAction,copyDeclaredAction}=await module('actionDeclarations')
+ const w=world(),s=w.campaign.scenes.scenes[0],table=createTabletopObject('table','door',{x:4,y:4,z:0});s.objects=[table]
+ s.tokens=[{actorId:'b',x:4,y:4,z:table.height,diameter:.5,support:{kind:'object',objectId:table.id}}]
+ const action={...door('relocate'),destination:{x:7,y:6,z:0}},copy=copyDeclaredAction(action)
+ assert(isDeclaredAction(action));action.destination.x=8;assert.equal(copy.destination.x,7)
+ assert(!isDeclaredAction({...action,destination:{x:Infinity,y:0,z:0}}));assert(!isDeclaredAction({...door('open'),destination:{x:1,y:1,z:0}}))
+ const before=structuredClone(w),c=collection([entry('a',[copy])]),first=calculateRound(w,c,input([timing('a',[2000])],['b']),'furniture-part')
+ assert.deepEqual(w,before);assert.equal(first.world.campaign.scenes.scenes[0].objects[0].x,4)
+ const second=calculateRound(first.world,{...collection([]),id:'finish'},{...input([],['b']),continuations:[{actorId:'a',mode:'continue',budgetMs:1000}]},'furniture-finish')
+ const moved=second.world.campaign.scenes.scenes[0];assert.equal(moved.objects[0].x,7);assert.equal(moved.tokens[0].x,7);assert.equal(moved.tokens[0].y,6);assert.equal(moved.tokens[0].z,table.height)
+ assert.equal(second.summary.events[0].kind,'relocate')
+ const bad={...copy,destination:{x:1e7,y:6,z:0}}
+ assert.throws(()=>calculateRound(w,collection([entry('a',[bad])]),input([timing('a',[100])],['b']),'outside'));assert.deepEqual(w,before)
 })

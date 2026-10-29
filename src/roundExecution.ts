@@ -1,3 +1,7 @@
+import {moveSceneObject} from './scenes'
+import {objectOperations,supportsObjectOperation,operateSceneObject} from './tabletopInteractions'
+import type {ObjectOperation} from './tabletopInteractions'
+import {objectRelocatable} from './legacyObjectBehavior'
 import { inspectionRows, inspectionDecisions, finishInspection } from './roundInspection'
 import type { InspectionDecision } from './roundInspection'
 import type { ListeningWindow } from './roundListening'
@@ -23,15 +27,15 @@ import type { ActorTiming } from './roundTimeline'
 import type { MovementBody, MovementChange, MovementPlan } from './sceneMovement'
 import { isRoundReplay } from './roundReplay'
 import type { RoundReplay } from './roundReplay'
-export const ROUND_EXECUTOR_VERSION = 'r09-inspection-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+export const ROUND_EXECUTOR_VERSION = 'r10-tabletop-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
   missingDecisions: { actorId: string; reason: string }[]; interactionsConfirmed: boolean;
   movement?: { confirmed: boolean; bodies: MovementBody[] }; rules?: RuleDecision[]; charges?: ChargeDecision[]; replay?: RoundReplay; speech?: SpeechDecision[]; inspections?: InspectionDecision[] }
 export type RoundExecutionEvent = { actorId: string; actionIndex: number; workId: string; atMs: ExactAmount;
-  kind: 'inspect' | 'speak' | 'wait' | 'open' | 'close' | 'move' | 'item' | 'prepare' | 'ready' | 'release'; objectId?: string; castId?:string; listening?:'listen'|'eavesdrop' }
+  kind: 'inspect' | 'speak' | 'wait' | ObjectOperation | 'relocate' | 'move' | 'item' | 'prepare' | 'ready' | 'release'; objectId?: string; castId?:string; listening?:'listen'|'eavesdrop' }
 export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
   carried: { id: string; actorId: string; actionKind: string; remaining: ExactAmount; unit: string }[];
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
@@ -52,13 +56,13 @@ function supported(work: RoundWorkEntry, world: World, confirmed: boolean) {
     if(a.quantity!==1||!['self','contact'].includes(a.target.kind))throw Error('Предмет: поддержана одна доза расходника на себя/раскрытое существо или один собственный экземпляр снаряжения/артефакта.')
     return
   }
-  if (a.kind !== 'interact' || !['open', 'close'].includes(a.operation) || a.target.kind !== 'object') {
+  if (a.kind !== 'interact' || a.operation!=='relocate'&&!objectOperations.includes(a.operation as ObjectOperation) || a.target.kind !== 'object') {
     throw Error('Эта категория пока не исполняется. Верни действие на согласование.')
   }
   if (!confirmed) throw Error('Мастер должен проверить доступность объектов и подтвердить взаимодействия.')
   const objectId = a.target.id
   const object = world.campaign.scenes?.scenes.find(s => s.id === work.sceneId)?.objects.find(o => o.id === objectId)
-  if (!object || !['door', 'crate'].includes(object.kind)) throw Error('Цель исчезла или не является дверью/контейнером. Решение требуется до исполнения.')
+  if (!object || !(a.operation==='relocate'?objectRelocatable(object):supportsObjectOperation(object,a.operation))) throw Error('Цель исчезла или не поддерживает это взаимодействие. Решение требуется до исполнения.')
 }
 
 export function calculateRound(world: World, collection: DeclarationCollection, value: unknown, seed: string): { world: World; summary: RoundExecutionSummary } {
@@ -248,8 +252,9 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       const objectId = a.target.id
       const object = candidate.campaign.scenes!.scenes.find(s => s.id === work.sceneId)!.objects.find(o => o.id === objectId)!
       if (a.operation === 'close' && hasMovement) checkClosingDoor(candidate.campaign.scenes!.scenes.find(s => s.id === work.sceneId)!, objectId, bodies, movementCheck)
-      object.open = a.operation === 'open'
-      events.push({ actorId: work.actorId, actionIndex: work.origin.actionIndex, workId: work.id, atMs: at, kind: a.operation as 'open' | 'close', objectId: object.id })
+      if(a.operation==='relocate'){if(!a.destination)throw Error('Укажи новое положение объекта.');candidate.campaign.scenes=moveSceneObject(candidate.campaign.scenes!,work.sceneId!,{...object,...a.destination})}
+      else Object.assign(object,operateSceneObject(object,a.operation as ObjectOperation))
+      events.push({ actorId: work.actorId, actionIndex: work.origin.actionIndex, workId: work.id, atMs: at, kind: a.operation as ObjectOperation|'relocate', objectId: object.id })
     }
   }
   advance(duration)

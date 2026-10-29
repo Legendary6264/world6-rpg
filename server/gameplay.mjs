@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import { fail, integer, now, world as validateWorld } from './validation.mjs'
 import { requireLobbyPermission } from './permissions.mjs'
 import { isGameSceneSetup, prepareGameScene } from './generated/gameScene.mjs'
@@ -26,7 +27,7 @@ export function gameplayRoutes(app, {db,auth,updated,lockedMembership,record}) {
       if(!setup.actorIds.every(id=>rows.some(b=>b.character_id===id&&b.approved&&!b.npc)))fail(400,'Размещать можно только принятых игровых героев.')
       let candidate
       try{candidate=validateWorld(prepareGameScene(JSON.parse(lobby.world_json),setup))}catch(e){fail(400,e.message)}
-      await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?',[JSON.stringify(candidate),now(),lobby.id]);await record(tx,req,'prepare-game-scene')
+      await commitWorld(tx,lobby,candidate,{at:now()});await record(tx,req,'prepare-game-scene')
     });updated(req.params.id);res.json({revision:revision+1})
   })
 }

@@ -1,0 +1,13 @@
+{
+  "objects": 16,
+  "actors": 1,
+  "triangles": 77424,
+  "materialGroups": 39,
+  "unbatchedMeshes": 524,
+  "cutWalls": [
+    {
+      "x": 12,
+      "y": 11
+    }
+  ]
+}

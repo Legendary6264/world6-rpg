@@ -1,16 +1,21 @@
+import {commitWorld} from './world-coordinator.mjs'
+import {createCampaignCheckpoint} from './campaign-checkpoint.mjs'
 import {createHash} from 'node:crypto'
-import {fail,integer,now,id,text,choice,world as validateWorld} from './validation.mjs'
+import {fail,integer,now,id,text,choice} from './validation.mjs'
 import {requireChief} from './permissions.mjs'
 import {emptyGameSession,isGameObjectives} from './generated/gameSession.mjs'
 import {emptyDeclarations} from './generated/actionDeclarations.mjs'
 import {controlledBindings} from './lobby-access.mjs'
-import {requireCampaignRunning,campaignSession} from './round-branch.mjs'
+import {requireCampaignRunning,campaignSession,collectionExecuted} from './round-branch.mjs'
+import {roundGeneration} from './rounds.mjs'
 const exact=(v,keys)=>!!v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k))
-const sessionFor=(state,lobby)=>state.campaign.gameSession??{...emptyGameSession(),...(state.campaign.declarations?.active?{status:'playing',startedAt:lobby.created_at}:{})}
-async function commitWorld(tx,lobby,state){
- state=validateWorld(state);const result=await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?',[JSON.stringify(state),now(),lobby.id,lobby.revision]);if(Number(result.changes)!==1)fail(409,'Кампания изменилась. Загрузи актуальное состояние.')
+const sessionFor=(state,lobby)=>{
+ const s=structuredClone(state.campaign.gameSession??emptyGameSession())
+ if(lobby.status==='closed'&&s.status!=='finished')Object.assign(s,{status:'finished',startedAt:s.startedAt??lobby.created_at,finishedAt:lobby.updated_at,outcome:'stopped',summary:'Лобби закрыто. Итог и финальный снимок доступны на общем игровом столе.'})
+ else if(lobby.status==='playing'&&s.status!=='playing')Object.assign(s,{status:'playing',startedAt:s.startedAt??lobby.created_at,finishedAt:null,outcome:null,summary:''})
+ return s
 }
-async function context(tx,lobby,userId){
+export async function legacySessionContext(tx,lobby,userId){
  const world=JSON.parse(lobby.world_json),session=sessionFor(world,lobby),scene=world.campaign.scenes?.scenes.find(s=>s.id===world.campaign.scenes.activeSceneId)
  const members=await tx.all('SELECT m.user_id,m.role,u.display_name,u.disabled FROM members m JOIN users u ON u.id=m.user_id WHERE m.lobby_id=? ORDER BY m.joined_at,m.user_id',[lobby.id])
  const bindings=await controlledBindings(tx,lobby,await tx.all('SELECT * FROM character_bindings WHERE lobby_id=?',[lobby.id]))
@@ -24,9 +29,9 @@ async function context(tx,lobby,userId){
  return {world,session,scene,participants,blockers}
 }
 export function gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembership,record,store,oldCommand}){
- app.get('/api/lobbies/:id/play/session',auth.middleware,async(req,res)=>{
+ app.get('/api/lobbies/:id/play/session/details',auth.middleware,async(req,res)=>{
   const result=await db.transaction(async tx=>{
-   const {lobby,member}=await lockedMembership(tx,req),c=await context(tx,lobby,req.user.id),{ready:_ready,...session}=c.session,chief=member.role==='GM'&&lobby.owner_id===req.user.id
+   const {lobby,member}=await lockedMembership(tx,req),c=await legacySessionContext(tx,lobby,req.user.id),{ready:_ready,...session}=c.session,chief=member.role==='GM'&&lobby.owner_id===req.user.id
    return {revision:lobby.revision,session,chief,myReady:c.participants.find(p=>p.mine)?.ready??false,participants:c.participants.map(({actorIds:_actorIds,...p})=>p),blockers:c.blockers,...(chief&&c.scene?{sceneName:c.scene.name}:{}),durationSeconds:c.scene?.roundDurationSeconds??5,roundPhase:c.world.campaign.declarations?.active?.phase??null,canStart:chief&&lobby.status!=='closed'&&c.session.status==='setup'&&!c.blockers.length}
   });res.json(result)
  })
@@ -34,13 +39,13 @@ export function gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembe
   if(!exact(req.body,['ready'])||typeof req.body.ready!=='boolean')fail(400,'Укажи готовность игрока.')
   const result=await db.transaction(async tx=>{
    const {lobby,member}=await lockedMembership(tx,req);if(member.role!=='PLAYER')fail(403,'Готовность отмечает сам игрок.')
-   const c=await context(tx,lobby,req.user.id),participant=c.participants.find(p=>p.mine)
+   const c=await legacySessionContext(tx,lobby,req.user.id),participant=c.participants.find(p=>p.mine)
    if(lobby.status==='closed'||c.session.status!=='setup')fail(409,'Готовность меняется до начала игры.')
    if(req.body.ready&&(!participant?.heroCount||!participant.placed))fail(409,'Сначала выбери принятого героя и дождись подготовки сцены мастером.')
    const current=c.session.ready.find(r=>r.userId===req.user.id),next=req.body.ready?participant.actorIds:[]
    if(JSON.stringify(current?.actorIds??[])===JSON.stringify(next))return {revision:lobby.revision,duplicate:true}
    c.session.ready=c.session.ready.filter(r=>r.userId!==req.user.id);if(next.length)c.session.ready.push({userId:req.user.id,actorIds:next})
-   c.world.campaign.gameSession=c.session;await commitWorld(tx,lobby,c.world);await record(tx,req,'game-session-ready')
+   c.world.campaign.gameSession=c.session;await commitWorld(tx,lobby,c.world,{at:now()});await record(tx,req,'game-session-ready')
    return {revision:lobby.revision+1,duplicate:false}
   });if(!result.duplicate)updated(req.params.id);res.json(result)
  })
@@ -51,8 +56,9 @@ export function gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembe
   const result=await db.transaction(async tx=>{
    const {lobby,member}=await lockedMembership(tx,req);requireChief(lobby,member,req.user)
    const previous=await oldCommand(tx,lobby,req.user,b.commandKey,requestHash);if(previous)return previous
+   if(await tx.get('SELECT id FROM campaign_checkpoints WHERE lobby_id=? AND command_key=?',[lobby.id,b.commandKey]))fail(409,'Ключ уже связан с финальным снимком.')
    if(lobby.revision!==revision)fail(409,'Кампания изменилась. Загрузи состояние сессии и повтори решение.')
-   const c=await context(tx,lobby,req.user.id),s=c.session,at=now()
+   const c=await legacySessionContext(tx,lobby,req.user.id),s=c.session,at=now()
    if(b.operation==='start'){
     if(s.status!=='setup'||lobby.status==='closed')fail(409,'Эта сессия уже начата или лобби закрыто.')
     await requireCampaignRunning(tx,lobby.id);if(c.blockers.length)fail(409,c.blockers.join(' '))
@@ -75,11 +81,18 @@ export function gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembe
    }else{
     if(s.status!=='playing')fail(409,'Завершить можно только начатую игру.')
     const outcome=choice(b.outcome,['success','failure','stopped']),summary=text(b.summary,2000)
+    const active=c.world.campaign.declarations?.active
+    if(active&&!await collectionExecuted(tx,lobby.id,await roundGeneration(tx,lobby.id),active.id))fail(409,'Сначала примени текущий раунд или сохрани сбор в истории без исполнения.')
+    if(c.world.campaign.roundWork?.entries.length||c.world.characters.some(a=>a.rpg.casts.some(c=>['preparing','ready','maintaining'].includes(c.status))))fail(409,'Есть незавершённые действия. Заверши игру через общий игровой стол с подтверждением их сохранения.')
     if(outcome==='success'&&s.objectives.some(o=>!o.done))fail(409,'Сначала отметь выполненные цели или скорректируй общую задачу приключения.')
     s.status='finished';s.outcome=outcome;s.summary=summary;s.finishedAt=at
     await tx.run('INSERT INTO campaign_sessions(lobby_id,paused,changed_at,author_id,reason) VALUES(?,1,?,?,?) ON CONFLICT(lobby_id) DO UPDATE SET paused=1,changed_at=excluded.changed_at,author_id=excluded.author_id,reason=excluded.reason',[lobby.id,at,req.user.id,'Игра завершена. '+summary.slice(0,900)])
    }
    c.world.campaign.gameSession=s
+   if(b.operation==='finish'){
+    const title={success:'Победа',failure:'Неудача',stopped:'Игра остановлена'}[s.outcome],point=await createCampaignCheckpoint(tx,lobby,{name:title,commandKey:b.commandKey,requestHash,authorId:req.user.id})
+    await tx.run('INSERT INTO messages(id,lobby_id,author_id,body,created_at) VALUES(?,?,?,?,?)',['game-finish:'+point.id,lobby.id,req.user.id,'Итог игры «'+title+'»\n\n'+s.summary,point.created_at])
+   }
    const stored=await store(tx,lobby,req.user,b.commandKey,requestHash,c.world,{operation:'game-session-'+b.operation,revision:revision+1,appliedAt:at},req)
    if(['start','resume','finish'].includes(b.operation))await tx.run('UPDATE lobbies SET status=? WHERE id=?',[b.operation==='finish'?'closed':'playing',lobby.id])
    return stored
