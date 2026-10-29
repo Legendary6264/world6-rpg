@@ -1,0 +1,37 @@
+name: Prepare verified playable release
+on:
+  push:
+    branches: [work/prepare-playable-release-2026-10-29]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: contains(github.event.head_commit.message, 'Run verified source preparation')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Import and verify prepared source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "255e183a065657cc6e341ce7191a0ca5d2c17733"
+          git fetch origin 255e183a065657cc6e341ce7191a0ca5d2c17733 dc653bf7118f4c2d5518373e1d5402da51d0ead9 --no-tags
+          echo "d35aa67e6234946681f118ab0e1b301e8ac792ea149817ff2150555ece236186  .release-upload/source.pack" | sha256sum -c -
+          git index-pack --strict --stdin < .release-upload/source.pack
+          git cat-file -e '8d1d7ee2a07a03f89476ce54af3a4468215bb2d4^{tree}'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          export GIT_INDEX_FILE="$RUNNER_TEMP/release-source.index"
+          git read-tree 8d1d7ee2a07a03f89476ce54af3a4468215bb2d4
+          original_workflow="$(git rev-parse '255e183a065657cc6e341ce7191a0ca5d2c17733:.github/workflows/pages.yml')"
+          git update-index --cacheinfo "100644,$original_workflow,.github/workflows/pages.yml"
+          release_tree="$(git write-tree)"
+          release_commit="$(printf '%s\n' 'Publish verified playable editor from source c6352abe501c99483d34a9b689b89af2914ba830' | git commit-tree "$release_tree" -p 255e183a065657cc6e341ce7191a0ca5d2c17733)"
+          git push origin "$release_commit:refs/heads/release/playable-editor-2026-10-29"
+          echo "Source branch ready: $release_commit"
+          git push origin --delete work/prepare-playable-release-2026-10-29
