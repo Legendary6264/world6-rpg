@@ -2,73 +2,121 @@ import SceneAbilityOverlay, { useVisualReplay } from './SceneAbilityOverlay'
 import { sceneAbilityVisuals } from './sceneAbilityVisuals'
 import type { SceneAbilityVisual, VisualActor } from './sceneAbilityVisuals'
 import type { PointerEvent } from 'react'
-import type { Scene, SceneActor, SceneObjectKind, ScenePosition } from './sceneTypes'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import SceneRenderMode from './SceneRenderMode'
+import SceneAtmosphere from './SceneAtmosphere'
+import {sceneEnvironment,sceneEnvironmentLabels} from './sceneEnvironment'
+import {defaultLightTuning,readViewLightSettings,saveViewLightSettings} from './scene3dViewSettings'
+import {selectionAllowed} from './scene3dModel'
+import type {SelectionFilter} from './scene3dModel'
+import { masterRenderModel } from './scene3dModel'
+import type { Scene, SceneActor, ScenePosition } from './sceneTypes'
 import { artworkSource, isTiledArtwork } from './visualMedia'
+import type {TabletopBrush} from './tabletopCommands'
+import type {ScenePlacement,ScenePointOptions} from './sceneAssemblies'
+import type {PlacementSurface} from './sceneEditorPlacement'
+import {isFloorAsset} from './tabletopCatalog'
+import SceneFloorPatterns from './SceneFloorPatterns'
+import SceneObjectGlyph from './SceneObjectGlyph'
+import {schematicPickTargets} from './sceneEditorPicking'
+import type {SceneContextClient} from './sceneEditorPicking'
+import {useSchematicDrag} from './useSchematicDrag'
+import {useSchematicCamera} from './useSchematicCamera'
+import {useSchematicSelection} from './useSchematicSelection'
+import {useSchematicAssemblyPreview} from './useSchematicAssemblyPreview'
 
 type Selection = { kind: 'object'; id: string } | { kind: 'token'; id: string } | null
 export type SceneSelection = Selection
-type Props = { scene: Scene; actors: (SceneActor & VisualActor)[]; visuals?:SceneAbilityVisual[]; selection: Selection;
-  onPoint: (point: ScenePosition) => void; onSelect: (value: Selection) => void; selecting: boolean; marker?: ScenePosition }
+type Props = { focusRequest?:number;selectionFilter?:SelectionFilter;scene: Scene; actors: (SceneActor & VisualActor)[]; visuals?:SceneAbilityVisual[]; selection: Selection;
+  onMove?: (selection: NonNullable<Selection>, point: ScenePosition,options?:{surfaceId:string|null}) => boolean | void; snapStep?: number;moveSurfaces?:PlacementSurface[];
+  placement?:ScenePlacement;editorHidden?:string[];editorProtected?:string[];gizmo?:boolean;onContext?:(selection:{kind:'object'|'token'|'contact';id:string}|null,point:ScenePosition|null,client:SceneContextClient)=>void;
+  brush?:TabletopBrush;onPaintStroke?:(points:ScenePosition[])=>boolean|void;
+  onPoint: (point: ScenePosition,options?:ScenePointOptions) => void; onSelect: (value: Selection,options?:{extend?:boolean}) => void;selections?:NonNullable<Selection>[];onSelectMany?:(items:NonNullable<Selection>[])=>void; selecting: boolean; marker?: ScenePosition }
 
-// Small original SVG tiles. They remain sharp at any zoom and need no asset service.
-export function SceneGlyph({ kind, open = false }: { kind: SceneObjectKind; open?: boolean }) {
-  const tiles = {
-    wall: <><rect width="16" height="16" fill="#555567"/><path d="M0 4H16M0 10H16M5 0V4M11 4V10M5 10V16" stroke="#9693aa" strokeWidth="1"/><path d="M0 15H16" stroke="#262736"/></>,
-    door: <><rect x="1" width="14" height="16" fill="#3e384e"/><rect x="3" y="1" width={open ? 3 : 10} height="14" fill="#a88458"/><rect x="10" y="8" width="2" height="2" fill="#f7d676"/></>,
-    tree: <><rect x="6" y="10" width="4" height="6" fill="#765848"/><path d="M5 0H11V2H14V5H16V10H13V13H3V10H0V5H2V2H5Z" fill="#376c5d"/><path d="M5 2H10V4H13V6H5Z" fill="#68a078"/><rect x="3" y="8" width="8" height="3" fill="#28534d"/></>,
-    rock: <><path d="M4 1H11L15 6V13L12 16H2L0 12V6Z" fill="#777e95"/><path d="M4 2H10L12 5L5 7L2 5Z" fill="#b7bed0"/><path d="M8 9L14 7V12L11 15H4Z" fill="#515873"/></>,
-    crate: <><rect x="1" y="1" width="14" height="14" fill="#8d694f"/><path d="M2 3H14M2 8H14M2 13H14M3 2L13 14M13 2L3 14" stroke="#c69c6c" strokeWidth="2"/><rect x="1" y="1" width="14" height="14" fill="none" stroke="#4e3940"/></>,
-    platform: <><rect y="2" width="16" height="11" fill="#73748b"/><rect y="2" width="16" height="3" fill="#b4adc8"/><rect y="13" width="16" height="3" fill="#3c4056"/><path d="M3 6V11M8 6V11M13 6V11" stroke="#9698b3"/></>,
-    lamp: <><rect x="7" y="5" width="2" height="11" fill="#9299b2"/><rect x="3" y="2" width="10" height="5" fill="#674176"/><rect x="5" y="3" width="6" height="3" fill="#98f0ea"/><rect x="5" y="14" width="6" height="2" fill="#414860"/></>,
-    water: <><rect width="16" height="16" fill="#244e73"/><path d="M1 3H6M9 6H15M2 11H9M11 14H16" stroke="#54a5bc" strokeWidth="1"/></>,
-  }
-  return <svg viewBox="0 0 16 16" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true" shapeRendering="crispEdges">{tiles[kind]}</svg>
-}
+export {default as SceneGlyph} from './SceneGlyph'
 
-export default function SceneViewport({ scene, actors, selection, onPoint, onSelect, selecting, visuals, marker }: Props) {
+export function SvgSceneViewport(props:Props) {
+  const {actors,selection,onPoint,onSelect,selecting,visuals,marker,selections,selectionFilter,editorHidden,editorProtected,onContext}=props
+  const drag=useSchematicDrag(props),scene=drag.preview??props.scene
+  const svgRef=useRef<SVGSVGElement>(null),region=useSchematicSelection(props)
+  const selected=selections?.length?selections:selection?[selection]:[]
+  const camera=useSchematicCamera(svgRef,props.scene,selected,editorHidden,()=>drag.active()||region.active())
+  const assemblyPreview=useSchematicAssemblyPreview(svgRef,scene,props.placement,props.snapStep,camera.view)
+  // A request changes only the camera; selection and scene remain authoritative.
+  useEffect(()=>{if(props.focusRequest)camera.focus()},[props.focusRequest])
   const effects=visuals??sceneAbilityVisuals(scene,actors),playback=useVisualReplay(effects.some(v=>v.phase==='sequence'))
   const vertical = scene.view === 'side' ? scene.maxZ - scene.minZ : scene.depth
   const displaySize = Math.max(scene.width, vertical) * 0.022
   const tiled=isTiledArtwork(scene.background),tileSize=scene.backgroundTileSizeM??4
+  const environment=sceneEnvironment(scene)
+  const [light,setLight]=useState(()=>readViewLightSettings(environment==='underground'?'night':'day'))
+  const night=light.mode==='night'
+  function changeDay(night:boolean){const mode=night?'night':'day',next={...light,mode,tuning:defaultLightTuning(mode)} as typeof light;setLight(next);saveViewLightSettings(next)}
   const groundY = scene.maxZ - scene.groundZ
   function point(event: PointerEvent<SVGSVGElement>) {
+    if(camera.down(event)){assemblyPreview.clear();return}
+    if(region.down(event))return
+    if(event.button!==0)return
     const svg = event.currentTarget, matrix = svg.getScreenCTM()
     if (!matrix) return
     const p = svg.createSVGPoint(); p.x = event.clientX; p.y = event.clientY
     const mapped = p.matrixTransform(matrix.inverse())
+    const preview=assemblyPreview.resolve(event,mapped)
+    if(preview){event.preventDefault();svg.focus({preventScroll:true});if(preview.valid)onPoint(preview.point,{surfaceId:null,resolved:true});return}
     if (mapped.x < 0 || mapped.x > scene.width || mapped.y < 0 || mapped.y > vertical) return
     const entity = (event.target as Element).closest?.('[data-scene-entity]')
-    if (selecting && entity) {
-      onSelect({ kind: entity.getAttribute('data-scene-entity') as 'object' | 'token', id: entity.getAttribute('data-scene-id')! })
+    const protectedEntity=entity?.getAttribute('data-scene-entity')==='object'&&editorProtected?.includes(entity.getAttribute('data-scene-id')!)
+    if (selecting && entity&&!protectedEntity&&selectionAllowed({kind:entity.getAttribute('data-scene-entity') as 'object'|'token',id:entity.getAttribute('data-scene-id')!},scene.objects.find(o=>o.id===entity.getAttribute('data-scene-id'))??'actor',selectionFilter)) {
+      const picked={kind:entity.getAttribute('data-scene-entity') as 'object'|'token',id:entity.getAttribute('data-scene-id')!}
+      drag.begin(event,picked,mapped);onSelect(picked,{extend:event.shiftKey||event.ctrlKey||event.metaKey})
       return
     }
+    if(selecting){const behind=schematicPickTargets(scene,actors,mapped,{hidden:editorHidden,protected:editorProtected,filter:selectionFilter})[0];if(behind&&behind.selection.kind!=='contact'){const picked={kind:behind.selection.kind,id:behind.selection.id};drag.begin(event,picked,mapped);onSelect(picked,{extend:event.shiftKey||event.ctrlKey||event.metaKey});return}}
     onPoint({ x: mapped.x, y: scene.view === 'top' ? mapped.y : scene.depth / 2,
       z: scene.view === 'side' ? scene.maxZ - mapped.y : scene.groundZ })
   }
-  return <div className={'gb-scene-viewport gb-palette-' + scene.palette}>
-    <svg viewBox={`0 0 ${scene.width} ${vertical}`} role="group" aria-label={'Сцена «' + scene.name + '», ' + (scene.view === 'top' ? 'вид сверху' : 'вид сбоку')}
-      onPointerDown={point} className={selecting ? '' : 'gb-place-mode'}>
+  return <div data-environment={environment} data-cycle={night?'night':'day'} className={'gb-scene-viewport gb-palette-' + scene.palette+(props.onMove?' gb-map-draggable':'')+(region.mode?' gb-map-selecting':'')+(camera.panning?' gb-map-panning':camera.space?' gb-map-pan-ready':'')}>
+    <SceneAtmosphere environment={environment} night={night}/>
+    <svg ref={svgRef} viewBox={`${camera.view.x} ${camera.view.y} ${camera.view.width} ${camera.view.height}`} role="group" tabIndex={0} aria-label={'Сцена «' + scene.name + '», ' + (scene.view === 'top' ? 'вид сверху' : 'вид сбоку')}
+      onPointerMove={event=>{if(!camera.move(event)&&!region.move(event)){drag.handlers.onPointerMove(event);assemblyPreview.move(event)}}}
+      onPointerLeave={assemblyPreview.clear}
+      onPointerUp={event=>{if(camera.active())camera.end();else if(region.active())region.end();else drag.handlers.onPointerUp(event)}}
+      onPointerCancel={()=>{camera.end();region.cancel();assemblyPreview.clear();drag.handlers.onPointerCancel()}}
+      onLostPointerCapture={()=>{camera.end();region.cancel();drag.handlers.onLostPointerCapture()}}
+      onKeyDown={event=>{if(!region.keydown(event)&&!camera.keydown(event))drag.handlers.onKeyDown(event)}}
+      onPointerDown={point} onContextMenu={event=>{
+        if(!onContext)return
+        camera.end();region.cancel();assemblyPreview.clear();drag.handlers.onPointerCancel()
+        event.preventDefault()
+        const svg=event.currentTarget,matrix=svg.getScreenCTM();if(!matrix)return
+        const p=svg.createSVGPoint();p.x=event.clientX;p.y=event.clientY
+        const mapped=p.matrixTransform(matrix.inverse())
+        if(mapped.x<0||mapped.y<0||mapped.x>scene.width||mapped.y>vertical)return
+        const targets=schematicPickTargets(scene,actors,mapped,{hidden:editorHidden,protected:editorProtected,filter:selectionFilter});svg.focus({preventScroll:true})
+        onContext(targets[0]?.selection??null,{x:mapped.x,y:scene.view==='top'?mapped.y:scene.depth/2,z:scene.view==='side'?scene.maxZ-mapped.y:scene.groundZ},{x:event.clientX,y:event.clientY,targets})
+      }} className={selecting ? '' : 'gb-place-mode'}>
       <title>{scene.name}</title>
       <defs><pattern id={'ground-' + scene.id} width="3.7" height="2.9" patternUnits="userSpaceOnUse">
         <rect width="3.7" height="2.9" className="gb-ground"/><path d="M.4 .7H.8M2.7 1.8H3.1M1.2 2.4H1.5" className="gb-ground-marks" strokeWidth=".05"/>
-      </pattern>{tiled&&<pattern id={'texture-'+scene.id} width={tileSize} height={tileSize} patternUnits="userSpaceOnUse"><image href={artworkSource(scene.background)} width={tileSize} height={tileSize} preserveAspectRatio="none"/></pattern>}</defs>
+      </pattern>{tiled&&<pattern id={'texture-'+scene.id} width={tileSize} height={tileSize} patternUnits="userSpaceOnUse"><image href={artworkSource(scene.background)} width={tileSize} height={tileSize} preserveAspectRatio="none"/></pattern>}
+      <SceneFloorPatterns suffix={scene.id}/></defs>
       <rect width={scene.width} height={vertical} fill={'url(#ground-' + scene.id + ')'} />
       {tiled&&<rect width={scene.width} height={vertical} fill={'url(#texture-'+scene.id+')'}/>}
       {!tiled&&scene.background && scene.background !== 'auto' && <image href={artworkSource(scene.background, 'banner')} width={scene.width} height={vertical} preserveAspectRatio="none" opacity=".85"/>}
       {scene.view === 'side' && <><rect y={groundY} width={scene.width} height={scene.groundZ - scene.minZ} className="gb-underground"/><line x1="0" x2={scene.width} y1={groundY} y2={groundY} className="gb-ground-line"/></>}
-      {scene.objects.slice().sort((a, b) => a.z - b.z).map(o => {
+      {scene.objects.filter(o=>!editorHidden?.includes(o.id)).sort((a, b) => a.z - b.z||Number(isFloorAsset(b.asset))-Number(isFloorAsset(a.asset))).map(o => {
         const y = scene.view === 'top' ? o.y - o.depth / 2 : scene.maxZ - o.z - Math.max(o.height, .2)
         const height = scene.view === 'top' ? o.depth : Math.max(o.height, .2)
         return <g key={o.id} data-scene-entity="object" data-scene-id={o.id}>
           <title>{o.name} · Z {o.z} м</title>
-          {o.artwork && o.artwork !== 'auto' ? <image href={artworkSource(o.artwork)} x={o.x - o.width / 2} y={y} width={o.width} height={height} preserveAspectRatio="xMidYMid meet" opacity={o.kind === 'door' && o.open ? .45 : 1}/> : <svg x={o.x - o.width / 2} y={y} width={o.width} height={height} overflow="visible"><SceneGlyph kind={o.kind} open={o.open}/></svg>}
-          <rect x={o.x - o.width / 2} y={y} width={o.width} height={height} className={selection?.kind === 'object' && selection.id === o.id ? 'gb-object-selected' : 'gb-object-hit'} vectorEffect="non-scaling-stroke"/>
+          {isFloorAsset(o.asset)?<rect x={o.x-o.width/2} y={y} width={o.width} height={height} fill={'url(#'+o.asset+'-'+scene.id+')'}/>:o.artwork && o.artwork !== 'auto' ? <image href={artworkSource(o.artwork)} x={o.x - o.width / 2} y={y} width={o.width} height={height} preserveAspectRatio="xMidYMid meet" opacity={o.kind === 'door' && o.open ? .45 : 1}/> : <svg x={o.x - o.width / 2} y={y} width={o.width} height={height} overflow="visible"><SceneObjectGlyph object={o} view={scene.view}/></svg>}
+          <rect x={o.x - o.width / 2} y={y} width={o.width} height={height} className={selections?.some(s=>s.kind==='object'&&s.id===o.id)||selection?.kind === 'object' && selection.id === o.id ? 'gb-object-selected' : 'gb-object-hit'} vectorEffect="non-scaling-stroke"/>
         </g>
       })}
       {marker&&<g pointerEvents="none" aria-label="Выбранная точка входа"><circle cx={marker.x} cy={scene.view==='top'?marker.y:scene.maxZ-marker.z} r={displaySize} fill="#7ce4d044" stroke="#b7ffe8" strokeWidth="2" vectorEffect="non-scaling-stroke"/><text x={marker.x} y={(scene.view==='top'?marker.y:scene.maxZ-marker.z)-displaySize*1.5} className="gb-token-label" fontSize={displaySize}>Вход</text></g>}
       {scene.tokens.map(t => {
         const actor = actors.find(a => a.id === t.actorId), y = scene.view === 'top' ? t.y : scene.maxZ - t.z - displaySize
-        const flying = t.support.kind === 'air', selected = selection?.kind === 'token' && selection.id === t.actorId
+        const flying = t.support.kind === 'air', selected = selections?.some(s=>s.kind==='token'&&s.id===t.actorId)||selection?.kind === 'token' && selection.id === t.actorId
         return <g key={t.actorId} data-scene-entity="token" data-scene-id={t.actorId}>
           <title>{actor?.name || 'Без имени'} · X {t.x.toFixed(2)}, Y {t.y.toFixed(2)}, Z {t.z.toFixed(2)} м · {flying ? 'В воздухе' : 'На опоре'}</title>
           {scene.view === 'top' && <circle cx={t.x} cy={t.y} r={t.diameter / 2} className="gb-body-footprint" vectorEffect="non-scaling-stroke"/>}
@@ -80,8 +128,28 @@ export default function SceneViewport({ scene, actors, selection, onPoint, onSel
         </g>
       })}
       <SceneAbilityOverlay frame={scene} visuals={effects} replay={playback.replay} paused={playback.paused} enabled={playback.enabled}/>
+      {assemblyPreview.preview&&<g className="gb-assembly-preview" data-placement-preview="true" data-valid={assemblyPreview.preview.valid} pointerEvents="none" role="img" aria-label={'Предпросмотр группы: '+assemblyPreview.preview.status}>{assemblyPreview.preview.objects.map(o=><rect key={o.id} x={o.x-o.width/2} y={scene.view==='top'?o.y-o.depth/2:scene.maxZ-o.z-Math.max(.2,o.height)} width={o.width} height={scene.view==='top'?o.depth:Math.max(.2,o.height)} vectorEffect="non-scaling-stroke"/>)} </g>}
+      {region.rectangle&&<rect className="gb-schematic-marquee" {...region.rectangle} pointerEvents="none" vectorEffect="non-scaling-stroke"/>}
     </svg>
+    <div className="gb-atmosphere-controls" role="group" aria-label="Окружение схемы"><span>{sceneEnvironmentLabels[environment]}</span>{environment==='surface'&&<><button type="button" aria-pressed={!night} onClick={()=>changeDay(false)}>День</button><button type="button" aria-pressed={night} onClick={()=>changeDay(true)}>Ночь</button></>}</div>
+    {(assemblyPreview.preview?.status||drag.status)&&<div className="gb-schematic-readout" data-valid={assemblyPreview.preview?.valid??drag.valid} role="status">{assemblyPreview.preview?.status||drag.status}</div>}
     {effects.length>0&&playback.controls}
     <p className="gb-map-caption">{scene.view === 'top' ? 'X / Y' : 'X / Z'} · метры · {scene.width} × {scene.view === 'top' ? scene.depth : vertical} · высота земли {scene.groundZ} м</p>
+    <div className="gb-schematic-camera" role="toolbar" aria-label="Навигация схемы">
+      <button type="button" aria-label="Отдалить схему" title="Отдалить" disabled={camera.zoom<=50} onClick={()=>camera.zoomBy(1.25)}>−</button>
+      <output aria-label="Масштаб схемы">{camera.zoom}%</output>
+      <button type="button" aria-label="Приблизить схему" title="Приблизить" disabled={camera.zoom>=1200} onClick={()=>camera.zoomBy(.8)}>+</button>
+      <i/>{props.onSelectMany&&<button type="button" aria-label="Выделить рамкой" aria-pressed={region.mode} title="Shift + перетаскивание" disabled={!selecting||!!props.placement||!!props.brush} onClick={region.toggle}>Рамка</button>}<button type="button" title="Home" onClick={camera.reset}>Вся сцена</button><button type="button" title="F" disabled={!selected.some(s=>s.kind==='token'||!editorHidden?.includes(s.id))} onClick={camera.focus}>К выделению</button>
+    </div>
   </div>
+}
+
+const Scene3D = lazy(() => import('./Scene3D'))
+export default function SceneViewport(props: Props) {
+  const [mode, setMode] = useState<'3d' | 'map'>('3d')
+  const [unavailable, setUnavailable] = useState(false)
+  const model = useMemo(() => masterRenderModel(props.scene, props.actors, props.visuals ?? sceneAbilityVisuals(props.scene, props.actors)), [props.scene, props.actors, props.visuals])
+  return <div className="gb-viewport-shell"><SceneRenderMode mode={mode} onChange={next => { setUnavailable(false); setMode(next) }}/>{unavailable && <p role="status">3D недоступно: открыта схема. Проверь аппаратное ускорение браузера, чтобы включить 3D.</p>}{mode === 'map' ? <SvgSceneViewport {...props}/> :
+    <Suspense fallback={<p role="status">Загружаем 3D-сцену…</p>}><Scene3D focusRequest={props.focusRequest} model={model} selection={props.selection} selections={props.selections} editorHidden={props.editorHidden} editorProtected={props.editorProtected} selectionFilter={props.selectionFilter} onSelectMany={props.onSelectMany?items=>props.onSelectMany?.(items.filter(s=>s.kind!=='contact').map(s=>({kind:s.kind as 'object'|'token',id:s.id}))):undefined} marker={props.marker}
+      selecting={props.selecting} placement={props.placement} gizmo={props.gizmo} onContext={props.onContext} brush={props.brush} onPaintStroke={props.onPaintStroke} onPoint={props.onPoint} onMove={props.onMove?(s,p,options)=>s.kind==='contact'?false:props.onMove?.({kind:s.kind,id:s.id},p,options):undefined} moveSurfaces={props.moveSurfaces} snapStep={props.snapStep} onUnavailable={() => { setUnavailable(true); setMode('map') }} onSelect={(s,options) => { if (s.kind !== 'contact') props.onSelect({ kind: s.kind, id: s.id },options) }}/></Suspense>}</div>
 }

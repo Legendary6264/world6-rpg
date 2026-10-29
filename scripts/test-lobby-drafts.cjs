@@ -49,6 +49,7 @@ function modules(env = { BASE_URL: '/', DEV: true }, realControls = false) {
     const mod = { exports: {} }
     cache.set(name, mod)
     const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
+      fileName: file,
       compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
     }).outputText.replaceAll('import.meta.url', JSON.stringify(pathToFileURL(file).href)).replaceAll('import.meta.env', JSON.stringify(env))
     vm.runInThisContext('(function(require,module,exports){' + code + '\n})', { filename: file })(
@@ -85,6 +86,9 @@ async function click(text) {
 }
 
 async function fixture() {
+  // Each fixture represents a new account/browser entry. Remounts inside it
+  // still exercise the saved room; unrelated fixtures must not inherit its URL.
+  window.history.replaceState(null,'','/')
   const tree = createRoot(document.getElementById('root'))
   const accountId = crypto.randomUUID(), writes = [], previews = [], executions = [], applications = [], roundPreviews = new Map(), receipts = new Map(), cloud = [], perceptions = {}
   const members = [{ id: accountId, displayName: 'GM', lobbyRole: 'GM', permissions: [...lobbyPermissions] }, { id: 'friend-id', displayName: 'Friend', lobbyRole: 'ASSISTANT', permissions: [] }]
@@ -411,6 +415,7 @@ test('P22: метаданные не объявляют предложенный
 })
 
 async function brandFixture(account = false, verified = false) {
+  window.history.replaceState(null,'','/')
   const tree = createRoot(document.getElementById('root')), calls = []
   const context = { user: account ? { id: 'brand-account', displayName: 'Игрок', role: 'PLAYER' } : null, connected: false, loading: false, recovering: false, error: '', config: null, events: 0, request: async () => { throw Error('Brand display must not write data') }, refresh() {}, socket: null,
     supabase: { auth: { mfa: {
@@ -705,7 +710,7 @@ test('Переносимая работа: черновик сохраняет �
   const remove=document.querySelector('[aria-label="Удалить персонажа Hero a"]');assert(remove)
   await flush(()=>remove.click());assert.equal(confirmations,0)
   assert(document.body.textContent.includes('У героя есть переносимая работа'))
-  await click('Удалить сцену')
+  await click('Параметры сцены');await click('Удалить сцену')
   const saved=storage.readLobbyDraft(f.accountId,'a').world
   assert.equal(saved.characters.length,1);assert.equal(saved.campaign.scenes.scenes.length,1)
   assert.deepEqual(saved.campaign.roundWork,work);assert.equal(f.writes.length,0)
@@ -718,7 +723,7 @@ test('Сцены: расстановка сохраняется отдельно
  const f=await fixture()
  try {
   await f.open('a');await f.load();await input('[data-name]','');await input('[data-attribute]','-')
-  await input('[name="sceneName"]','Площадь');await click('Создать сцену');await click('Стена');await click('Разместить в центре')
+  await input('[name="sceneName"]','Площадь');await click('Создать сцену');await flush(()=>[...document.querySelectorAll('.gb-scene-assets button')].find(b=>b.textContent==='Стена').click());await click('Разместить в центре')
   const draft=storage.readLobbyDraft(f.accountId,'a')
   assert.equal(draft.world.characters[0].name,'');assert.equal(draft.world.characters[0].attributes.strength,'-')
   assert.equal(draft.world.campaign.scenes.scenes[0].objects.length,1)
@@ -734,14 +739,13 @@ test('Сцены: полёт и боковой вид сохраняют коо�
  const f=await fixture()
  try {
   await f.open('a');await f.load();await input('[name="sceneName"]','Высота');await click('Создать сцену')
-  await flush(()=>{const el=document.querySelector('[aria-label="Персонаж для размещения"]');el.value='hero-a';el.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
-  await click('Поставить персонажа');await click('Разместить в центре')
+  await click('Разместить героя');await flush(()=>[...document.querySelectorAll('.gb-hero-library button')].find(b=>b.textContent.includes('Hero a')).click());await click('Разместить в центре')
   await input('[name="z"]','12.5')
   document.querySelector('[name="support"]').value='air'
   await click('Сохранить положение')
   let draft=storage.readLobbyDraft(f.accountId,'a'),position=structuredClone(draft.world.campaign.scenes.scenes[0].tokens[0])
   assert.equal(position.z,12.5);assert.equal(position.support.kind,'air')
-  document.querySelector('[name="view"]').value='side'
+  await click('Параметры сцены');document.querySelector('[name="view"]').value='side'
   await click('Сохранить параметры сцены')
   draft=storage.readLobbyDraft(f.accountId,'a')
   assert.equal(draft.world.campaign.scenes.scenes[0].view,'side');assert.deepEqual(draft.world.campaign.scenes.scenes[0].tokens[0],position)
@@ -762,14 +766,13 @@ test('Сцены: клик не привязывается к сетке; уда
   await flush(()=>svg.dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,clientX:4.125,clientY:7.75})))
   let scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0],platform=scene.objects[0]
   assert.equal(platform.x,4.125);assert.equal(platform.y,7.75)
-  await flush(()=>{const el=document.querySelector('[aria-label="Персонаж для размещения"]');el.value='hero-a';el.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
-  await click('Поставить персонажа')
+  await click('Разместить героя');await flush(()=>[...document.querySelectorAll('.gb-hero-library button')].find(b=>b.textContent.includes('Hero a')).click())
   await flush(()=>svg.dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,clientX:4.125,clientY:7.75})))
   document.querySelector('[name="support"]').value='object:'+platform.id
   await click('Сохранить положение')
   scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0]
   assert.equal(scene.tokens[0].support.objectId,platform.id);assert.equal(scene.tokens[0].z,1)
-  await flush(()=>[...document.querySelectorAll('.gb-scene-sidebar button')].find(b=>b.textContent.includes('Платформа')).click())
+  await click('Объекты');await flush(()=>document.querySelector('[data-outliner-key="object:'+platform.id+'"]').click());await click('Свойства')
   await input('[name="x"]','8.25');await input('[name="height"]','3.5');await click('Сохранить параметры объекта')
   scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0]
   assert.equal(scene.tokens[0].x,8.25);assert.equal(scene.tokens[0].z,3.5)
@@ -2506,6 +2509,26 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     const room=(await api('/lobbies/mine',gm.token))[0], path='/lobbies/'+room.id
     const lobby=await api(path,gm.token), initial=await api(path+'/world',gm.token)
     assert.equal(initial.campaign.seconds,0)
+    await lobbyTab('Подготовка')
+    const share=new URL(document.querySelector('[aria-label="Ссылка приглашения"]').value)
+    assert.equal(share.searchParams.get('invite'),lobby.inviteCode);assert.equal(share.searchParams.get('lobby'),null);assert.equal(share.hash,'')
+    await click('Скопировать приглашение');await until(()=>document.body.textContent.includes('передай код приглашения'),'manual invitation fallback on HTTP')
+    // The GM uses the same current scene workspace as the private polygon,
+    // while saving only scenes through the narrow authoritative API.
+    await lobbyTab('Редактор');await until(()=>enabledButton('Открыть сцены в редакторе'),'scene editor access');await click('Открыть сцены в редакторе')
+    await until(()=>enabledButton('Добавить таверну из примера'),'scene workspace')
+    await click('Добавить таверну из примера')
+    assert(enabledButton('Сохранить сцены на сервер'))
+    assert(!enabledButton('Перейти к игровому столу'),'Unsaved scenery cannot be launched')
+    await click('Сохранить сцены на сервер')
+    await until(()=>enabledButton('Перейти к игровому столу'),'saved scene ready for game')
+    const scenery=await api(path+'/world',gm.token)
+    assert.equal(scenery.campaign.scenes.scenes.length,initial.campaign.scenes.scenes.length+1)
+    assert.equal(scenery.campaign.scenes.scenes.at(-1).tokens.length,0)
+    assert.deepEqual(scenery.characters,initial.characters);assert.equal(scenery.campaign.seconds,0)
+    assert(calls.some(c=>c.url===path+'/scenes'&&c.method==='PUT'&&c.status===200))
+    await click('Перейти к игровому столу')
+    assert.equal(document.querySelector('[aria-label="Инструменты лобби"] [aria-selected="true"]').textContent,'Играть')
     const hero={...native('characterModel').createDefaultCharacter(),id:'play-path-source',name:'Герой друзей'}
     await api('/characters/'+hero.id,player.token,'PUT',{character:hero,revision:-1})
     await account(player)
@@ -2522,7 +2545,7 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     await until(()=>document.body.textContent.includes('Мастер ещё не открыл этому герою сцену'),'undisclosed scene')
     assert.deepEqual([...document.querySelector('[aria-label="Инструменты лобби"]').children].map(b=>b.textContent),['Играть','Герои','Мир','Чат','Подготовка'])
     await account(gm,room.title)
-    await click('Открыть заявку и проверяемый лист');await until(()=>enabledButton('Принять героя'),'hero review')
+    await until(()=>enabledButton('Открыть заявку и проверяемый лист'),'fresh hero review access');await click('Открыть заявку и проверяемый лист');await until(()=>enabledButton('Принять героя'),'hero review')
     await click('Принять героя в кампанию');await until(()=>document.body.textContent.includes('Решение по листу сохранено.'),'approved hero')
     // Real game preparation UI places the accepted hero and explicitly opens selected scenery.
     const placed=await api(path+'/world',gm.token), gate=placed.campaign.scenes.scenes[0]
@@ -2548,6 +2571,9 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     await api(path+'/world',gm.token,'PUT',{revision:together.revision,world:together})
     assert.equal((await api(path,gm.token)).members.length,3)
     events++;await flush(render)
+    await lobbyTab('Играть');await until(()=>enabledButton('Начать совместную игру'),'ready multiplayer session');await click('Начать совместную игру')
+    await until(()=>document.body.textContent.includes('Игра начата.'),'session started')
+    assert.equal((await api(path,gm.token)).status,'playing')
     await lobbyTab('Раунд');await until(()=>enabledButton('Открыть инструменты заявлений'),'fresh round access');await click('Открыть инструменты заявлений')
     await until(()=>document.querySelector('[aria-label="Сцена приёма"]'),'collection editor')
     await selectValue('[aria-label="Сцена приёма"]',gate.id);await input('[aria-label="Длительность раунда, с"]','5')
@@ -2600,6 +2626,27 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     await until(()=>enabledButton('Закрыть приём заявлений'),'next collection opened')
     const continued=await api(path+'/world',gm.token);assert.equal(continued.campaign.seconds,5);assert.equal(continued.campaign.declarations.active.entries.length,0);assert.equal(continued.campaign.declarations.archive.length,1)
     await account(player2,room.title);await click('Открыть экран героя');await until(()=>document.querySelector('.gb-player-map'),'continued scene of second player')
+    // End the unused next collection explicitly, then save the shared finale through UI.
+    await account(gm,room.title);await lobbyTab('Раунд');await click('Открыть инструменты заявлений')
+    await until(()=>enabledButton('Закрыть приём заявлений'),'last empty collection');await click('Закрыть приём заявлений')
+    window.confirm=()=>true;await until(()=>enabledButton('Сохранить сбор в истории'),'archive unused collection');await click('Сохранить сбор в истории')
+    await lobbyTab('Играть');await click('Завершить игру')
+    await input('[aria-label="Название итога игры"]','Финал игры друзей')
+    await input('[aria-label="Общий итог игры"]','Оба героя завершили переход. Встречаемся в следующем приключении.')
+    await flush(()=>document.querySelector('[aria-label="Подтвердить общий итог и завершение"]').click())
+    await until(()=>enabledButton('Сохранить итог и завершить'),'finale ready after archival')
+    const beforeFinish=await api(path+'/world',gm.token)
+    await click('Сохранить итог и завершить');await until(()=>document.querySelector('[aria-label="Итог совместной игры"]'),'saved shared result')
+    const finish=calls.find(c=>c.url===path+'/play/session/finish'&&c.status===200)
+    assert(finish);assert.equal((await api(path,gm.token)).status,'closed')
+    const finished=await api(path+'/world',gm.token);assert.deepEqual(finished.campaign,beforeFinish.campaign);assert.equal(finished.revision,beforeFinish.revision+1)
+    await act(async()=>{await f.restart()})
+    assert.equal((await api(path+'/play/session/finish',gm.token,'POST',finish.body)).duplicate,true)
+    for(const accountInfo of [player,player2]){
+      await account(accountInfo,room.title);await until(()=>document.querySelector('[aria-label="Итог совместной игры"]'),'player finale')
+      assert(document.querySelector('[aria-label="Итог совместной игры"]').textContent.includes('Оба героя завершили переход.'))
+      assert(!enabledButton('Завершить игру'));assert(!enabledButton('Сохранить итог и завершить'))
+    }
     assert(!calls.some(c=>c.method!=='GET'&&c.status>=400),'UI sent no rejected mutation')
   } finally { await flush(()=>tree.unmount()) }
 })

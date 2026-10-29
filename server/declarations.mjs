@@ -1,3 +1,5 @@
+import {resolveAbilityVisual} from './generated/abilityVisuals.mjs'
+import {commitWorld} from './world-coordinator.mjs'
 import { fail, id, integer, now, worldSize } from './validation.mjs'
 import { requireLobbyPermission } from './permissions.mjs'
 import { controlledBindings, requireCharacterController } from './lobby-access.mjs'
@@ -18,7 +20,7 @@ function options(state, actor, c, npc=false) {
     return {frame:scene?{width:scene.width,depth:scene.depth,minZ:scene.minZ,maxZ:scene.maxZ}:null,
       targets:scene?[...scene.tokens.filter(t=>t.actorId!==actor.id).map(t=>({id:t.actorId,kind:'contact',label:state.characters.find(a=>a.id===t.actorId)?.name??'Существо'})),...scene.objects.map(o=>({id:o.id,kind:'object',label:o.name}))]:[],
       items:actor.rpg.inventory.filter(i=>i.quantity>0).map(i=>({id:i.id,name:i.name,quantity:i.quantity})),
-      abilities:[...new Map([...actor.rpg.abilities.filter(a=>a.approved),...actor.rpg.casts.filter(c=>c.ability.approved&&['preparing','ready'].includes(c.status)).map(c=>c.ability)].map(a=>[a.id,{id:a.id,name:a.name,...(a.spatial?{spatial:copyAbility(a).spatial}:{})}])).values()]}
+      abilities:[...new Map([...actor.rpg.abilities.filter(a=>a.approved),...actor.rpg.casts.filter(c=>c.ability.approved&&['preparing','ready'].includes(c.status)).map(c=>c.ability)].map(a=>[a.id,{id:a.id,name:a.name,rangeM:a.rangeM,visualEffect:resolveAbilityVisual(a),...(a.spatial?{spatial:copyAbility(a).spatial}:{})}])).values()]}
   }
   const p = state.campaign.perceptions?.heroes.find(h => h.actorId === actor.id) ?? emptyPerception(actor.id)
   const map = perceivedMap(p, state.campaign.scenes, state.characters)
@@ -27,7 +29,7 @@ function options(state, actor, c, npc=false) {
   return { frame: visible ? { width: visible.frame.width, depth: visible.frame.depth, minZ: visible.frame.minZ, maxZ: visible.frame.maxZ } : null,
     targets: [...(visible?.contacts ?? []).filter(t => t.kind !== 'self' && t.kind !== 'sound').map(t => ({ id: t.id, kind: 'contact', label: t.label })), ...(visible?.objects ?? []).map(o => ({ id: o.id, kind: 'object', label: o.name }))],
     items: actor.rpg.inventory.filter(i => i.quantity > 0).map(i => ({ id: i.id, name: i.name, quantity: i.quantity })),
-    abilities: [...new Map([...actor.rpg.abilities.filter(a => a.approved),...actor.rpg.casts.filter(c=>c.ability.approved&&['preparing','ready'].includes(c.status)).map(c=>c.ability)].map(a=>[a.id,{id:a.id,name:a.name,...(a.spatial?{spatial:copyAbility(a).spatial}:{})}])).values()] }
+    abilities: [...new Map([...actor.rpg.abilities.filter(a => a.approved),...actor.rpg.casts.filter(c=>c.ability.approved&&['preparing','ready'].includes(c.status)).map(c=>c.ability)].map(a=>[a.id,{id:a.id,name:a.name,rangeM:a.rangeM,visualEffect:resolveAbilityVisual(a),...(a.spatial?{spatial:copyAbility(a).spatial}:{})}])).values()] }
 }
 function prepareActions(actions, state, actor, c,npc=false) {
   const o = options(state, actor, c,npc)
@@ -39,6 +41,7 @@ function prepareActions(actions, state, actor, c,npc=false) {
     const a = copyDeclaredAction(input), focus=actionTarget(a)
     if (!o.frame && (a.kind === 'move' || focus && ['point','area','direction'].includes(focus.kind))) fail(409, 'Мастер должен открыть герою схему сцены для выбора координат.')
     if (a.kind === 'move' && !a.route.every(inFrame) || focus && ['point','area','direction'].includes(focus.kind) && !inFrame(focus.point)) fail(400, 'Проверь координаты в доступной схеме сцены.')
+    if(a.kind==='interact'&&a.operation==='relocate'&&(!o.frame||!inFrame(a.destination)))fail(400,'Укажи новое положение объекта в доступной схеме сцены.')
     if (focus && ['contact', 'object'].includes(focus.kind)) {
       const target = o.targets.find(t => t.kind === focus.kind && t.id === focus.id)
       if (!target) fail(409, 'Выбранная отметка больше не доступна герою. Проверь цель.')
@@ -71,7 +74,7 @@ function event(c, req, kind, entry) {
 async function save(tx, req, lobby, state, declarations, record, action) {
   if (!isActionDeclarations(declarations)) fail(400, 'Не удалось проверить заявления.')
   state.campaign.declarations = declarations; worldSize(state)
-  await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?', [JSON.stringify(state), now(), lobby.id])
+  await commitWorld(tx,lobby,state,{at:now()})
   await record(tx, req, action)
 }
 export function declarationRoutes(app, { db, auth, updated, lockedMembership, record }) {

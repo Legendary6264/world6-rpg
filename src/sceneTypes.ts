@@ -5,6 +5,7 @@ export type SceneObject = ScenePosition & {
   width: number; depth: number; height: number
   blocksMovement: boolean; blocksSight: boolean; canSupport: boolean; open: boolean
   artwork?: string
+  asset?: string; facing?: number; active?: boolean; locked?: boolean
 }
 export type SceneSupport = { kind: 'ground' } | { kind: 'air' } | { kind: 'object'; objectId: string }
 export type SceneToken = ScenePosition & { actorId: string; diameter: number; support: SceneSupport }
@@ -13,6 +14,7 @@ export type Scene = {
   roundDurationSeconds?: number
   width: number; depth: number; groundZ: number; minZ: number; maxZ: number
   palette: 'forest' | 'stone' | 'neon'; background?: string; backgroundTileSizeM?: number
+  environment?: 'surface' | 'underground'
   objects: SceneObject[]; tokens: SceneToken[]
 }
 export type SceneState = { version: 1; activeSceneId: string | null; scenes: Scene[] }

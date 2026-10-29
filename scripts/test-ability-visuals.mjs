@@ -15,7 +15,7 @@ await symlink(resolve('node_modules'), join(directory, 'node_modules'), 'dir')
 for (const file of ['abilityVisuals.ts', 'AbilityVisualEffect.tsx', 'AbilityVisualPicker.tsx', 'magicCatalog.ts']) {
   const source = (await readFile('src/' + file, 'utf8')).replace("import './abilityVisuals.css'", '')
   const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText
-    .replace(/(from\s+['"]\.\/[^'"]+)(['"])/g, (_, prefix, quote) => prefix + '.mjs' + quote)
+    .replace(/(from\s+['"]\.\/[^'"]+)(['"])/g, (_, prefix, quote) => prefix.replace(/\.ts$/, '') + '.mjs' + quote)
   await writeFile(join(directory, file.replace(/\.tsx?$/, '.mjs')), js)
 }
 const { default: AbilityVisualEffect } = await import(pathToFileURL(join(directory, 'AbilityVisualEffect.mjs')))

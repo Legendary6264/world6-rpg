@@ -4,6 +4,7 @@ const dom=new JSDOM('<div id="root"></div>',{url:'https://world6.example.test/'}
 Object.assign(global,{window:dom.window,document:dom.window.document,FormData:dom.window.FormData,IS_REACT_ACT_ENVIRONMENT:true})
 const React=require('react'),{act}=React,{createRoot}=require('react-dom/client'),cache=new Map()
 function load(name){
+ name=name.replace(/\.tsx?$/,'')
  if(name.endsWith('.css'))return {}
  if(cache.has(name))return cache.get(name).exports
  const file=['.tsx','.ts'].map(ext=>path.resolve('src',name+ext)).find(fs.existsSync);assert(file,name)
@@ -51,4 +52,32 @@ test('Все 60 оформлений доступны в сгруппирова�
  assert.equal(selected.familyId,'frost')
  await act(async()=>root.render(React.createElement(AbilityVisualPicker,{...props,value:selected})))
  assert.equal(document.querySelector('.w6-visual-preview [data-vfx-family]').getAttribute('data-vfx-family'),'frost')
+})
+
+test('Старая 3D-библиотека: четыре семейства сочетаются с поиском и сохраняют выбранную модель',async()=>{
+ const {legacyAssets}=load('legacyAssets'),labels={flora:'Деревья и растения',mineral:'Камни и минералы',furniture:'Мебель и предметы',structure:'Постройки и механизмы'}
+ const groups=Object.entries(labels).map(([id,label])=>({id,label,keys:legacyAssets.filter(a=>a.group===id).map(a=>a.id)})),value='expanded-object-wardrobe';let selected
+ await act(async()=>root.render(React.createElement(ArtworkPicker,{key:'legacy-groups',label:'Старая библиотека',presets:media.objectPresets,value,filterGroups:groups,onChange:v=>{selected=v}})))
+ const category=document.querySelector('.gb-art-filter select');assert.deepEqual([...category.options].map(o=>o.value),['all','flora','mineral','furniture','structure'])
+ await act(async()=>{category.value='furniture';category.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+ await search('мебель шкаф');assert(document.querySelectorAll('.w6-art-option').length>0)
+ const wardrobe=[...document.querySelectorAll('.w6-art-option')].find(b=>b.textContent===media.artworkLabels[value]);assert(wardrobe);await click(wardrobe);assert.equal(selected,value)
+ await search('');await act(async()=>{category.value='flora';category.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+ assert(document.querySelector('.gb-art-pagination').textContent.includes('52'))
+ for(const b of document.querySelectorAll('.w6-art-option'))assert(groups[0].keys.some(k=>media.artworkLabels[k]===b.textContent))
+ assert(document.querySelector('.gb-art-current').textContent.includes(media.artworkLabels[value]))
+})
+
+test('Старые механизмы находятся по обычным словам: ставни, шлюз и герса',async()=>{
+ let selected;await act(async()=>root.render(React.createElement(ArtworkPicker,{key:'mechanism-aliases',label:'Старая библиотека',presets:media.objectPresets,onChange:value=>{selected=value}})))
+ for(const [query,key] of [['ставни','expanded-object-shutters'],['шлюз винт','expanded-object-sluice-gate'],['герса','expanded-object-portcullis']]){
+  await search(query);const model=[...document.querySelectorAll('.w6-art-option')].find(b=>b.textContent===media.artworkLabels[key]);assert(model,query+' finds its existing model');await click(model);assert.equal(selected,key)
+ }
+})
+
+test('Старая мастерская находится по словам меха, точило и кузница',async()=>{
+ let selected;await act(async()=>root.render(React.createElement(ArtworkPicker,{key:'workshop-aliases',label:'Старая библиотека',presets:media.objectPresets,onChange:value=>{selected=value}})))
+ for(const [query,key] of [['меха','expanded-object-bellows'],['точило','expanded-object-grindstone'],['кузница наковальня','expanded-object-anvil']]){
+  await search(query);const model=[...document.querySelectorAll('.w6-art-option')].find(b=>b.textContent===media.artworkLabels[key]);assert(model,query+' finds its existing model');await click(model);assert.equal(selected,key)
+ }
 })

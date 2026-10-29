@@ -1,0 +1,126 @@
+[
+  {
+    "id": "medieval_blocks_03",
+    "source": "https://polyhaven.com/a/medieval_blocks_03",
+    "license": "CC0-1.0",
+    "files": [
+      {
+        "channel": "color",
+        "file": "stone-color.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/medieval_blocks_03/medieval_blocks_03_diff_1k.jpg",
+        "md5": "05e4e5292463b7edbde4b4a16bce1b3d",
+        "bytes": 446597,
+        "sha256": "24fa7c594efe65f6788e629c3a65ba39582af92a030c8f1d85a9f38d9698a6e2"
+      },
+      {
+        "channel": "normal",
+        "file": "stone-normal.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/medieval_blocks_03/medieval_blocks_03_nor_gl_1k.jpg",
+        "md5": "1372aac76bbc3316292e592e1f38a1b8",
+        "bytes": 729814,
+        "sha256": "413616ebcd6b559689c817b01559abf6658fb3224b92ebb5d2c96228c6ad3ecd"
+      },
+      {
+        "channel": "arm",
+        "file": "stone-arm.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/medieval_blocks_03/medieval_blocks_03_arm_1k.jpg",
+        "md5": "8ee096bab4a681cd60e1e2734514aa44",
+        "bytes": 186438,
+        "sha256": "b535ec80fd83ec98571687cc0f2870cd59d49083b834f13d916b7a7fb3c677f3"
+      }
+    ]
+  },
+  {
+    "id": "medieval_wood",
+    "source": "https://polyhaven.com/a/medieval_wood",
+    "license": "CC0-1.0",
+    "files": [
+      {
+        "channel": "color",
+        "file": "wood-color.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/medieval_wood/medieval_wood_diff_1k.jpg",
+        "md5": "6c464ccb8e5dc5b1ab1b93c05dcc4a8c",
+        "bytes": 579015,
+        "sha256": "d67f2c1291756792f42b56685c1b1c544eed6fc86d5916d02de2120756c3f910"
+      },
+      {
+        "channel": "normal",
+        "file": "wood-normal.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/medieval_wood/medieval_wood_nor_gl_1k.jpg",
+        "md5": "f392a90a1e5155b0cfdc0c9534275594",
+        "bytes": 596700,
+        "sha256": "e303f38b7e6ce6f4135b41dc0c7617515220e4e3eef40b3c610f7dc78d70d29c"
+      },
+      {
+        "channel": "arm",
+        "file": "wood-arm.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/medieval_wood/medieval_wood_arm_1k.jpg",
+        "md5": "f556e1bff61e9889ad77f6d8a4d69ca0",
+        "bytes": 259661,
+        "sha256": "01a6e45cd980b73f503ce1d955823418fe3ab79c9b9dbb7b475ca13eafe784bf"
+      }
+    ]
+  },
+  {
+    "id": "cobblestone_floor_03",
+    "source": "https://polyhaven.com/a/cobblestone_floor_03",
+    "license": "CC0-1.0",
+    "files": [
+      {
+        "channel": "color",
+        "file": "paving-color.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cobblestone_floor_03/cobblestone_floor_03_diff_1k.jpg",
+        "md5": "d5e23f634ea666527747ea22734d1984",
+        "bytes": 407878,
+        "sha256": "6b9836fe144b93e2173b89fc68356be1a9cd8da18e539a28c21cbace29e2957b"
+      },
+      {
+        "channel": "normal",
+        "file": "paving-normal.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cobblestone_floor_03/cobblestone_floor_03_nor_gl_1k.jpg",
+        "md5": "714091302c0177ff073ee385a07800e5",
+        "bytes": 407030,
+        "sha256": "6b1d8e873211d9c0795e695b8f0db9f944e2d3628509c95b6446b0ef5a14b828"
+      },
+      {
+        "channel": "arm",
+        "file": "paving-arm.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cobblestone_floor_03/cobblestone_floor_03_arm_1k.jpg",
+        "md5": "3e2051e5efaa532573482e919f9a4c53",
+        "bytes": 217694,
+        "sha256": "cf146958acf748a4e7d29844e2c3338e3bcfd28d84d3379b5b895a01110ce721"
+      }
+    ]
+  },
+  {
+    "id": "forest_ground_04",
+    "source": "https://polyhaven.com/a/forest_ground_04",
+    "license": "CC0-1.0",
+    "files": [
+      {
+        "channel": "color",
+        "file": "forest-color.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_diff_1k.jpg",
+        "md5": "6ad9df4d731a238299806f739a26af83",
+        "bytes": 541388,
+        "sha256": "2be23c8cda89e836ee4108a9d27e104824dff269f9dd4ae791e8386b12505ce3"
+      },
+      {
+        "channel": "normal",
+        "file": "forest-normal.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_nor_gl_1k.jpg",
+        "md5": "a010a0802c2d9a930c6f00d3b1f196d2",
+        "bytes": 695681,
+        "sha256": "0675000fcfbd13917aa18143e350f62f79ce99bd5661368cf3ac74392064cb9b"
+      },
+      {
+        "channel": "arm",
+        "file": "forest-arm.jpg",
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_arm_1k.jpg",
+        "md5": "3fbb079d961f59b8fac7ec4f6dab9f20",
+        "bytes": 381619,
+        "sha256": "05ab2ee42d234f1586b6e23a937bbf099c95531503cbe77734e5b55e4ba7b4b7"
+      }
+    ]
+  }
+]

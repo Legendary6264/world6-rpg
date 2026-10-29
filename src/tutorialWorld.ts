@@ -1,4 +1,5 @@
 import {createNightCrossing} from './starterCampaign'
+import {sceneEditorId} from './sceneEditorId'
 import {instantiateItem,worldFingerprint} from './rpgEngine'
 import type {World} from './rpgEngine'
 import {isCampaign} from './rpgSchema'
@@ -44,7 +45,7 @@ function disclosure(s:TutorialSession,world:World,guideVisible:boolean):World {
  const p=preparePerception({activeSceneId:scene.id,scenes:[...before.scenes.filter(k=>k.sceneId!==scene.id),value]},previous,scenes,world.characters.map(a=>a.id))
  world.campaign.perceptions={version:1,heroes:[p]};return world
 }
-export function createTutorialSession(path:TutorialPath,namespace='tutorial_'+crypto.randomUUID()):TutorialSession {
+export function createTutorialSession(path:TutorialPath,namespace='tutorial_'+sceneEditorId()):TutorialSession {
  if(!['player','master'].includes(path))throw Error('Выбери учебный путь.')
  const {world}=createNightCrossing(namespace),guide=world.characters[0],hero={...structuredClone(guide),id:namespace+':hero',name:'Учебный герой'}
  hero.profile.biography='Герой только для учебной копии; в аккаунт и лобби не переносится.';hero.profile.portrait='pixel-watcher'
@@ -149,7 +150,7 @@ export function tutorialStatementLabel(statement:TutorialStatement|null):string 
  if(a.kind==='move'){const p=a.route.at(-1)!;return 'Идти к X='+p.x+', Y='+p.y+', Z='+p.z+' м.'}
  if(a.kind==='wait')return 'Ждать '+a.seconds+' с.'
  if(a.kind==='speak')return 'Своя реплика без слушателей: «'+a.text+'».'
- if(a.kind==='interact')return {inspect:'Осмотреть раскрытую цель.',open:'Открыть раскрытый объект.',close:'Закрыть раскрытый объект.',take:'Взять предмет.',activate:'Взаимодействовать.'}[a.operation]
+ if(a.kind==='interact')return {inspect:'Осмотреть раскрытую цель.',open:'Открыть раскрытый объект.',close:'Закрыть раскрытый объект.',take:'Взять предмет.',activate:'Активировать объект.',deactivate:'Отключить объект.',ignite:'Зажечь источник света.',extinguish:'Погасить источник света.',lock:'Запереть замок.',unlock:'Отпереть замок.',relocate:'Передвинуть предмет в отмеченную точку.'}[a.operation]
  if(a.kind==='item')return 'Снарядить собственный посох.'
  return a.stage==='prepare'?'Подготовить «Сосредоточение» без цели.':'Отдельно выпустить «Сосредоточение» на себя.'
 }

@@ -1,47 +1,93 @@
-import {useEffect,useRef,useState} from 'react'
+import LobbySessionPreparation from './LobbySessionPreparation'
+import {useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {useOnline} from './onlineContext'
 import {useRemote} from './onlineHooks'
 import {NetworkError} from './onlineClient'
 import {lobbyFormKey,readLobbyForm,writeLobbyForm} from './lobbyFormDrafts'
-import {sessionStatusLabels,sessionOutcomeLabels} from './gameSession'
-import type {GameSessionView} from './gameSession'
-type Command={path:string;method:'POST'|'PUT';body:string}
-type Draft={goals:string;summary:string;outcome:'success'|'failure'|'stopped';revision?:number;command:Command|null}
-const valid=(v:unknown):v is Draft=>!!v&&typeof v==='object'&&typeof (v as Draft).goals==='string'&&typeof (v as Draft).summary==='string'&&['success','failure','stopped'].includes((v as Draft).outcome)&&((v as Draft).command===null||!!(v as Draft).command&&typeof (v as Draft).command!.path==='string'&&typeof (v as Draft).command!.body==='string'&&['POST','PUT'].includes((v as Draft).command!.method))
-export default function LobbyGameSession({accountId,lobbyId,disabled,onHeroes,onScene,onRound}:{accountId:string;lobbyId:string;disabled:boolean;onHeroes:()=>void;onScene:()=>void;onRound:()=>void}){
- const {request,refresh}=useOnline(),path='/lobbies/'+lobbyId+'/play/session',remote=useRemote<GameSessionView>(path),key=lobbyFormKey('game-session',accountId,lobbyId)
- const [draft,setDraft]=useState<Draft>(()=>readLobbyForm(key,valid)??{goals:'',summary:'',outcome:'success',command:null}),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[warning,setWarning]=useState('')
- const pending=useRef<AbortController|null>(null),active=useRef(true),v=remote.value,s=v?.session
- useEffect(()=>{active.current=true;return()=>{active.current=false;pending.current?.abort()}},[])
- useEffect(()=>()=>{pending.current?.abort();pending.current=null;if(active.current)setBusy(false)},[request])
- const locked=disabled||remote.loading||busy||!!draft.command,stale=draft.revision!==undefined&&v?.revision!==draft.revision
- function remember(next:Draft){setDraft(next);const ok=writeLobbyForm(key,next);setWarning(ok?'':'Черновик не сохранён на устройстве. Не закрывай страницу.');return ok}
- function edit(patch:Partial<Draft>){remember({...draft,goals:draft.revision===undefined?s?.objectives.map(o=>o.title).join('\n')??'':draft.goals,revision:draft.revision??v?.revision,...patch});setMessage('')}
- async function send(operation:string,extra:Record<string,unknown>={},ready?:boolean){
-  if(disabled||busy||pending.current||!v||remote.loading)return
-  if(!draft.command&&['goals','finish'].includes(operation)&&stale){setMessage('Кампания изменилась. Проверь текущую версию перед сохранением решения.');return}
-  const command=draft.command??{path:ready===undefined?path:path+'/ready',method:ready===undefined?'POST' as const:'PUT' as const,body:JSON.stringify(ready===undefined?{operation,revision:v.revision,commandKey:'session:'+crypto.randomUUID(),...extra}:{ready})}
-  if(![path,path+'/ready'].includes(command.path)||!remember({...draft,command}))return
-  const abort=new AbortController();pending.current=abort;setBusy(true)
+import {sceneEditorId} from './sceneEditorId'
+import {gameSessionLabels,isGameSessionView} from './gameSession'
+import type {FinishGameCommand,GameSessionView} from './gameSession'
+import type {Lobby} from './onlineTypes'
+
+type Draft={title:string;summary:string;confirmed:boolean;keepPending:boolean;revision?:number;command?:FinishGameCommand}
+const valid=(v:unknown):v is Draft=>{
+ if(!v||typeof v!=='object')return false
+ const d=v as Draft,c=d.command
+ return typeof d.title==='string'&&d.title.length<=80&&typeof d.summary==='string'&&d.summary.length<=4000&&typeof d.confirmed==='boolean'&&typeof d.keepPending==='boolean'&&(d.revision===undefined||Number.isSafeInteger(d.revision))&&(!c||Number.isSafeInteger(c.revision)&&typeof c.title==='string'&&c.title.length<=80&&typeof c.summary==='string'&&c.summary.length<=4000&&typeof c.keepPending==='boolean'&&typeof c.commandKey==='string'&&/^[a-zA-Z0-9_-]{8,160}$/.test(c.commandKey))
+}
+type Props={accountId:string;lobby:Lobby;disabled:boolean;onHeroes:()=>void;onRound:()=>void;onSetup:()=>void;onMembers:()=>void;onCopies:()=>void}
+export default function LobbyGameSession({accountId,lobby,disabled,onHeroes,onRound,onSetup,onMembers,onCopies}:Props){
+ const {request,refresh}=useOnline(),path='/lobbies/'+lobby.id+'/play/session',remote=useRemote<GameSessionView>(path),value=isGameSessionView(remote.value)?remote.value:null,invalid=remote.value!==null&&!value,chief=lobby.myRole==='GM'
+ const key=lobbyFormKey('game-finish',accountId,lobby.id),[draft,setDraft]=useState<Draft>(()=>readLobbyForm(key,valid)??{title:('Итог · '+lobby.title).slice(0,80),summary:'',confirmed:false,keepPending:false})
+ const [busySource,setBusySource]=useState<{request:typeof request}|null>(null),[message,setMessage]=useState(''),[warning,setWarning]=useState(''),[reason,setReason]=useState(''),[ending,setEnding]=useState(false)
+ const pending=useRef<AbortController|null>(null),mounted=useRef(true),latest=useRef({request,accountId,lobbyId:lobby.id,disabled,revision:value?.revision,loading:remote.loading,chief})
+ useLayoutEffect(()=>{latest.current={request,accountId,lobbyId:lobby.id,disabled,revision:value?.revision,loading:remote.loading,chief}})
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;pending.current?.abort()}},[])
+ useEffect(()=>()=>{pending.current?.abort();pending.current=null},[request,accountId,lobby.id])
+ const busy=busySource?.request===request
+ const unavailable=disabled||busy||remote.loading||!value,stale=draft.revision!==undefined&&draft.revision!==value?.revision
+ const acknowledged=!!draft.command&&!!value?.result&&value.result.sourceRevision===draft.command.revision&&value.result.title===draft.command.title.trim()&&value.result.summary===draft.command.summary.trim()
+ useEffect(()=>{if(!acknowledged)return;const next={...draft,command:undefined,confirmed:false,revision:undefined};writeLobbyForm(key,next);
+  // oxlint-disable-next-line react/set-state-in-effect -- A fetched durable result acknowledges a command whose HTTP response was lost.
+  setDraft(next)
+ },[acknowledged,draft,key])
+ function remember(next:Draft){setDraft(next);setWarning(writeLobbyForm(key,next)?'':'Черновик итога сохранён только в памяти. Не закрывай страницу.')}
+ function edit(patch:Partial<Draft>){remember({...draft,...patch,confirmed:false,revision:draft.revision??value?.revision})}
+ function current(){const l=latest.current;return mounted.current&&!pending.current&&!disabled&&!l.disabled&&chief&&l.chief&&l.request===request&&l.accountId===accountId&&l.lobbyId===lobby.id&&!remote.loading&&!l.loading&&value?.revision===l.revision}
+ async function send(kind:'start'|'pause'|'finish'){
+  if(!value||!current())return
+  let command=draft.command
+  if(kind==='finish'){
+   if(!command){
+    if(stale||!draft.confirmed||!draft.title.trim()||!draft.summary.trim()||value.finishBlockers?.length||(!!value.pendingWork&&!draft.keepPending))return
+    command={revision:value.revision,title:draft.title,summary:draft.summary,keepPending:draft.keepPending,commandKey:sceneEditorId()};remember({...draft,command})
+   }
+  }else if(kind==='start'?!value.canStart:!reason.trim())return
+  const abort=new AbortController();pending.current=abort;setBusySource({request});setMessage('')
   try{
-   await request(command.path,{method:command.method,body:command.body,signal:abort.signal});if(!active.current||abort.signal.aborted)return
-   remember({...draft,revision:undefined,command:null});setMessage('Изменение сессии сохранено. Все участники получат обновление.');refresh()
-  }catch(e){if(active.current&&!abort.signal.aborted){if(e instanceof NetworkError&&e.status>=400&&e.status<500)remember({...draft,command:null});setMessage((e as Error).message)}}
-  finally{if(active.current&&!abort.signal.aborted){pending.current=null;setBusy(false)}}
+   await request(kind==='pause'?'/lobbies/'+lobby.id+'/rounds/pause':path+'/'+kind,{method:'POST',signal:abort.signal,body:JSON.stringify(kind==='finish'?command:kind==='start'?{revision:value.revision}:{revision:value.revision,paused:!value.paused,reason,commandKey:sceneEditorId()})})
+   if(!mounted.current||abort.signal.aborted||pending.current!==abort)return
+   if(kind==='finish'){remember({...draft,confirmed:false,command:undefined,revision:undefined});setEnding(false)}
+   if(kind==='start')remember({...draft,confirmed:false,command:undefined,revision:undefined})
+   setMessage(kind==='finish'?'Игра завершена. Финальный снимок и общий итог сохранены.':kind==='start'?'Игра начата. Открой раунд, чтобы принять ходы игроков.':value.paused?'Игра продолжена.':'Игра на паузе. Позиции и черновики сохранены.');refresh()
+  }catch(e){
+   if(!mounted.current||abort.signal.aborted)return
+   if(kind==='finish'&&e instanceof NetworkError&&[400,403,404,409,413].includes(e.status))remember({...draft,command:undefined,confirmed:false})
+   setMessage((e as Error).message)
+  }finally{if(mounted.current&&pending.current===abort){pending.current=null;setBusySource(null)}}
  }
- function saveGoals(){if(!v||stale)return;const titles=draft.goals.split('\n').map(t=>t.trim()).filter(Boolean);if(titles.length>12||titles.some(t=>t.length>160)){setMessage('Не больше 12 целей, каждая до 160 символов.');return}const used=new Set<string>(),objectives=titles.map(title=>{const old=v.session.objectives.find(o=>o.title===title&&!used.has(o.id)),id=old?.id??crypto.randomUUID();used.add(id);return {id,title,done:old?.done??false}});void send('goals',{objectives})}
- return <section className={'gb-session-panel'+(s?.status==='finished'?' gb-session-finished':'')} aria-label="Совместная игровая сессия">
-  <header><div><small>СОВМЕСТНАЯ ИГРА</small><h3>{s?sessionStatusLabels[s.status]:'Подключаем сессию…'}</h3></div><button className="w6-button" type="button" disabled={busy} onClick={refresh}>Обновить сессию</button></header>
-  {remote.error&&<p role="alert">{remote.error}</p>}{!v&&remote.loading&&<p role="status">Получаем состояние игры с сервера…</p>}
-  {v&&s&&<>
-   {s.status==='setup'&&<><p>Выберите героев, дождитесь принятия мастером и подготовки сцены. Каждый игрок отмечает готовность, затем мастер запускает первый ход.</p><ol className="gb-session-party" aria-label="Готовность участников">{v.participants.map(p=><li key={p.userId}><strong>{p.name}{p.mine?' · ты':''}</strong><span>{!p.heroCount?'Нужен принятый герой':!p.placed?'Ожидает входа на сцену':p.ready?'Готов к игре':'Ожидаем готовность'}</span></li>)}</ol>{!v.participants.length&&<p>Отправь другу код приглашения из вкладки «Лобби».</p>}<div className="w6-buttons"><button className="w6-button" type="button" disabled={locked} onClick={onHeroes}>Выбрать или принять героев</button>{v.chief?<button className="w6-button" type="button" disabled={locked} onClick={onScene}>Подготовить сцену</button>:v.participants.some(p=>p.mine)&&<button className="w6-button w6-primary" type="button" disabled={locked||!v.participants.find(p=>p.mine)?.placed} onClick={()=>void send('ready',{},!v.myReady)}>{v.myReady?'Снять готовность':'Я готов играть'}</button>}</div>{v.chief&&<><ul aria-label="Что нужно для начала игры">{v.blockers.map(b=><li key={b}>{b}</li>)}</ul><p>{v.sceneName?'Сцена: '+v.sceneName+'. ':''}Первый ход откроется на {v.durationSeconds} с. Стоимость действий и последствия определяет мастер.</p><button className="w6-button w6-primary" type="button" disabled={locked||!v.canStart} onClick={()=>void send('start')}>Начать совместную игру</button></>}</>}
-   {s.status==='playing'&&<p>Игроки составляют и отправляют ходы. Мастер закрывает приём, рассчитывает последствия, проверяет результат и применяет раунд.{v.chief&&<button className="w6-button w6-primary" type="button" disabled={locked} onClick={onRound}>Перейти к ведению раунда</button>}</p>}
-   {!!s.objectives.length&&<section aria-label="Общие цели приключения"><h4>Общие цели</h4><ul>{s.objectives.map(o=><li key={o.id}>{v.chief&&s.status==='playing'?<label><input type="checkbox" checked={o.done} disabled={locked} onChange={e=>void send('objective',{objectiveId:o.id,done:e.currentTarget.checked})}/>{o.title}</label>:<span>{o.done?'✓ ': '○ '}{o.title}</span>}</li>)}</ul></section>}
-   {s.status==='finished'&&<div className="gb-session-result" aria-label="Итоги приключения"><h4>{s.outcome?sessionOutcomeLabels[s.outcome]:'Игра завершена'}</h4><p>{s.summary}</p><p>Состояние героев и сцены сохранено. Здесь остаются итог, журнал и история раундов.</p>{v.chief&&<button className="w6-button" type="button" disabled={locked} onClick={()=>void send('resume')}>Продолжить завершённую игру</button>}</div>}
-   {v.chief&&s.status!=='finished'&&<details className="gb-session-goals"><summary>Настроить общие цели</summary><label className="w6-field"><span>Одна цель на строку · до 12 целей</span><textarea aria-label="Цели приключения" rows={3} maxLength={2000} value={draft.revision===undefined?s.objectives.map(o=>o.title).join('\n'):draft.goals} disabled={locked} onChange={e=>edit({goals:e.currentTarget.value})}/></label>{stale&&<><p role="alert">Состояние изменилось. Проверь цели перед сохранением.</p><button className="w6-button" type="button" disabled={locked} onClick={()=>edit({revision:v.revision})}>Цели проверены</button></>}<button className="w6-button" type="button" disabled={locked||stale||draft.revision===undefined} onClick={saveGoals}>Сохранить общие цели</button></details>}
-   {v.chief&&s.status==='playing'&&<details className="gb-session-ending"><summary>Завершить приключение</summary><fieldset disabled={locked}><label className="w6-field"><span>Результат</span><select aria-label="Результат приключения" value={draft.outcome} onChange={e=>edit({outcome:e.currentTarget.value as Draft['outcome']})}>{(Object.keys(sessionOutcomeLabels) as Draft['outcome'][]).map(k=><option value={k} key={k}>{sessionOutcomeLabels[k]}</option>)}</select></label><label className="w6-field"><span>Итоги для всех игроков</span><textarea aria-label="Итоги для игроков" value={draft.summary} maxLength={2000} rows={3} onChange={e=>edit({summary:e.currentTarget.value})}/></label>{draft.outcome==='success'&&s.objectives.some(o=>!o.done)&&<p>Для победы отметь выполненные общие цели или скорректируй их список.</p>}<p>Завершение сохранит итог и остановит новые ходы. Мастер сможет продолжить эту игру позднее.</p>{stale&&<><p role="alert">Кампания изменилась. Проверь итог по текущей сцене.</p><button className="w6-button" type="button" onClick={()=>edit({revision:v.revision})}>Итоги проверены</button></>}<button className="w6-button w6-primary" type="button" disabled={stale||!draft.summary.trim()||draft.outcome==='success'&&s.objectives.some(o=>!o.done)} onClick={()=>void send('finish',{outcome:draft.outcome,summary:draft.summary})}>Завершить игру и сохранить итог</button></fieldset></details>}
+ return <section className="gb-game-session" aria-label="Совместная игра">
+  <header><div><small>Совместная игра</small><h4>{value?gameSessionLabels[value.phase]:'Проверяем состояние игры…'}</h4></div>{value&&<span className="gb-session-time">Время мира: {value.seconds.toLocaleString('ru-RU')} с</span>}</header>
+  {(remote.error||invalid)&&<p role="alert">{remote.error||'Сервер вернул несовместимое состояние игры. Обнови состояние или проверь, что сайт и API одной версии.'}</p>}
+  {value&&<>
+   {value.round&&value.status!=='closed'&&<p role="status">Ходов игроков: {value.round.received} / {value.round.total}. {value.phase==='planning'?'Каждый отправляет свой план.':value.phase==='applied'?'Результат уже сохранён. Можно начать следующий раунд или завершить игру.':value.phase==='paused'?'Ходы и исполнение продолжатся после паузы.':'Действия изменят мир после применения мастером.'}</p>}
+   {value.status==='closed'?<div className="gb-session-result" aria-label="Итог совместной игры">
+    {value.result?<><h4>{value.result.title}</h4><p className="w6-prose">{value.result.summary}</p><small>Сохранено: {new Date(value.result.finishedAt).toLocaleString('ru-RU')}</small></>:<p>Лобби закрыто. Сохранённые сцены и журнал доступны для чтения.</p>}
+    <p>Герои и их знания сохранены в кампании. Новые ходы закрыты.</p>
+    {chief&&<button className="w6-button" onClick={onCopies}>Копии и финальный снимок</button>}
+   </div>:<>
+    {chief&&value.status==='open'&&<><ol className="gb-session-ready" aria-label="Готовность к совместной игре">{value.ready?.map(r=><li key={r.id} data-done={r.done}><span aria-label={r.done?'Готово':'Нужно подготовить'}>{r.done?'✓':'○'}</span><span>{r.label}</span>{!r.done&&<button type="button" className="w6-button" onClick={r.section==='heroes'?onHeroes:r.section==='game'?onSetup:onMembers}>Открыть</button>}</li>)}</ol><p>Перед началом пригласи участников: набор закроется после старта.</p><button className="w6-button w6-primary" disabled={unavailable||!value.canStart} onClick={()=>void send('start')}>Начать совместную игру</button></>}
+    {chief&&<div className="w6-buttons gb-session-actions"><button className="w6-button" onClick={onRound}>{value.phase==='applied'?'Следующий раунд':'Открыть раунд'}</button><button className="w6-button" aria-expanded={ending} onClick={()=>setEnding(!ending)}>{ending?'Скрыть завершение':'Завершить игру'}</button></div>}
+    {!chief&&<p className="gb-game-help">{value.paused?'Мастер поставил игру на паузу. Твой план сохранён.':value.phase==='planning'?'Составь ход на карте и нажми «Отправить заявление».':value.phase==='applied'?'Проверь результат на сцене и в журнале. Следующий раунд откроет мастер.':'Выбери принятого героя ниже. Мастер открывает сцену и приём ходов.'}</p>}
+    {chief&&<details className="gb-session-pause"><summary>Перерыв и продолжение</summary><label className="w6-field"><span>Причина {value.paused?'продолжения':'паузы'}</span><input aria-label="Причина перерыва или продолжения" maxLength={1000} value={reason} onChange={e=>setReason(e.currentTarget.value)}/></label><button className="w6-button" disabled={unavailable||!reason.trim()} onClick={()=>void send('pause')}>{value.paused?'Продолжить игру':'Пауза в игре'}</button></details>}
+    {chief&&ending&&<form className="gb-session-ending" aria-label="Завершение совместной игры" onSubmit={e=>{e.preventDefault();void send('finish')}}>
+     <h4>Итог, который увидят все участники</h4>
+     <fieldset disabled={unavailable||!!draft.command}>
+      <label className="w6-field"><span>Название итога</span><input aria-label="Название итога игры" maxLength={80} required value={draft.title} onChange={e=>edit({title:e.currentTarget.value})}/></label>
+      <label className="w6-field"><span>Чем закончилась игра</span><textarea aria-label="Общий итог игры" maxLength={4000} required rows={4} value={draft.summary} onChange={e=>edit({summary:e.currentTarget.value})}/></label>
+      {!!value.pendingWork&&<label><input aria-label="Сохранить незавершённые действия" type="checkbox" checked={draft.keepPending} onChange={e=>edit({keepPending:e.currentTarget.checked})}/> Сохранить незавершённые действия и заряды ({value.pendingWork}) в финальном снимке</label>}
+      <p>Будет сохранена контрольная точка; общий итог появится у участников и в чате. Лобби закроется. Игровое время и ресурсы не изменятся.</p>
+      {stale&&<><p role="alert">Кампания изменилась. Проверь итог и состояние раунда.</p><button type="button" className="w6-button" onClick={()=>remember({...draft,revision:value.revision,confirmed:false})}>Итог проверен с текущей версией</button></>}
+      <label><input aria-label="Подтвердить общий итог и завершение" type="checkbox" checked={draft.confirmed} onChange={e=>remember({...draft,confirmed:e.currentTarget.checked,revision:draft.revision??value.revision})}/> Общий итог проверен. Сохранить снимок и завершить игру.</label>
+     </fieldset>
+     {!!value.finishBlockers?.length&&<div role="alert">{value.finishBlockers.map(b=><p key={b}>{b}</p>)}<button type="button" className="w6-button" onClick={onRound}>Разрешить текущий раунд</button></div>}
+     {draft.command&&<p role="status">Подтверждение не получено. Повтори ту же команду: второй итог или снимок не создастся.</p>}
+     <button className="w6-button w6-primary" disabled={unavailable||!draft.command&&(stale||!draft.confirmed||!draft.title.trim()||!draft.summary.trim()||!!value.finishBlockers?.length||!!value.pendingWork&&!draft.keepPending)}>{draft.command?'Повторить сохранение итога':'Сохранить итог и завершить'}</button>
+    </form>}
+   </>}
   </>}
-  {draft.command&&<div role="status"><p>Ожидается подтверждение ранее отправленной команды. Повтор использует тот же запрос.</p><button className="w6-button" type="button" disabled={disabled||busy||remote.loading} onClick={()=>void send('retry')}>Повторить отправку сессии</button></div>}
-  {warning&&<p role="alert">{warning}</p>}<p role="status">{message}</p>
+  {value&&'session' in value&&<LobbySessionPreparation accountId={accountId} lobbyId={lobby.id} disabled={unavailable} onHeroes={onHeroes} onScene={onSetup}/>}
+  <p role="status">{message}</p>{warning&&<p role="alert">{warning}</p>}
+  {(remote.error||invalid)&&<button className="w6-button" disabled={busy} onClick={refresh}>Обновить состояние игры</button>}
  </section>
 }

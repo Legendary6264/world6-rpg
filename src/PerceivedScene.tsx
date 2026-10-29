@@ -1,11 +1,18 @@
+import SceneAbilityAimOverlay from './SceneAbilityAim'
+import type {SceneAbilityAim} from './sceneAbilityAim'
 import SceneAbilityOverlay, { useVisualReplay } from './SceneAbilityOverlay'
-import { useId, useState } from 'react'
+import { lazy, Suspense, useId, useMemo, useState } from 'react'
+import SceneRenderMode from './SceneRenderMode'
+import { perceivedRenderModel } from './scene3dModel'
 import type { ScenePosition } from './sceneTypes'
 import type { PerceivedMap, VisibleContact } from './scenePerception'
-import { SceneGlyph } from './SceneViewport'
+import SceneObjectGlyph from './SceneObjectGlyph'
 import { artworkSource, isTiledArtwork } from './visualMedia'
+import {isFloorAsset} from './tabletopCatalog'
+import SceneFloorPatterns from './SceneFloorPatterns'
 import './sceneStyle.css'
-export default function PerceivedScene({ map, selected, onSelect, onPoint, onObject, selectedObject, pickedPoint, plannedRoute = [] }: { map: PerceivedMap; selected?: string; onSelect?: (id: string) => void; onPoint?: (p: ScenePosition) => void; onObject?: (id: string) => void; selectedObject?: string; pickedPoint?: ScenePosition | null; plannedRoute?: ScenePosition[] }) {
+type Props = { effectTimeMs?:number;abilityAim?:SceneAbilityAim|null; onObjectMove?:(id:string,point:ScenePosition)=>boolean; map: PerceivedMap; selected?: string; onSelect?: (id: string) => void; onPoint?: (p: ScenePosition) => void; onObject?: (id: string) => void; selectedObject?: string; pickedPoint?: ScenePosition | null; plannedRoute?: ScenePosition[] }
+export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSelect, onPoint, onObject, selectedObject, pickedPoint, plannedRoute = [] }: Props) {
   const [camera,setCamera]=useState<{sceneId:string;zoom:number;center:{x:number;y:number}|null}>({sceneId:map.frame.id,zoom:1,center:null})
   const playback=useVisualReplay(map.visuals?.some(v=>v.phase==='sequence')??false)
   const clip = useId().replace(/:/g, ''),visualClip=clip+'-visual', f = map.frame, side = f.view === 'side', vertical = side ? f.maxZ - f.minZ : f.depth
@@ -35,16 +42,16 @@ export default function PerceivedScene({ map, selected, onSelect, onPoint, onObj
       const dx=e.key==='ArrowLeft'?-1:e.key==='ArrowRight'?1:0,dy=e.key==='ArrowUp'?-1:e.key==='ArrowDown'?1:0
       onPoint({x:Math.max(0,Math.min(f.width,p.x+dx)),y:side?p.y:Math.max(0,Math.min(f.depth,p.y+dy)),z:side?Math.max(f.minZ,Math.min(f.maxZ,p.z-dy)):p.z})
     }} role="group" aria-label={map.title + (side ? ', вид сбоку' : ', вид сверху')}>
-      <defs><clipPath id={clip}>{map.areas.map(a => <rect key={a.id} x={a.x} y={side ? f.maxZ - a.z - a.height : a.y} width={a.width} height={side ? a.height : a.depth}/>)}</clipPath><clipPath id={visualClip}>{map.areas.filter(a=>a.visible).map(a=><rect key={a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth}/>)}</clipPath>{tiled&&<pattern id={clip+'-texture'} width={tileSize} height={tileSize} patternUnits="userSpaceOnUse"><image href={artworkSource(f.background)} width={tileSize} height={tileSize} preserveAspectRatio="none"/></pattern>}</defs>
+      <defs><clipPath id={clip}>{map.areas.map(a => <rect key={a.id} x={a.x} y={side ? f.maxZ - a.z - a.height : a.y} width={a.width} height={side ? a.height : a.depth}/>)}</clipPath><clipPath id={visualClip}>{map.areas.filter(a=>a.visible).map(a=><rect key={a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth}/>)}</clipPath>{tiled&&<pattern id={clip+'-texture'} width={tileSize} height={tileSize} patternUnits="userSpaceOnUse"><image href={artworkSource(f.background)} width={tileSize} height={tileSize} preserveAspectRatio="none"/></pattern>}<SceneFloorPatterns suffix={clip}/></defs>
       <rect width={f.width} height={vertical} fill="#10121d"/>
       {map.areas.map(a => <rect key={a.id} x={a.x} y={side ? f.maxZ - a.z - a.height : a.y} width={a.width} height={side ? a.height : a.depth} className={a.visible ? 'gb-ground' : 'gb-known-ground'}/>)}
       {!tiled&&f.background&&<g clipPath={'url(#'+clip+')'}><image href={artworkSource(f.background)} width={f.width} height={vertical} preserveAspectRatio="none"/>{map.areas.filter(a=>!a.visible).map(a=><rect key={a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth} fill="#10121d" opacity=".55"/>)}</g>}
       {tiled&&map.areas.map(a=><rect key={'texture-'+a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth} fill={'url(#'+clip+'-texture)'} opacity={a.visible?1:.45}/>)}
       {route.length>1&&<polyline points={route.map(p=>`${p.x},${yPoint(p)}`).join(' ')} className="gb-game-route" vectorEffect="non-scaling-stroke"/>}
       {pickedPoint&&<g className="gb-game-destination"><circle cx={pickedPoint.x} cy={yPoint(pickedPoint)} r={size*.55} vectorEffect="non-scaling-stroke"/><path d={`M${pickedPoint.x-size} ${yPoint(pickedPoint)}h${size*2}M${pickedPoint.x} ${yPoint(pickedPoint)-size}v${size*2}`} vectorEffect="non-scaling-stroke"/></g>}
-      <g clipPath={'url(#' + clip + ')'}>{map.objects.map(o => <g key={o.id} opacity={o.visible ? 1 : .48} className="gb-game-object" role={onObject?'button':undefined} tabIndex={onObject?0:undefined} aria-label={'Объект: '+o.name} onClick={e=>{if(onObject){e.stopPropagation();onObject(o.id)}}} onKeyDown={e=>{if(onObject&&(e.key==='Enter'||e.key===' ')){e.preventDefault();e.stopPropagation();onObject(o.id)}}}>
+      <g clipPath={'url(#' + clip + ')'}>{[...map.objects].sort((a,b)=>a.z-b.z||Number(isFloorAsset(b.asset))-Number(isFloorAsset(a.asset))).map(o => <g key={o.id} opacity={o.visible ? 1 : .48} className="gb-game-object" role={onObject?'button':undefined} tabIndex={onObject?0:undefined} aria-label={'Объект: '+o.name} onClick={e=>{if(onObject){e.stopPropagation();onObject(o.id)}}} onKeyDown={e=>{if(onObject&&(e.key==='Enter'||e.key===' ')){e.preventDefault();e.stopPropagation();onObject(o.id)}}}>
         {onObject&&<rect x={o.x-o.width/2} y={side?f.maxZ-o.z-Math.max(o.height,.2):o.y-o.depth/2} width={o.width} height={side?Math.max(o.height,.2):o.depth} className={selectedObject===o.id?'gb-game-object-picked':'gb-game-object-hit'} vectorEffect="non-scaling-stroke"/>}
-        {o.artwork && o.artwork !== 'auto' ? <image href={artworkSource(o.artwork)} x={o.x - o.width / 2} y={side ? f.maxZ - o.z - Math.max(o.height, .2) : o.y - o.depth / 2} width={o.width} height={side ? Math.max(o.height, .2) : o.depth} preserveAspectRatio="xMidYMid meet" opacity={o.kind === 'door' && o.open ? .45 : 1}/> : <svg x={o.x - o.width / 2} y={side ? f.maxZ - o.z - Math.max(o.height, .2) : o.y - o.depth / 2} width={o.width} height={side ? Math.max(o.height, .2) : o.depth}><SceneGlyph kind={o.kind} open={o.open}/></svg>}
+        {isFloorAsset(o.asset)?<rect x={o.x-o.width/2} y={side?f.maxZ-o.z-Math.max(o.height,.2):o.y-o.depth/2} width={o.width} height={side?Math.max(o.height,.2):o.depth} fill={'url(#'+o.asset+'-'+clip+')'}/>:o.artwork && o.artwork !== 'auto' ? <image href={artworkSource(o.artwork)} x={o.x - o.width / 2} y={side ? f.maxZ - o.z - Math.max(o.height, .2) : o.y - o.depth / 2} width={o.width} height={side ? Math.max(o.height, .2) : o.depth} preserveAspectRatio="xMidYMid meet" opacity={o.kind === 'door' && o.open ? .45 : 1}/> : <svg x={o.x - o.width / 2} y={side ? f.maxZ - o.z - Math.max(o.height, .2) : o.y - o.depth / 2} width={o.width} height={side ? Math.max(o.height, .2) : o.depth}><SceneObjectGlyph object={o} view={f.view}/></svg>}
         <title>{o.name}{o.visible ? '' : ' · последнее известное состояние'}</title>
       </g>)}</g>
       {map.contacts.map(c => <g key={c.id} className="gb-contact" role={onSelect ? 'button' : undefined} tabIndex={onSelect ? 0 : undefined} aria-label={c.label} onKeyDown={e => { if (onSelect && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(c.id) } }} onClick={e => { e.stopPropagation(); onSelect?.(c.id); if (c.kind === 'sound') onPoint?.({x:c.x,y:c.y,z:c.z??map.contacts.find(t=>t.kind==='self')?.z??f.groundZ}) }}>
@@ -56,9 +63,35 @@ export default function PerceivedScene({ map, selected, onSelect, onPoint, onObj
         <text x={c.x} y={yOf(c) + size * 1.6} fontSize={size * .55} className="gb-token-label">{c.label}</text>
         {c.z !== undefined && <text x={c.x} y={yOf(c) - size * 1.3} fontSize={size * .5} className="gb-height-label">{c.flying ? '↑ ' : ''}Z {Number(c.z.toFixed(2))} м</text>}
       </g>)}
-      <g clipPath={'url(#' + visualClip + ')'}><SceneAbilityOverlay frame={f} visuals={map.visuals??[]} replay={playback.replay} paused={playback.paused} enabled={playback.enabled}/></g>
-    </svg>{!!map.visuals?.length&&playback.controls}<p className="gb-map-caption">{side ? 'X / Z' : 'X / Y'} · метры{onPoint ? ' · нажми на землю для маршрута; стрелки уточняют отметку, когда карта в фокусе' : ''} · тёмные области неизвестны; приглушённые объекты известны по прежнему наблюдению.</p></div>
+      <g clipPath={'url(#' + visualClip + ')'}><SceneAbilityAimOverlay aim={abilityAim} frame={f}/><SceneAbilityOverlay frame={f} visuals={map.visuals??[]} replay={playback.replay} paused={playback.paused} enabled={playback.enabled} effectTimeMs={effectTimeMs}/></g>
+    </svg>{effectTimeMs===undefined&&!!map.visuals?.length&&playback.controls}<p className="gb-map-caption">{side ? 'X / Z' : 'X / Y'} · метры{onPoint ? ' · нажми на землю для маршрута; стрелки уточняют отметку, когда карта в фокусе' : ''} · тёмные области неизвестны; приглушённые объекты известны по прежнему наблюдению.</p></div>
     <div className="gb-scene-entities">{map.contacts.map(c => <button className={'w6-button' + (selected === c.id ? ' w6-active' : '')} type="button" key={c.id} onClick={e => { e.stopPropagation(); onSelect?.(c.id); if (c.kind === 'sound') onPoint?.({x:c.x,y:c.y,z:c.z??map.contacts.find(t=>t.kind==='self')?.z??f.groundZ}) }}>{c.label}<small>{c.kind === 'sound' ? 'Приблизительная отметка звука' : c.z === undefined ? 'Высота не раскрыта' : (c.flying ? 'В воздухе · ' : c.support === 'object' ? 'На опоре · ' : c.support === 'ground' ? 'На земле · ' : '') + 'Z ' + c.z + ' м'}{c.signs ? ' · ' + c.signs : ''}</small></button>)}</div>
     {side && map.contacts.some(c => c.z === undefined) && <p className="w6-copy">Отметки без известной высоты показаны условно в середине схемы.</p>}
   </section>
+}
+
+const Scene3D = lazy(() => import('./Scene3D'))
+export default function PerceivedScene(props: Props) {
+  const [mode, setMode] = useState<'3d' | 'map'>('3d'), { map } = props
+  const [unavailable, setUnavailable] = useState(false)
+  const model = useMemo(() => perceivedRenderModel(map), [map])
+  const route = useMemo(() => {
+    const self = map.contacts.find(c => c.kind === 'self')
+    return [...(self && self.z !== undefined ? [{ x: self.x, y: self.y, z: self.z }] : []), ...(props.plannedRoute ?? [])]
+  }, [map, props.plannedRoute])
+  return <div><SceneRenderMode mode={mode} onChange={next => { setUnavailable(false); setMode(next) }}/>{unavailable && <p role="status">3D недоступно: открыта схема. Проверь аппаратное ускорение браузера, чтобы включить 3D.</p>}{mode === 'map' ? <SvgPerceivedScene {...props}/> :
+    <section aria-label="Доступная сцена"><h3>{map.title}</h3><p className="w6-prose">{map.description}</p>
+      <Suspense fallback={<p role="status">Загружаем 3D-сцену…</p>}><Scene3D effectTimeMs={props.effectTimeMs} abilityAim={props.abilityAim} model={model} marker={props.pickedPoint} route={route}
+        selection={props.selectedObject ? { kind: 'object', id: props.selectedObject } : props.selected ? { kind: 'contact', id: props.selected } : null}
+        onPoint={props.onPoint} onRequestMove={props.onObjectMove?(s,p)=>s.kind==='object'?props.onObjectMove?.(s.id,p):false:undefined} onUnavailable={() => { setUnavailable(true); setMode('map') }} onSelect={s => {
+          if (s.kind === 'object') props.onObject?.(s.id)
+          else { props.onSelect?.(s.id); const contact = map.contacts.find(c => c.id === s.id)
+            if (contact?.kind === 'sound') props.onPoint?.({ x: contact.x, y: contact.y, z: contact.z ?? map.contacts.find(c => c.kind === 'self')?.z ?? map.frame.groundZ }) }
+        }}/></Suspense>
+      <p className="w6-copy">Тёмное пространство не раскрыто. Приглушённые объекты показывают последнее известное состояние. Рост фигур условный; высота без раскрытия обозначается плоской отметкой.</p>
+      <div className="gb-scene-entities">{map.contacts.map(c => <button className={'w6-button' + (props.selected === c.id ? ' w6-active' : '')} type="button" key={c.id} onClick={() => {
+        props.onSelect?.(c.id); if (c.kind === 'sound') props.onPoint?.({ x: c.x, y: c.y, z: c.z ?? map.frame.groundZ })
+      }}>{c.label}<small>{c.z === undefined ? 'Высота не раскрыта' : 'Z ' + c.z + ' м'}{c.signs ? ' · ' + c.signs : ''}</small></button>)}</div>
+      {!!props.onObject && <div className="gb-scene-entities" aria-label="Раскрытые объекты">{map.objects.map(o => <button type="button" className={'w6-button' + (props.selectedObject === o.id ? ' w6-active' : '')} key={o.id} onClick={() => props.onObject?.(o.id)}>{o.name}{o.visible ? '' : ' · последнее известное состояние'}</button>)}</div>}
+    </section>}</div>
 }

@@ -1,14 +1,14 @@
 import { isArtwork } from './visualMedia'
-import type { Scene, SceneObject, SceneObjectKind, ScenePosition, SceneState, SceneToken } from './sceneTypes'
+import {validTabletopAppearance} from './tabletopCatalog'
+import type { Scene, SceneObject, SceneState, SceneToken } from './sceneTypes'
+import {sceneObjectLabels} from './sceneObjectDefaults'
+import {validSceneEnvironment} from './sceneEnvironment'
+export {sceneObject,sceneObjectLabels} from './sceneObjectDefaults'
 
 // Storage/rendering limits, not game rules. Coordinates and dimensions are metres.
 export const MAX_SCENES = 20
 export const MAX_SCENE_OBJECTS = 250
 export const MAX_SCENE_TOKENS = 200
-export const sceneObjectLabels: Record<SceneObjectKind, string> = {
-  wall: 'Стена', door: 'Дверь', tree: 'Дерево', rock: 'Камень', crate: 'Контейнер',
-  platform: 'Платформа', lamp: 'Источник света', water: 'Вода',
-}
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const id = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(v)
 const text = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max
@@ -24,6 +24,7 @@ function validScene(v: unknown): v is Scene {
   if (!object(v) || !id(v.id) || !text(v.name, 120) || !v.name.trim() || !text(v.description, 4000) ||
       typeof v.view !== 'string' || !['top', 'side'].includes(v.view) ||
       typeof v.palette !== 'string' || !['forest', 'stone', 'neon'].includes(v.palette) ||
+      (v.environment !== undefined && !validSceneEnvironment(v.environment)) ||
       !size(v.width) || !size(v.depth) || !finite(v.groundZ) || !finite(v.minZ) || !finite(v.maxZ) ||
       v.minZ > v.groundZ || v.groundZ >= v.maxZ ||
       (v.roundDurationSeconds!==undefined&&(typeof v.roundDurationSeconds!=='number'||!Number.isFinite(v.roundDurationSeconds)||v.roundDurationSeconds<=0||v.roundDurationSeconds>86400)) ||
@@ -31,7 +32,7 @@ function validScene(v: unknown): v is Scene {
       !Array.isArray(v.objects) || v.objects.length > MAX_SCENE_OBJECTS ||
       !Array.isArray(v.tokens) || v.tokens.length > MAX_SCENE_TOKENS) return false
   if (!v.objects.every(o => object(o) && id(o.id) && text(o.name, 120) && !!o.name.trim() &&
-      typeof o.kind === 'string' && Object.hasOwn(sceneObjectLabels, o.kind) && position(o, v) && (o.artwork === undefined || isArtwork(o.artwork)) &&
+      typeof o.kind === 'string' && Object.hasOwn(sceneObjectLabels, o.kind) && validTabletopAppearance(o) && position(o, v) && (o.artwork === undefined || isArtwork(o.artwork)) &&
       size(o.width) && size(o.depth) && finite(o.height) && o.height >= 0 && Number(o.z) + o.height <= Number(v.maxZ) &&
       o.width <= Number(v.width) && o.depth <= Number(v.depth) &&
       ['blocksMovement', 'blocksSight', 'canSupport', 'open'].every(k => typeof o[k] === 'boolean'))) return false
@@ -65,11 +66,13 @@ export function copySceneState(state: SceneState): SceneState {
   return { version: 1, activeSceneId: state.activeSceneId, scenes: state.scenes.map(s => ({
     id: s.id, name: s.name, description: s.description, view: s.view, width: s.width, depth: s.depth,
     groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, palette: s.palette,
+    ...(s.environment !== undefined ? {environment:s.environment} : {}),
     ...(s.roundDurationSeconds!==undefined?{roundDurationSeconds:s.roundDurationSeconds}:{}),
     ...(s.background !== undefined ? { background: s.background } : {}), ...(s.backgroundTileSizeM!==undefined?{backgroundTileSizeM:s.backgroundTileSizeM}:{}),
     objects: s.objects.map(o => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z,
       width: o.width, depth: o.depth, height: o.height, blocksMovement: o.blocksMovement,
-      blocksSight: o.blocksSight, canSupport: o.canSupport, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}) })),
+      blocksSight: o.blocksSight, canSupport: o.canSupport, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}),
+      ...(o.asset!==undefined?{asset:o.asset}:{}),...(o.facing!==undefined?{facing:o.facing}:{}),...(o.active!==undefined?{active:o.active}:{}),...(o.locked!==undefined?{locked:o.locked}:{}) })),
     tokens: s.tokens.map(t => ({ actorId: t.actorId, x: t.x, y: t.y, z: t.z, diameter: t.diameter,
       support: t.support.kind === 'object' ? { kind: 'object', objectId: t.support.objectId } : { kind: t.support.kind } })),
   })) }
@@ -101,12 +104,6 @@ export function pruneSceneActors(state: SceneState, actorIds: string[]): SceneSt
   const next = copySceneState(state), ids = new Set(actorIds)
   next.scenes.forEach(s => { s.tokens = s.tokens.filter(t => ids.has(t.actorId)) })
   return next
-}
-export function sceneObject(kind: SceneObjectKind, objectId: string, at: ScenePosition): SceneObject {
-  return { ...at, id: objectId, kind, name: sceneObjectLabels[kind], width: kind === 'wall' ? 4 : 2,
-    depth: kind === 'wall' ? 0.5 : 2, height: kind === 'water' ? 0 : kind === 'platform' ? 1 : 2,
-    blocksMovement: !['lamp', 'water', 'platform'].includes(kind),
-    blocksSight: ['wall', 'door', 'tree', 'rock'].includes(kind), canSupport: kind === 'platform', open: false }
 }
 export function addSceneObject(state: SceneState, sceneId: string, value: SceneObject): SceneState {
   const scene = state.scenes.find(s => s.id === sceneId)

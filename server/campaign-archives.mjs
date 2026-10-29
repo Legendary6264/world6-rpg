@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import {setReplayContext,replayContext} from './edited-round-replay.mjs'
 import {lineageAnchors,setLineageAnchors,setCheckpointAnchors,rejectRetiredCommand,retireCommands} from './campaign-retention-state.mjs'
 import express from 'express'
@@ -127,5 +128,5 @@ async function installArchive(tx,lobby,a,authorId){
  await setRoundBranch(tx,lobby.id,generation,a.branch.map(mapped));await setLineageAnchors(tx,lobby.id,generation,a.anchors)
  if(a.replayId)await setReplayContext(tx,lobby.id,generation,mapped(a.replayId),worldJson,a.replayExact!==false)
  await tx.run('INSERT INTO campaign_sessions(lobby_id,paused,changed_at,author_id,reason) VALUES(?,?,?,?,?) ON CONFLICT(lobby_id) DO UPDATE SET paused=excluded.paused,changed_at=excluded.changed_at,author_id=excluded.author_id,reason=excluded.reason',[lobby.id,a.session.paused?1:0,now(),authorId,a.session.reason])
- await tx.run('UPDATE lobbies SET world_json=?,revision=?,updated_at=? WHERE id=?',[worldJson,revision,now(),lobby.id]);return {revision,generation}
+ await commitWorld(tx,lobby,worldJson,{revision,at:now()});return {revision,generation}
 }

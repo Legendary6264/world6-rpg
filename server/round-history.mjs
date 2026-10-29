@@ -1,5 +1,7 @@
-import {editedReplayRoutes,setReplayContext,replayContext} from './edited-round-replay.mjs'
-import {lineageAnchors,setLineageAnchors,checkpointAnchors,setCheckpointAnchors,rejectRetiredCommand} from './campaign-retention-state.mjs'
+import {createCampaignCheckpoint} from './campaign-checkpoint.mjs'
+import {commitWorld} from './world-coordinator.mjs'
+import {editedReplayRoutes,setReplayContext} from './edited-round-replay.mjs'
+import {lineageAnchors,setLineageAnchors,checkpointAnchors,rejectRetiredCommand} from './campaign-retention-state.mjs'
 import {createHash} from 'node:crypto'
 import {fail,id,integer,now,text,validId,world as validateWorld} from './validation.mjs'
 import {requireLobbyPermission} from './permissions.mjs'
@@ -38,14 +40,7 @@ export function roundHistoryRoutes(app,{db,auth,updated,lockedMembership,record}
    if(previous){if(previous.author_id!==req.user.id||previous.request_hash!==hash)fail(409,'Ключ уже связан с другой командой.');return {checkpoint:checkpointView(previous),duplicate:true}}
    open(lobby);if(lobby.revision!==revision)fail(409,'Кампания изменилась. Обнови историю перед сохранением.')
    for(const table of ['round_receipts','round_change_receipts','campaign_archive_receipts'])if(await tx.get('SELECT id FROM '+table+' WHERE lobby_id=? AND command_key=?',[lobby.id,b.commandKey]))fail(409,'Ключ уже связан с другой командой.')
-   const generation=await roundGeneration(tx,lobby.id),branchJson=JSON.stringify(await roundBranch(tx,lobby.id,generation)),ctx=await replayContext(tx,lobby),anchors=await lineageAnchors(tx,lobby.id,generation)
-   const replayData=ctx?await tx.get('SELECT input_json,execution_seed,executor_version FROM round_history_data WHERE receipt_id=? AND lobby_id=?',[ctx.receipt_id,lobby.id]):null
-   const replayJson=ctx&&replayData?.input_json&&replayData.execution_seed&&compatibleRoundExecutor(replayData.executor_version)?JSON.stringify({receiptId:ctx.receipt_id,exact:ctx.world_hash===fingerprint(lobby.world_json)}):null,bytes=Buffer.byteLength(lobby.world_json+branchJson+(replayJson??'')+name+JSON.stringify(anchors))
-   const size=await tx.get('SELECT COUNT(*) AS n,COALESCE(SUM(payload_bytes),0) AS bytes FROM campaign_checkpoints WHERE lobby_id=?',[lobby.id])
-   if(Number(size.n)>=20||Number(size.bytes)+bytes>32*1024*1024)fail(409,'Достигнут предел контрольных точек: 20 точек или 32 МиБ. Существующие снимки сохранены.')
-   const p={id:id(),name,created_at:now(),author_id:req.user.id,source_revision:revision}
-   await tx.run('INSERT INTO campaign_checkpoints(id,lobby_id,author_id,command_key,request_hash,name,created_at,source_generation,source_revision,world_json,branch_json,replay_json,payload_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',[p.id,lobby.id,req.user.id,b.commandKey,hash,name,p.created_at,generation,revision,lobby.world_json,branchJson,replayJson,bytes])
-   await setCheckpointAnchors(tx,lobby.id,p.id,anchors)
+   const p=await createCampaignCheckpoint(tx,lobby,{name,commandKey:b.commandKey,requestHash:hash,authorId:req.user.id})
    await record(tx,req,'save-checkpoint');return {checkpoint:p,duplicate:false}
   });if(!result.duplicate)updated(req.params.id);res.json(result)
  })
@@ -150,7 +145,7 @@ export function roundHistoryRoutes(app,{db,auth,updated,lockedMembership,record}
    if(p.operation==='rollback'){await invalidateRoundGeneration(tx,lobby.id);await setRoundBranch(tx,lobby.id,resultGeneration,branch);await setLineageAnchors(tx,lobby.id,resultGeneration,anchors)}
    else await tx.run('DELETE FROM round_replay_contexts WHERE lobby_id=?',[lobby.id])
    if(p.operation==='rollback'&&replayReceipt)await setReplayContext(tx,lobby.id,resultGeneration,replayReceipt,p.world_json,replayExact)
-   await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?',[p.world_json,receipt.appliedAt,lobby.id]);await record(tx,req,p.operation==='rollback'?'rollback-round':'cancel-pending-actions')
+   await commitWorld(tx,lobby,p.world_json,{at:receipt.appliedAt});await record(tx,req,p.operation==='rollback'?'rollback-round':'cancel-pending-actions')
    await tx.run('DELETE FROM round_previews WHERE lobby_id=?',[lobby.id]);await tx.run('DELETE FROM round_change_previews WHERE lobby_id=?',[lobby.id])
    return {receipt,duplicate:false}
   });if(!result.duplicate)updated(req.params.id);res.json(result)

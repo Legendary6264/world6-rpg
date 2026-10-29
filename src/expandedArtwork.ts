@@ -1216,7 +1216,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "desk"
+      "desk",
+      "письменный",
+      "стол",
+      "ящики"
     ],
     "file": "object-desk.svg",
     "objectKind": "platform"
@@ -1229,7 +1232,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "workbench"
+      "workbench",
+      "стол",
+      "мастерская",
+      "инструменты"
     ],
     "file": "object-workbench.svg",
     "objectKind": "platform"
@@ -1268,7 +1274,9 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "cot"
+      "cot",
+      "кровать",
+      "раскладушка"
     ],
     "file": "object-cot.svg",
     "objectKind": "platform"
@@ -1281,7 +1289,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "bedroll"
+      "bedroll",
+      "постель",
+      "спальный",
+      "мешок"
     ],
     "file": "object-bedroll.svg",
     "objectKind": "platform"
@@ -1294,7 +1305,9 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "hammock"
+      "hammock",
+      "постель",
+      "отдых"
     ],
     "file": "object-hammock.svg",
     "objectKind": "platform"
@@ -1307,7 +1320,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "bookcase"
+      "bookcase",
+      "шкаф",
+      "книги",
+      "стеллаж"
     ],
     "file": "object-bookcase.svg",
     "objectKind": "platform"
@@ -1320,7 +1336,9 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "cabinet"
+      "cabinet",
+      "шкаф",
+      "хранение"
     ],
     "file": "object-cabinet.svg",
     "objectKind": "platform"
@@ -1333,7 +1351,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "wardrobe"
+      "wardrobe",
+      "шкаф",
+      "одежда",
+      "хранение"
     ],
     "file": "object-wardrobe.svg",
     "objectKind": "platform"
@@ -1424,7 +1445,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "sack"
+      "sack",
+      "тара",
+      "мешковина",
+      "запасы"
     ],
     "file": "object-sack.svg",
     "objectKind": "crate"
@@ -1437,7 +1461,9 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "basket"
+      "basket",
+      "тара",
+      "плетение"
     ],
     "file": "object-basket.svg",
     "objectKind": "crate"
@@ -1450,7 +1476,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "jar"
+      "jar",
+      "тара",
+      "кувшин",
+      "посуда"
     ],
     "file": "object-jar.svg",
     "objectKind": "crate"
@@ -1463,7 +1492,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "amphora"
+      "amphora",
+      "тара",
+      "посуда",
+      "глина"
     ],
     "file": "object-amphora.svg",
     "objectKind": "crate"
@@ -1525,6 +1557,9 @@ export const expandedAssets: ExpandedAsset[] = [
     "label": "Наковальня",
     "category": "object",
     "tags": [
+      "кузница",
+      "ремесло",
+      "мастерская",
       "окружение",
       "интерьер",
       "мебель",
@@ -1541,7 +1576,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "интерьер",
       "мебель",
-      "forge"
+      "forge",
+      "кузница",
+      "кузнечный",
+      "огонь"
     ],
     "file": "object-forge.svg",
     "objectKind": "platform"
@@ -1675,7 +1713,11 @@ export const expandedAssets: ExpandedAsset[] = [
     "tags": [
       "окружение",
       "постройка",
-      "portcullis"
+      "portcullis",
+      "механизм",
+      "герса",
+      "цепь",
+      "подъём"
     ],
     "file": "object-portcullis.svg",
     "objectKind": "door"
@@ -1687,7 +1729,9 @@ export const expandedAssets: ExpandedAsset[] = [
     "tags": [
       "окружение",
       "постройка",
-      "gate"
+      "gate",
+      "механизм",
+      "створки"
     ],
     "file": "object-gate.svg",
     "objectKind": "door"
@@ -1711,7 +1755,12 @@ export const expandedAssets: ExpandedAsset[] = [
     "tags": [
       "окружение",
       "постройка",
-      "shutters"
+      "shutters",
+      "окно",
+      "створки",
+      "механизм",
+      "ставни",
+      "ламели"
     ],
     "file": "object-shutters.svg",
     "objectKind": "wall"
@@ -2033,6 +2082,7 @@ export const expandedAssets: ExpandedAsset[] = [
     "label": "Телега",
     "category": "object",
     "tags": [
+      "транспорт",
       "окружение",
       "постройка",
       "cart"
@@ -2045,6 +2095,7 @@ export const expandedAssets: ExpandedAsset[] = [
     "label": "Тачка",
     "category": "object",
     "tags": [
+      "транспорт",
       "окружение",
       "постройка",
       "wheelbarrow"
@@ -2095,7 +2146,9 @@ export const expandedAssets: ExpandedAsset[] = [
     "tags": [
       "окружение",
       "постройка",
-      "cage"
+      "cage",
+      "решётка",
+      "звери"
     ],
     "file": "object-cage.svg",
     "objectKind": "crate"
@@ -5626,7 +5679,11 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "kiln",
       "ремесло",
-      "интерьер"
+      "интерьер",
+      "печь",
+      "топка",
+      "керамика",
+      "огонь"
     ],
     "file": "object-kiln.svg",
     "objectKind": "platform"
@@ -5636,6 +5693,9 @@ export const expandedAssets: ExpandedAsset[] = [
     "label": "Точильный круг",
     "category": "object",
     "tags": [
+      "точило",
+      "станок",
+      "мастерская",
       "окружение",
       "grindstone",
       "ремесло",
@@ -5795,7 +5855,9 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "smokehouse",
       "ремесло",
-      "интерьер"
+      "интерьер",
+      "коптильня",
+      "дверца"
     ],
     "file": "object-smokehouse.svg",
     "objectKind": "platform"
@@ -5808,7 +5870,11 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "breadoven",
       "ремесло",
-      "интерьер"
+      "интерьер",
+      "печь",
+      "топка",
+      "выпечка",
+      "огонь"
     ],
     "file": "object-bread-oven.svg",
     "objectKind": "platform"
@@ -6263,7 +6329,9 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "sluice",
       "механизм",
-      "строительство"
+      "строительство",
+      "шлюз",
+      "винт"
     ],
     "file": "object-sluice-gate.svg",
     "objectKind": "door"
@@ -6273,6 +6341,9 @@ export const expandedAssets: ExpandedAsset[] = [
     "label": "Кузнечные мехи на раме",
     "category": "object",
     "tags": [
+      "меха",
+      "кузница",
+      "мастерская",
       "окружение",
       "bellows",
       "механизм",
@@ -6286,6 +6357,7 @@ export const expandedAssets: ExpandedAsset[] = [
     "label": "Вагонетка с рудой",
     "category": "object",
     "tags": [
+      "транспорт",
       "окружение",
       "minecart",
       "механизм",
@@ -6315,7 +6387,10 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "drawmachine",
       "механизм",
-      "строительство"
+      "строительство",
+      "мост",
+      "ворота",
+      "подъёмный"
     ],
     "file": "object-drawbridge-machine.svg",
     "objectKind": "platform"
@@ -6328,7 +6403,9 @@ export const expandedAssets: ExpandedAsset[] = [
       "окружение",
       "pitgrate",
       "механизм",
-      "строительство"
+      "строительство",
+      "люк",
+      "подземелье"
     ],
     "file": "object-trap-grate.svg",
     "objectKind": "platform"

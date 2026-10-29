@@ -1,3 +1,4 @@
+import type {SceneAbilityAim} from './sceneAbilityAim'
 import type { DeclaredAction } from './actionDeclarations'
 import GameHeroHud from './GameHeroHud'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
@@ -13,7 +14,7 @@ import LobbyWorkbench from './LobbyWorkbench'
 import LobbyConversations from './LobbyConversations'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
 const LobbyActionDeclarations = lazy(() => import('./LobbyActionDeclarations'))
-type PlayerView = { work?: import('./roundWork').PersonalRoundWork[]; seconds?: number; revision: number; hero: PlayerCharacter; map: PerceivedMap | null; canWriteNotes: boolean;
+type PlayerView = { closed?:boolean; work?: import('./roundWork').PersonalRoundWork[]; seconds?: number; revision: number; hero: PlayerCharacter; map: PerceivedMap | null; canWriteNotes: boolean;
   knowledge: { journal: Omit<JournalEntry, 'artwork' | 'eventKey'>[]; knownEffects: Omit<KnownEffect, 'createdAt' | 'updatedAt' | 'artwork'>[] }; inventory: { id: string; name: string; description: string; quantity: number }[] }
 type Note = { title: string; text: string; revision?: number }
 const valid = (v: unknown): v is Note => !!v && typeof v === 'object' && typeof (v as Note).title === 'string' && (v as Note).title.length <= 120 && typeof (v as Note).text === 'string' && (v as Note).text.length <= 8000 && ((v as Note).revision === undefined || Number.isSafeInteger((v as Note).revision))
@@ -21,6 +22,8 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
   const { request, refresh } = useOnline(), key = lobbyFormKey('player-note', accountId, lobbyId, character.id)
   const [opened, setOpened] = useState(false), [note, setNote] = useState(() => readLobbyForm(key, valid) ?? { title: '', text: '' }), [selected, setSelected] = useState('')
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [warning, setWarning] = useState(''), [query, setQuery] = useState(''), [pointChoice, setPointChoice] = useState<{sceneId:string;point:ScenePosition} | null>(null), [selectedObject,setSelectedObject]=useState(''), [queue,setQueue]=useState<DeclaredAction[]>([])
+  const [abilityAim,setAbilityAim]=useState<SceneAbilityAim|null>(null)
+  const appendSceneAction=useRef<((action:DeclaredAction)=>boolean)|null>(null)
   const active = useRef(false), pending = useRef<AbortController | null>(null)
   useEffect(() => { active.current = true; return () => { active.current = false; pending.current?.abort() } }, [])
   useEffect(() => () => pending.current?.abort(), [request])
@@ -41,9 +44,9 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
       <GameHeroHud hero={value.hero} map={value.map} seconds={value.seconds} work={value.work}/><p className="w6-copy">Сведения героя индивидуальны. Мастер управляет раскрытием; выбор отметки не перемещает героя и не тратит время.</p>
       <LobbyWorkbench label={'Разделы героя '+character.name} sections={[
         {id:'actions',label:'Сцена и действия',content:<>
-      {value.map ? <PerceivedScene map={value.map} selected={selected} onSelect={id=>{setSelected(id);setSelectedObject('')}} onObject={id=>{setSelectedObject(id);setSelected('')}} selectedObject={selectedObject} pickedPoint={pickedPoint} plannedRoute={queue.flatMap(a=>a.kind==='move'?a.route:[])} onPoint={p=>{setPointChoice({sceneId:value.map!.frame.id,point:p});setSelectedObject('');setSelected('')}}/> : <p className="gb-scene-empty">Мастер ещё не открыл этому герою сцену.</p>}
+      {value.map ? <PerceivedScene abilityAim={abilityAim} onObjectMove={value.closed?undefined:(id,point)=>{if(checkingAccess||remote.loading)return false;const accepted=appendSceneAction.current?.({kind:'interact',target:{kind:'object',id},operation:'relocate',destination:point,note:''})??false;setMessage(accepted?'Перемещение добавлено в ход. Положение изменится после исполнения раунда.':'Не удалось добавить перемещение. Проверь очередь действий.');return accepted}} map={value.map} selected={selected} onSelect={id=>{setSelected(id);setSelectedObject('')}} onObject={id=>{setSelectedObject(id);setSelected('')}} selectedObject={selectedObject} pickedPoint={pickedPoint} plannedRoute={queue.flatMap(a=>a.kind==='move'?a.route:[])} onPoint={p=>{setPointChoice({sceneId:value.map!.frame.id,point:p})}}/> : <p className="gb-scene-empty">Мастер ещё не открыл этому герою сцену.</p>}
       {value.knowledge.journal.some(e=>e.title==='Результат осмотра')&&<section className="gb-game-feed" aria-label="Последние результаты осмотра">{value.knowledge.journal.filter(e=>e.title==='Результат осмотра').slice(-3).reverse().map(e=><article key={e.id}><strong>{e.title} · {e.gameTime}</strong><p className="w6-prose">{e.text}</p></article>)}</section>}
-      <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading} selectedContact={selected} pickedPoint={pickedPoint} members={members} map={value.map} selectedObject={selectedObject} onQueue={setQueue}/></Suspense>
+      <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading||!!value.closed} selectedContact={selected} pickedPoint={pickedPoint} members={members} map={value.map} selectedObject={selectedObject} onAimChange={setAbilityAim} onQueue={setQueue} sceneActionRef={appendSceneAction}/></Suspense>
         </>},
         {id:'state',label:'Состояние',content:<div className="gb-player-tabs">
 <details open><summary>Состояние и возможности</summary>
@@ -64,7 +67,7 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
           <p className="w6-copy">Личная запись помечается как предположение и не меняет факты мастера.</p>
           {stale && <><p role="alert">Кампания изменилась. Проверь заметку перед отправкой.</p><button className="w6-button" onClick={() => remember({ ...note, revision: value.revision })}>Заметка проверена с текущей версией</button></>}
           <button className="w6-button" disabled={!note.title.trim() || !note.text.trim() || !!stale} onClick={() => void save()}>Записать личную заметку</button>
-        </fieldset> : <p className="w6-copy">Управление передано: сведения доступны для чтения, заметки записывает действующий управляющий.</p>}
+        </fieldset> : <p className="w6-copy">{value.closed?'Игра завершена. Журнал и сведения героя доступны для чтения.':'Управление передано: сведения доступны для чтения, заметки записывает действующий управляющий.'}</p>}
       </details>        </div>},
       ]}/>
     </>}{warning && <p role="alert">{warning}</p>}<p role="status">{message}</p></>}

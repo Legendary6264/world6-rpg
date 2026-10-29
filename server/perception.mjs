@@ -1,3 +1,4 @@
+import {commitWorld} from './world-coordinator.mjs'
 import { personalRoundWork } from './generated/roundWork.mjs'
 import { fail, integer, text, id, now, worldSize, playerWorld, character } from './validation.mjs'
 import { requireLobbyPermission } from './permissions.mjs'
@@ -7,7 +8,7 @@ import { emptyScenes } from './generated/scenes.mjs'
 import { emptyJournalContent, isJournalContent, isJournal, MAX_JOURNAL_ENTRIES } from './generated/characterKnowledge.mjs'
 
 const requireDisclosure = member => { requireLobbyPermission(member, 'scenes'); requireLobbyPermission(member, 'viewSecrets') }
-const checkRevision = (lobby, revision) => { if (lobby.revision !== revision) fail(409, 'Кампания изменилась. Обнови сведения перед отправкой.') }
+const checkRevision = (lobby, revision) => { if(lobby.status==='closed')fail(409,'Игра завершена. Сведения доступны только для чтения.'); if (lobby.revision !== revision) fail(409, 'Кампания изменилась. Обнови сведения перед отправкой.') }
 const publicEntry = e => ({ id: e.id, title: e.title, text: e.text, category: e.category, certainty: e.certainty, source: e.source, gameTime: e.gameTime,
   annotation: e.annotation, origin: e.origin, createdAt: e.createdAt, updatedAt: e.updatedAt })
 const publicEffect = (e, index) => ({ id: 'observation:' + index, title: e.title, description: e.description, perception: e.perception, kind: e.kind, source: e.source,
@@ -26,7 +27,7 @@ function viewHero(state, actor, binding, perception, revision) {
 }
 async function writeWorld(tx, req, lobby, state, action, record) {
   worldSize(state)
-  await tx.run('UPDATE lobbies SET world_json=?,revision=revision+1,updated_at=? WHERE id=?', [JSON.stringify(state), now(), lobby.id])
+  await commitWorld(tx,lobby,state,{at:now()})
   await record(tx, req, action)
 }
 export function perceptionRoutes(app, { db, auth, updated, lockedMembership, record }) {
@@ -34,7 +35,7 @@ export function perceptionRoutes(app, { db, auth, updated, lockedMembership, rec
     const result = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req), context = await heroContext(tx, lobby, req.params.characterId)
       if (context.binding.owner_id !== req.user.id && context.binding.control.controllerId !== req.user.id) requireDisclosure(member)
-      return { ...viewHero(context.state, context.actor, context.binding, context.perception, lobby.revision), canWriteNotes: context.binding.control.controllerId === req.user.id }
+      return { ...viewHero(context.state, context.actor, context.binding, context.perception, lobby.revision), closed:lobby.status==='closed', canWriteNotes: lobby.status!=='closed' && context.binding.control.controllerId === req.user.id }
     }); res.json(result)
   })
   app.get('/api/lobbies/:id/characters/:characterId/disclosure', auth.middleware, async (req, res) => {

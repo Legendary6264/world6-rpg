@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 const directory=await mkdtemp(join(tmpdir(),'world6-rules-'))
 try{
-for(const file of await readdir(resolve('src'))){if(!file.endsWith('.ts'))continue;const source=await readFile(resolve('src',file),'utf8'),js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2023,module:ts.ModuleKind.ESNext}}).outputText.replace(/(from\s+['"]\.\/[^'"]+)(['"])/g,(_,a,b)=>a+'.mjs'+b);await writeFile(join(directory,file.replace(/\.ts$/,'.mjs')),js)}
+for(const file of await readdir(resolve('src'))){if(!file.endsWith('.ts'))continue;const source=await readFile(resolve('src',file),'utf8'),js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2023,module:ts.ModuleKind.ESNext}}).outputText.replace(/(from\s+['"]\.\/[^'"]+)(['"])/g,(_,a,b)=>a.replace(/\.ts$/,'')+'.mjs'+b);await writeFile(join(directory,file.replace(/\.ts$/,'.mjs')),js)}
 const module=name=>import(pathToFileURL(join(directory,name+'.mjs')))
 const model=await module('characterModel'),rules=await module('creationRules'),engine=await module('rpgEngine'),schema=await module('rpgSchema'),anatomy=await module('anatomyModel'),presets=await module('characterPresets'),transfer=await module('characterTransfer'),templates=await module('contentTemplates'),uploads=await module('uploadSafety'),races=await module('raceCatalog')
 const body=await module('characterBody'),perception=await module('bodyPerception'),parameters=await module('rpgParameters')

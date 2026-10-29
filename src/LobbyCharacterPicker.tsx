@@ -9,9 +9,9 @@ function localHeroes() {
   try { return readCharacters(window.localStorage) } catch { return blockedLoad() }
 }
 
-export default function LobbyCharacterPicker({ accountId, lobbyId, revision, cloud, loading, error, disabled }: {
+export default function LobbyCharacterPicker({ accountId, lobbyId, revision, cloud, loading, error, disabled,onCreateCharacter }: {
   accountId: string; lobbyId: string; revision: number; cloud: CloudCharacter[] | null;
-  loading: boolean; error: string; disabled: boolean;
+  loading: boolean; error: string; disabled: boolean;onCreateCharacter?:()=>void;
 }) {
   const { request, refresh } = useOnline()
   const [local, setLocal] = useState(localHeroes), [selectedId, setSelectedId] = useState('')
@@ -66,11 +66,11 @@ export default function LobbyCharacterPicker({ accountId, lobbyId, revision, clo
     </label>
     <RemoteStatus error={error} loading={loading}/>
     {local.blocked && <p role="alert">{local.message}</p>}
-    {!loading && cloud !== null && !error && !cloud.length && !localOnly.length && <p className="w6-copy">Сохранённых героев пока нет. Создай базового персонажа ниже или подготовь подробный лист в разделе «Персонажи».</p>}
+    {!loading && cloud !== null && !error && !cloud.length && !localOnly.length && <div><p className="w6-copy">Сохранённых героев пока нет. Создай и сохрани героя, затем вернись в эту кампанию.</p>{onCreateCharacter&&<button type="button" className="w6-button w6-primary" onClick={onCreateCharacter}>Создать первого героя</button>}</div>}
     <p className="w6-copy">{localSource ? 'Выбранный герой с этого устройства будет сохранён в твой аккаунт и отправлен мастеру на проверку.' : 'Выбери героя из аккаунта или сохранённого на этом устройстве. Для героя из аккаунта используется его сохранённая версия.'}</p>
     <div className="w6-buttons"><button className="w6-button w6-primary" disabled={locked || (!source && !localSource)}>{localSource ? 'Сохранить в аккаунт и добавить' : 'Добавить героя в кампанию'}</button>
       <button type="button" className="w6-button" disabled={busy} onClick={() => { setLocal(localHeroes()); refresh() }}>Обновить список героев</button></div>
     <p className="w6-notice" role="status">{message}</p>
-    <QuickSessionHero key={accountId} accountId={accountId} disabled={locked} onCreated={id=>{setSelectedId(id);refresh()}}/>
+  <QuickSessionHero key={accountId} accountId={accountId} disabled={locked} onCreated={id=>{setSelectedId(id);refresh()}}/>
   </form>
 }

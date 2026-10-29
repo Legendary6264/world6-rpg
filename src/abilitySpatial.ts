@@ -1,3 +1,4 @@
+import {abilityAreaContains} from './abilityArea'
 import type { AbilitySpatial } from './rpgTypes'
 import type { DeclarationTarget } from './actionDeclarations'
 import type { ScenePosition, Scene } from './sceneTypes'
@@ -21,14 +22,5 @@ export function spatialTargets(scene:Scene,ownerId:string,spatial:AbilitySpatial
   const aimDistance=distance(origin,aim)
   if(!Number.isFinite(aimDistance)||aimDistance>rangeM+epsilon)throw Error('Пространственная цель вне дальности способности.')
   if((spatial.shape==='beam'||spatial.shape==='cone')&&(aimDistance<=epsilon||spatial.lengthM>rangeM))throw Error('Направлению нужна отличная от применяющего точка; длина не должна превышать дальность способности.')
-  const inside=(p:ScenePosition)=>{
-    if(spatial.shape==='point')return distance(p,aim)<=epsilon
-    if(spatial.shape==='sphere')return distance(p,aim)<=spatial.radiusM+epsilon
-    const vector={x:(aim.x-origin.x)/aimDistance,y:(aim.y-origin.y)/aimDistance,z:(aim.z-origin.z)/aimDistance},offset={x:p.x-origin.x,y:p.y-origin.y,z:p.z-origin.z}
-    const along=offset.x*vector.x+offset.y*vector.y+offset.z*vector.z
-    if(along < -epsilon||along>spatial.lengthM+epsilon)return false
-    const radial=Math.hypot(offset.x-along*vector.x,offset.y-along*vector.y,offset.z-along*vector.z)
-    return radial<=(spatial.shape==='beam'?spatial.radiusM:along*Math.tan(spatial.angleDeg*Math.PI/360))+epsilon
-  }
-  return {actorIds:scene.tokens.filter(t=>(spatial.includeCaster||t.actorId!==ownerId)&&inside(t)).map(t=>t.actorId).sort(),distanceM:aimDistance}
+  return {actorIds:scene.tokens.filter(t=>(spatial.includeCaster||t.actorId!==ownerId)&&abilityAreaContains(origin,aim,spatial,t)).map(t=>t.actorId).sort(),distanceM:aimDistance}
 }
