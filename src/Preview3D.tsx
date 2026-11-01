@@ -15,7 +15,7 @@ import './sceneStyle.css'
 import './preview3d.css'
 
 const SceneEditor=lazy(()=>import('./SceneEditor'))
-const ScenePlaytest=lazy(()=>import('./ScenePlaytest'))
+const ScenePlaytest=lazy(()=>import('./ScenePlaytestPanel'))
 const TutorialSandbox=lazy(()=>import('./TutorialSandbox'))
 const storageKey='grani-bytiya:3d-preview:v1'
 const example=create3DSandbox('browser-preview')

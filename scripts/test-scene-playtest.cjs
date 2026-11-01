@@ -44,7 +44,7 @@ test('Перенос предмета переносит стоящего на �
  assert.equal(actors[0].rpg,undefined)
  for(const a of playtestAbilities){const prepared=applyPlaytestActions(scene,actors,'hero',[ability(a.id,{kind:'none'},'prepare')],'prepare');assert.equal(prepared.visuals[0].phase,'preparation');assert.equal(prepared.visuals[0].shape,'point')}
 })
-const {createRoot}=require('react-dom/client'),root=createRoot(document.getElementById('root')),Playtest=load('ScenePlaytest').default
+const {createRoot}=require('react-dom/client'),root=createRoot(document.getElementById('root')),Playtest=load('ScenePlaytestPanel').default
 const flush=async fn=>act(async()=>{fn?.();await new Promise(r=>setTimeout(r,10))}),button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text)
 async function mount(stateOverride){await flush(()=>root.render(null));writes=0;reject=false;const state=stateOverride??fixture().state;function Wrapper(){const [value,setValue]=useState(state);useEffect(()=>{current=value;setExternal=setValue},[value]);return React.createElement(Playtest,{value,actors,onChange:next=>{writes++;if(reject)return {ok:false,message:'Отказ сохранения'};setValue(next);return {ok:true,message:'Сохранено'}}})}await flush(()=>root.render(React.createElement(Wrapper)));await flush()}
 async function backToScene(){const b=button('Вернуться к сцене');if(b)await flush(()=>b.click())}

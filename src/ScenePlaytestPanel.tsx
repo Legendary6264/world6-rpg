@@ -13,7 +13,7 @@ import PerceivedScene from './PerceivedScene'
 import {resolvePlaytestTrajectory,physicalPlaytestAbility} from './scenePlayTrajectory'
 import usePlaytestReplay from './usePlaytestReplay'
 import type {ReplaySession} from './usePlaytestReplay'
-import ScenePlayReplay from './ScenePlayReplay'
+import ScenePlayReplay from './ScenePlayReplayPanel'
 
 type SaveResult={ok:boolean;message:string}
 type Confirmation={before:Scene;after:Scene;recording:PlaytestRecording;beforeLog:string[];afterLog:string[]}

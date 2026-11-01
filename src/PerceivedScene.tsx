@@ -1,4 +1,4 @@
-import SceneAbilityAimOverlay from './SceneAbilityAim'
+import SceneAbilityAimOverlay from './SceneAbilityAimOverlay'
 import type {SceneAbilityAim} from './sceneAbilityAim'
 import SceneAbilityOverlay, { useVisualReplay } from './SceneAbilityOverlay'
 import { lazy, Suspense, useId, useMemo, useState } from 'react'
