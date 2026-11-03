@@ -51,6 +51,22 @@ export function prepareCharacterSkin(group:T.Group,points:RigLandmarks){
       const y=p.getY(i)
       const region=(part.userData.faceRegions?.[Math.floor(i/3)]??part.userData.region??'') as string
       const regionSide=region.startsWith('left')?'left':'right'
+      if(/robe|coat-skirt|cape/.test(name)&&y<points.hips.y){
+        // Long garments must follow the legs they cover. Keeping a robe rigid
+        // at the pelvis lets an advancing knee pass through its front panel.
+        // Blend across the centre so the single closed skirt has no split seam.
+        const left=T.MathUtils.smoothstep(p.getX(i),-points.leftThigh.x*.55,points.leftThigh.x*.55)
+        const shin=1-T.MathUtils.smoothstep(y,points.leftShin.y-height*.035,points.leftShin.y+height*.035)
+        const hip=T.MathUtils.smoothstep(y,points.hips.y-height*.08,points.hips.y)
+        if(hip>0){
+          indices.set([index('leftThigh'),index('rightThigh'),index('hips'),0],i*4)
+          weights.set([left*(1-hip),(1-left)*(1-hip),hip,0],i*4)
+        }else{
+          indices.set([index('leftThigh'),index('leftShin'),index('rightThigh'),index('rightShin')],i*4)
+          weights.set([left*(1-shin),left*shin,(1-left)*(1-shin),(1-left)*shin],i*4)
+        }
+        continue
+      }
       let a=index('hips'),b=a,f=0
       if(region==='head'||region.endsWith('Horn')){a=b=index('head')}
       else if(/^(left|right)Hand$/.test(region)){a=b=index(regionSide+'Hand')}

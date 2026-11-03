@@ -6,7 +6,7 @@ import {prepareCharacterSkin,bindCharacterRig,sceneCharacterLandmarks} from '../
 import {batchEntityParts} from '../src/scene3dBatch.ts'
 import {characterModels} from '../src/characterAppearance.ts'
 
-function build(preset='vanguard',low=false,position=new T.Vector3()){
+function build(preset='vanguard',low=false,position=new T.Vector3(),unbatched=false){
   const group=new T.Group(),resources=new Set(),materials=new Map()
   const entity={id:'rig-'+preset,geometry:{kind:'actor',characterModel:preset,width:.8,depth:.8,height:1.7},appearance:{color:'#78baa5',heightKnown:true,remembered:false}}
   const before=structuredClone(entity)
@@ -17,7 +17,7 @@ function build(preset='vanguard',low=false,position=new T.Vector3()){
   },low)
   const rest=new T.Box3().setFromObject(group),points=sceneCharacterLandmarks(entity)
   prepareCharacterSkin(group,points)
-  batchEntityParts(group,g=>{resources.delete(g);g.dispose()},g=>{resources.add(g);return g})
+  if(!unbatched)batchEntityParts(group,g=>{resources.delete(g);g.dispose()},g=>{resources.add(g);return g})
   group.position.copy(position)
   const rig=bindCharacterRig(group,points)
   assert.deepEqual(entity,before,'Presentation must not mutate saved entities')
@@ -79,4 +79,25 @@ test('Skeleton GPU resources are released exactly once; invalid clocks return to
   rig.skeleton.computeBoneTexture();let released=0;rig.skeleton.boneTexture.addEventListener('dispose',()=>released++)
   rig.sample(1,'idle');rig.sample(NaN,'walk');assert(rig.skeleton.bones.every(b=>Math.abs(b.quaternion.w-1)<1e-6))
   dispose();rig.dispose();assert.equal(released,1);assert.doesNotThrow(()=>rig.sample(2,'walk'))
+})
+
+test('Walking arcanist: the long robe follows knees and keeps the underlying trousers covered',()=>{
+ for(const low of [true,false]){
+ const model=build('arcanist',low,new T.Vector3(),true),robe=model.rig.meshes.find(m=>m.geometry.name==='character-pleated-robe'),legs=model.rig.meshes.filter(m=>m.geometry.name==='character-trouser-leg')
+ assert(robe&&legs.length===2)
+ try{
+  for(const time of [0,.15,.3,.45,.6,.75,.9,1.05]){
+   model.rig.sample(time,'walk')
+   for(const leg of legs){
+    const p=leg.geometry.getAttribute('position')
+    for(let i=0;i<p.count;i+=low?7:37){
+     const vertex=leg.getVertexPosition(i,new T.Vector3())
+     if(vertex.y<.23||vertex.y>.73)continue
+     const ray=new T.Raycaster(new T.Vector3(vertex.x,vertex.y,1),new T.Vector3(0,0,-1)),hit=ray.intersectObject(robe)[0]
+     assert(hit&&hit.point.z>=vertex.z-.004,`Trousers covered at t=${time}, y=${vertex.y.toFixed(3)}`)
+    }
+   }
+  }
+ }finally{model.dispose()}
+ }
 })

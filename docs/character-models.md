@@ -87,3 +87,8 @@ assigned hand or torso bone. Quadruped and avian forms retain their existing
 renderer; they are not forced onto a human rig. Finger-joint animation, IK,
 facial blend shapes, cloth physics and import/retargeting of external rigs are
 not implemented by this change.
+
+Long robes, coat skirts and low cape panels blend across both leg chains,
+including the shin at the knee. This avoids knee penetration during the walk
+preview without splitting the closed cloth surface at its centre. Regression
+coverage raycasts through the robe in eight phases and both quality levels.
