@@ -56,3 +56,65 @@ test('A6: cleanup ignores a late successful HTTP check after leaving the account
  await new Promise(r=>setTimeout(r,10));assert(resolve);stop();resolve(true)
  await new Promise(r=>setTimeout(r,10));assert.equal(attempts,0);assert.equal(handlers.size,0)
 })
+
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
+async function until(condition){for(let i=0;i<100&&!condition();i++)await sleep(2);assert(condition(),'Recovery condition was not reached')}
+function socketStub(){
+ const socket=new EventEmitter();Object.assign(socket,{connected:false,attempts:0,disconnections:0,
+  connect(){this.attempts++;return this},
+  disconnect(){this.disconnections++;this.connected=false;this.emit('disconnect','io client disconnect');return this}})
+ return socket
+}
+
+test('Recovery: repeated transport failures share one pending session probe',async t=>{
+ const socket=socketStub(),probe=deferred();let checks=0
+ const stop=installSocketRecovery(socket,()=>{checks++;return probe.promise},()=>{},1);t.after(stop)
+ socket.emit('disconnect','io server disconnect');await until(()=>checks===1)
+ for(let i=0;i<8;i++){socket.emit('connect_error',Error('Transport unavailable'));socket.emit('disconnect','io server disconnect')}
+ await sleep(15);assert.equal(checks,1,'Only one HTTP verification can be pending')
+ probe.resolve(true);await until(()=>socket.attempts===1)
+ socket.connected=true;socket.emit('connect');await sleep(15);assert.equal(checks,1)
+})
+
+for(const status of [401,403])test('Recovery: handshake denial invalidates a late successful probe · '+status,async t=>{
+ const socket=socketStub(),probe=deferred(),errors=[];let checks=0
+ const stop=installSocketRecovery(socket,()=>{checks++;return probe.promise},error=>errors.push(error),1);t.after(stop)
+ socket.emit('disconnect','io server disconnect');await until(()=>checks===1)
+ socket.emit('connect_error',Object.assign(Error('Access revoked'),{data:{status}}))
+ assert.equal(socket.disconnections,1);assert.equal(errors.length,1)
+ probe.resolve(true);socket.emit('disconnect','io server disconnect');socket.emit('connect_error',Error('Retrying transport'))
+ await sleep(20);assert.equal(socket.attempts,0);assert.equal(checks,1)
+})
+
+test('Recovery: MFA verification stops native and custom reconnection until the session changes',async t=>{
+ const socket=socketStub();let checks=0
+ const stop=installSocketRecovery(socket,async()=>{checks++;return false},()=>assert.fail('MFA is reported by the verifier'),1);t.after(stop)
+ socket.emit('disconnect','io server disconnect');await until(()=>socket.disconnections===1)
+ socket.emit('connect_error',Error('Another transport failure'));await sleep(15)
+ assert.equal(checks,1);assert.equal(socket.attempts,0)
+})
+
+test('Recovery: a revoked HTTP session permanently ends retries',async t=>{
+ const socket=socketStub(),errors=[];let checks=0
+ const stop=installSocketRecovery(socket,async()=>{checks++;throw Object.assign(Error('Session revoked'),{status:401})},error=>errors.push(error),1);t.after(stop)
+ socket.emit('disconnect','io server disconnect');await until(()=>errors.length===1)
+ socket.emit('connect_error',Error('Another transport failure'));await sleep(15)
+ assert.equal(checks,1);assert.equal(socket.disconnections,1);assert.equal(socket.attempts,0)
+})
+
+test('Recovery: a temporary HTTP outage retries and reconnects after verification',async t=>{
+ const socket=socketStub(),errors=[];let checks=0
+ const stop=installSocketRecovery(socket,async()=>{checks++;if(checks===1)throw Object.assign(Error('Temporary outage'),{status:503});return true},error=>errors.push(error),1);t.after(stop)
+ socket.emit('disconnect','io server disconnect');await until(()=>socket.attempts===1)
+ assert.equal(checks,2);assert.equal(errors.length,1);assert.equal(socket.disconnections,0)
+})
+
+test('Recovery: a superseded probe cannot connect a newer disconnected session',async t=>{
+ const socket=socketStub(),first=deferred(),second=deferred();let checks=0
+ const stop=installSocketRecovery(socket,()=>++checks===1?first.promise:second.promise,()=>{},1);t.after(stop)
+ socket.emit('disconnect','io server disconnect');await until(()=>checks===1)
+ socket.connected=true;socket.emit('connect');socket.connected=false;socket.emit('disconnect','io server disconnect')
+ first.resolve(true);await until(()=>checks===2);assert.equal(socket.attempts,0)
+ second.resolve(true);await until(()=>socket.attempts===1)
+})
