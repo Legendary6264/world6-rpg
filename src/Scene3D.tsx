@@ -142,14 +142,21 @@ export default function Scene3D(props: Props) {
         const targets=items.flatMap(s=>{if(s.kind==='object'&&hidden.has(s.id))return [];const g=anchors.get(s.kind+':'+s.id);return g?[g]:[]})
         if(!targets.length)return
         const bounds=new THREE.Box3();targets.forEach(g=>bounds.union(new THREE.Box3().setFromObject(g)));const target=bounds.getCenter(new THREE.Vector3()),size=bounds.getSize(new THREE.Vector3())
-        const direction=camera.position.clone().sub(controls.target).normalize(),distance=Math.max(2,Math.max(size.x,size.y,size.z)*2.8)
+        const direction=camera.position.clone().sub(controls.target).normalize()
+        const right=new THREE.Vector3().crossVectors(camera.up,direction).normalize(),up=new THREE.Vector3().crossVectors(direction,right).normalize()
+        let halfWidth=0,halfHeight=0,halfDepth=0
+        for(const x of [bounds.min.x,bounds.max.x])for(const y of [bounds.min.y,bounds.max.y])for(const z of [bounds.min.z,bounds.max.z]){
+          const corner=new THREE.Vector3(x,y,z).sub(target);halfWidth=Math.max(halfWidth,Math.abs(corner.dot(right)));halfHeight=Math.max(halfHeight,Math.abs(corner.dot(up)));halfDepth=Math.max(halfDepth,Math.abs(corner.dot(direction)))
+        }
+        const distance=camera instanceof THREE.PerspectiveCamera?Math.max(.5,1.2*Math.max(halfHeight,halfWidth/camera.aspect)/Math.tan(THREE.MathUtils.degToRad(camera.getEffectiveFOV()/2))+halfDepth):Math.max(2,size.length()*2)
         controls.target.copy(target);camera.position.copy(target).addScaledVector(direction,distance)
-        if(camera instanceof THREE.OrthographicCamera){camera.zoom=Math.min(40,span*1.16/Math.max(2,Math.max(size.x,size.y,size.z)*2.2));camera.updateProjectionMatrix()}
+        if(camera instanceof THREE.OrthographicCamera){camera.zoom=THREE.MathUtils.clamp(Math.min((camera.right-camera.left)/Math.max(.1,halfWidth*2.4),(camera.top-camera.bottom)/Math.max(.1,halfHeight*2.4)),.2,40);camera.updateProjectionMatrix()}
       }else{
-        controls.target.copy(center)
-        if(action==='top')camera.position.set(center.x+.001,center.y+span*1.25,center.z+.001)
-        else if(action==='front')camera.position.set(center.x,center.y+span*.04,center.z+span*1.5)
-        else{home();return}
+        // View buttons rotate around the current working pivot. Only the
+        // explicit whole-scene command resets the framing and zoom.
+        const target=controls.target,distance=Math.max(.5,camera.position.distanceTo(target))
+        const direction=action==='top'?new THREE.Vector3(.0001,1,.0001):action==='front'?new THREE.Vector3(0,.025,1):new THREE.Vector3(.65,.62,.85)
+        camera.position.copy(target).addScaledVector(direction.normalize(),distance)
       }
       controls.update()
     }
@@ -335,7 +342,6 @@ export default function Scene3D(props: Props) {
         }
       }
       updateAxes()
-      for(const outline of outlines)outline.helper.setFromObject(outline.target)
       const vfxNow=performance.now()
       if(vfxNeedsMotion()&&document.visibilityState==='visible'){if(vfxLast!==undefined)vfxElapsed+=Math.min(100,Math.max(0,vfxNow-vfxLast));vfxLast=vfxNow;if(vfxElapsed>=vfxDuration())vfxPlaying=false}else vfxLast=undefined
       const elapsed=controlledVfx()?Math.max(0,latest.current.effectTimeMs!):vfxElapsed
@@ -345,6 +351,7 @@ export default function Scene3D(props: Props) {
       const moving=animationValue.current&&document.visibilityState==='visible',visualTime=performance.now()/1000
       const charactersMoving=characterMotion.current&&document.visibilityState==='visible'
       for(const entry of characters)entry.rig.sample(visualTime,entry.animation,charactersMoving&&entry.group.visible)
+      for(const outline of outlines)outline.helper.setFromObject(outline.target)
       if(charactersMoving&&characters.length){renderer.shadowMap.needsUpdate=true;if(contactShadows)contactShadows.needsUpdate=true}
       updateFlameMaterials(resources,visualTime,moving);lighting.animate(moving?visualTime:null)
       if(composer)composer.render(0);else renderer.render(scene,camera)

@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type {RenderEntity} from './scene3dModel'
 import {legacyAsset} from './legacyAssets.ts'
+import {sceneAssetUrl} from './sceneAssetUrl.ts'
 
 const files={tree:'pine',rock:'rocks'} as const
 type Asset=typeof files[keyof typeof files]
@@ -10,7 +11,7 @@ type Resource=THREE.BufferGeometry|THREE.Material|THREE.Texture
 const downloads=new Map<Asset,Promise<ArrayBuffer>>()
 function bytes(asset:Asset){
  let pending=downloads.get(asset)
- if(!pending){pending=fetch('/models/'+asset+'.glb').then(r=>{if(!r.ok)throw Error('Model download');return r.arrayBuffer()}).catch(error=>{downloads.delete(asset);throw error});downloads.set(asset,pending)}
+ if(!pending){pending=fetch(sceneAssetUrl('models/'+asset+'.glb')).then(r=>{if(!r.ok)throw Error('Model download');return r.arrayBuffer()}).catch(error=>{downloads.delete(asset);throw error});downloads.set(asset,pending)}
  return pending
 }
 export function detailedAsset(e:RenderEntity):Asset|undefined{

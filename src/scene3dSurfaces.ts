@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import {sceneAssetUrl} from './sceneAssetUrl.ts'
 export type SurfaceKind='stone'|'wood'|'paving'|'forest'|'fabric'|'leather'|'steel'|'skin'
 export const characterSurface=(kind:SurfaceKind)=>['fabric','leather','steel','skin'].includes(kind)
 
@@ -13,7 +14,7 @@ export class SceneSurfaceLibrary {
    const key=kind+'-'+channel
    let map=this.textures.get(key)
    if(!map){
-    map=new THREE.TextureLoader().load(new URL('materials/'+key+'.jpg',document.baseURI).href,loaded=>{if(this.disposed)loaded.dispose();else this.changed()},undefined,()=>this.changed())
+    map=new THREE.TextureLoader().load(sceneAssetUrl('materials/'+key+'.jpg'),loaded=>{if(this.disposed)loaded.dispose();else this.changed()},undefined,()=>this.changed())
     map.wrapS=map.wrapT=THREE.RepeatWrapping;map.anisotropy=this.anisotropy
     if(channel==='color')map.colorSpace=THREE.SRGBColorSpace
     this.textures.set(key,map)

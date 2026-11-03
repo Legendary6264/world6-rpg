@@ -5,7 +5,7 @@ const dom=new JSDOM('<div id="root"></div>',{url:'https://world6.example.test/'}
 Object.assign(global,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true,
  requestAnimationFrame:fn=>setTimeout(fn,0),cancelAnimationFrame:clearTimeout,
  ResizeObserver:class{observe(){}disconnect(){}}})
-Object.defineProperty(dom.window.HTMLElement.prototype,'clientWidth',{get:()=>900})
+Object.defineProperty(dom.window.HTMLElement.prototype,'clientWidth',{configurable:true,get:()=>900})
 Object.defineProperty(dom.window.HTMLElement.prototype,'clientHeight',{get:()=>600})
 dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({x:0,y:0,left:0,top:0,width:900,height:600,right:900,bottom:600})
 dom.window.HTMLElement.prototype.setPointerCapture=()=>{}
@@ -106,6 +106,34 @@ test('3D-модели: детали, габариты, экономный реж
  populateEntityModel(e,(g,c,x,y,z)=>{const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:c}));m.position.set(x,y,z);parts.push(m);return m})
  assert.equal(parts.length,1,'Unknown height remains a flat footprint')
  parts.forEach(m=>{m.geometry.dispose();m.material.dispose()})
+})
+
+test('Камера персонажа: смена ракурса сохраняет рабочий центр и масштаб, F вписывает узкое окно',async()=>{
+ await flush(()=>root.render(null));props={}
+ const descriptor=Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype,'clientWidth')
+ Object.defineProperty(dom.window.HTMLElement.prototype,'clientWidth',{configurable:true,get:()=>320})
+ try{
+  const {createCharacterStudio,characterStudioActors}=load('characterStudio'),scene=createCharacterStudio(),token=scene.tokens[0]
+  await mount({model:masterRenderModel(scene,characterStudioActors),selection:{kind:'token',id:token.actorId},selections:[],editorHidden:[]})
+  const press=async text=>flush(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent===text);assert(button,'Camera action '+text);button.click()})
+  for(const orthographic of [true,false]){
+  const toggle=[...document.querySelectorAll('label')].find(l=>l.textContent.trim()==='Ортографическая камера').querySelector('input')
+  if(toggle.checked!==orthographic)await flush(()=>toggle.click())
+  const r=instances.at(-1)
+  await press('К выбранному')
+  const group=r.scene.children.find(g=>g.userData.selection?.id===token.actorId),bounds=new THREE.Box3().setFromObject(group),center=bounds.getCenter(new THREE.Vector3())
+  for(const label of ['Спереди','Сверху',orthographic?'Изометрия':'Перспектива']){
+   const distance=r.camera.position.distanceTo(center),zoom=r.camera.zoom
+   await press(label);assert.equal(instances.at(-1),r);assert.equal(r.camera.zoom,zoom)
+   assert(Math.abs(r.camera.position.distanceTo(center)-distance)<1e-6,'View buttons retain focused distance')
+   assert(Math.abs(center.clone().project(r.camera).x)<1e-5&&Math.abs(center.clone().project(r.camera).y)<1e-5,'Character remains centered')
+   await press('К выбранному')
+   for(const x of [bounds.min.x,bounds.max.x])for(const y of [bounds.min.y,bounds.max.y])for(const z of [bounds.min.z,bounds.max.z]){
+    const corner=new THREE.Vector3(x,y,z).project(r.camera);assert(Math.abs(corner.x)<.9&&Math.abs(corner.y)<.9,'All selected bounds fit the narrow viewport')
+   }
+  }
+  }
+ }finally{Object.defineProperty(dom.window.HTMLElement.prototype,'clientWidth',descriptor)}
 })
 
 test('Прямой захват: первый жест, стабильный renderer при выделении, одна команда на отпускании',async()=>{

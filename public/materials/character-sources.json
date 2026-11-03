@@ -1,0 +1,102 @@
+[
+  {
+    "id": "character-fabric",
+    "source": "scripts/build-character-materials.py",
+    "provenance": "Original project procedural texture; imported from Sites source ed580e0f1b3745b74ba39f5bc70db15e0632164e",
+    "files": [
+      {
+        "channel": "color",
+        "file": "fabric-color.jpg",
+        "bytes": 47609,
+        "sha256": "20e10b9818899854990a687ff0b35c170607f6ecb5d35ae3a8531331ad811448"
+      },
+      {
+        "channel": "normal",
+        "file": "fabric-normal.jpg",
+        "bytes": 196361,
+        "sha256": "611368be256a3400a819eaf5798587c581b9adc3dfdbd58c8d99c68149c4fdbd"
+      },
+      {
+        "channel": "arm",
+        "file": "fabric-arm.jpg",
+        "bytes": 54481,
+        "sha256": "3bdfcf85571bc6e8256beea5e7412cb94d5f5635a9aaecd0629e3bbe3b7acae7"
+      }
+    ]
+  },
+  {
+    "id": "character-leather",
+    "source": "scripts/build-character-materials.py",
+    "provenance": "Original project procedural texture; imported from Sites source ed580e0f1b3745b74ba39f5bc70db15e0632164e",
+    "files": [
+      {
+        "channel": "color",
+        "file": "leather-color.jpg",
+        "bytes": 47674,
+        "sha256": "9f1c1f5ac0511d4a1712cb6fd9cfd70a1fc3564c373090d7908a296f73c37cfe"
+      },
+      {
+        "channel": "normal",
+        "file": "leather-normal.jpg",
+        "bytes": 218324,
+        "sha256": "b1f1914bd4ece210530ae576e7cf2735283a395c38bc1855cc3e7962a9f0884c"
+      },
+      {
+        "channel": "arm",
+        "file": "leather-arm.jpg",
+        "bytes": 56445,
+        "sha256": "d480f900f67bfb130b7bdb53b8b249d4c09d96574c7a3eabbff5e3344cf3203a"
+      }
+    ]
+  },
+  {
+    "id": "character-steel",
+    "source": "scripts/build-character-materials.py",
+    "provenance": "Original project procedural texture; imported from Sites source ed580e0f1b3745b74ba39f5bc70db15e0632164e",
+    "files": [
+      {
+        "channel": "color",
+        "file": "steel-color.jpg",
+        "bytes": 30548,
+        "sha256": "d2ae0111ba1e07bddba722a2758d86f3a83e21f7e8d19e9ee3d13cdc9b667dce"
+      },
+      {
+        "channel": "normal",
+        "file": "steel-normal.jpg",
+        "bytes": 110641,
+        "sha256": "ee215d7f75930b1009188f245e0ab50593c0ce38f103ae1fc5ccbbe555c2a097"
+      },
+      {
+        "channel": "arm",
+        "file": "steel-arm.jpg",
+        "bytes": 66196,
+        "sha256": "0563d39d5f4f1cc0a3339de3da038e7d52e7cd744237c7a88a8d57b64f43d0dd"
+      }
+    ]
+  },
+  {
+    "id": "character-skin",
+    "source": "scripts/build-character-materials.py",
+    "provenance": "Original project procedural texture; imported from Sites source ed580e0f1b3745b74ba39f5bc70db15e0632164e",
+    "files": [
+      {
+        "channel": "color",
+        "file": "skin-color.jpg",
+        "bytes": 21529,
+        "sha256": "9280f126abfe7dfaf403a1f1342b022c4ecf39926317ad4df3c2fc8a8c4a7718"
+      },
+      {
+        "channel": "normal",
+        "file": "skin-normal.jpg",
+        "bytes": 104689,
+        "sha256": "4ab4703565d2f35c6bbea50bbfc7fc8a78821dea05682cc91b1b3b7a05256f0b"
+      },
+      {
+        "channel": "arm",
+        "file": "skin-arm.jpg",
+        "bytes": 42083,
+        "sha256": "12736428d02618d91e32536edaa4ab6a133637e4261687fdc8454a1c31a74480"
+      }
+    ]
+  }
+]

@@ -4,7 +4,16 @@ import {readFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import * as THREE from 'three'
 import {SceneAssetLibrary} from '../src/scene3dAssets.ts'
-import {surfaceUV} from '../src/scene3dSurfaces.ts'
+import {surfaceUV,SceneSurfaceLibrary} from '../src/scene3dSurfaces.ts'
+import {sceneAssetUrl} from '../src/sceneAssetUrl.ts'
+
+test('Пути 3D-ресурсов: корень, вложенный GitHub Pages и index.html сохраняют каталог сайта',()=>{
+ for(const base of ['https://example.test/world6-rpg/','https://example.test/world6-rpg/index.html']){
+  assert.equal(sceneAssetUrl('models/pine.glb',base),'https://example.test/world6-rpg/models/pine.glb')
+  assert.equal(sceneAssetUrl('materials/skin-normal.jpg',base),'https://example.test/world6-rpg/materials/skin-normal.jpg')
+ }
+ assert.equal(sceneAssetUrl('models/pine.glb','https://example.test/'),'https://example.test/models/pine.glb')
+})
 
 // Real GLTFLoader and bundled binary geometry/materials. Image decoding and
 // WebGL are unavailable in Node; fake only the decoded ImageBitmap surface.
@@ -64,7 +73,19 @@ test('Материалы: плотность UV в метрах на сосед�
  const uv=geometry.getAttribute('uv');assert(uv.array.every(Number.isFinite))
  assert(Math.max(...uv.array)>=4,'Wide walls repeat rather than stretch one texture')
  geometry.dispose()
- for(const entry of JSON.parse(readFileSync('public/materials/sources.json','utf8')))for(const file of entry.files){
+ for(const entry of [...JSON.parse(readFileSync('public/materials/sources.json','utf8')),...JSON.parse(readFileSync('public/materials/character-sources.json','utf8'))])for(const file of entry.files){
   const data=readFileSync('public/materials/'+file.file);assert.equal(createHash('sha256').update(data).digest('hex'),file.sha256)
  }
+})
+
+test('Материалы персонажа: карты общие внутри библиотеки, сталь сохраняет metalness, кожа не становится металлом',()=>{
+ const load=THREE.TextureLoader.prototype.load,loaded=[],library=new SceneSurfaceLibrary(()=>{})
+ THREE.TextureLoader.prototype.load=function(url){loaded.push(url);return new THREE.Texture()}
+ try{
+  const steel=new THREE.MeshStandardMaterial({metalness:.82,roughness:.38}),skin=new THREE.MeshStandardMaterial({metalness:0,roughness:.73}),second=new THREE.MeshStandardMaterial({metalness:.82,roughness:.38})
+  library.apply(steel,'steel');library.apply(skin,'skin');library.apply(second,'steel')
+  assert.equal(steel.metalness,.82);assert.equal(steel.roughness,.38);assert.equal(skin.metalness,0);assert.equal(skin.roughness,.73)
+  assert.equal(steel.map,second.map);assert.equal(loaded.length,6);assert.equal(steel.map.colorSpace,THREE.SRGBColorSpace);assert.equal(steel.normalMap.colorSpace,THREE.NoColorSpace)
+  steel.dispose();skin.dispose();second.dispose()
+ }finally{library.dispose();THREE.TextureLoader.prototype.load=load}
 })
