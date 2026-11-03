@@ -10,6 +10,7 @@ type Props={frameId:string;target:string;label:string;animation:CharacterAnimati
 export default function SceneCharacterPreview({frameId,target,label,animation:initial,onFrame}:Props){
   const [animation,setAnimation]=useState(initial),[seconds,setSeconds]=useState(0)
   const [playing,setPlaying]=useState(false),[active,setActive]=useState(false)
+  const [expanded,setExpanded]=useState(true)
   const duration=characterAnimationDuration(animation)
   useEffect(()=>{
     onFrame(active?{frameId,target,animation,seconds}:null)
@@ -28,7 +29,7 @@ export default function SceneCharacterPreview({frameId,target,label,animation:in
     document.addEventListener('visibilitychange',sync);sync()
     return ()=>{clearTimeout(timer);document.removeEventListener('visibilitychange',sync)}
   },[playing,duration])
-  return <details className="gb-character-preview" open>
+  return <details className="gb-character-preview" open={expanded} onToggle={event=>{const open=event.currentTarget.open;setExpanded(open);if(!open)setPlaying(false)}}>
     <summary>Движение · {label}</summary>
     <div role="group" aria-label="Предпросмотр персонажа">
       <label><span>Анимация</span><select aria-label="Анимация предпросмотра" value={animation} onChange={event=>{

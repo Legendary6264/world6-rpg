@@ -81,6 +81,41 @@ test('Skeleton GPU resources are released exactly once; invalid clocks return to
   dispose();rig.dispose();assert.equal(released,1);assert.doesNotThrow(()=>rig.sample(2,'walk'))
 })
 
+test('Runtime clip changes blend from the displayed pose, finish at exact targets and keep picking bounds',()=>{
+ const model=build('ranger',true,new T.Vector3(3,2,-4)),reference=build('ranger',true),{rig,group}=model
+ const origin=group.position.clone(),geometries=rig.meshes.map(m=>m.geometry),snapshot=()=>rig.skeleton.bones.map(b=>b.quaternion.clone())
+ const expectPose=expected=>rig.skeleton.bones.forEach((b,i)=>assert(b.quaternion.clone().normalize().angleTo(expected[i].clone().normalize())<1e-6,b.name+': '+JSON.stringify([b.quaternion.toArray(),expected[i].toArray()])))
+ try{
+  rig.sample(.3,'walk');const start=snapshot()
+  rig.update(10,'idle');assert(rig.transitioning);expectPose(start)
+  reference.rig.sample(10.1,'idle')
+  rig.update(10.1,'idle');expectPose(start.map((q,i)=>q.clone().slerp(reference.rig.skeleton.bones[i].quaternion,.5)))
+  const mid=snapshot()
+  rig.update(10.1,'walk');expectPose(mid);assert(rig.transitioning,'Interruptions begin at the currently displayed pose')
+  rig.update(10.35,'walk');reference.rig.sample(10.35,'walk');expectPose(reference.rig.skeleton.bones.map(b=>b.quaternion));assert(!rig.transitioning)
+  rig.update(10.4,'rest');assert(rig.transitioning)
+  rig.update(10.5,'rest');assert(rig.skeleton.bones.some(b=>b.quaternion.angleTo(new T.Quaternion())>.001))
+  for(const mesh of rig.meshes){const p=mesh.geometry.getAttribute('position');for(let i=0;i<p.count;i+=53)assert(mesh.boundingBox.clone().expandByScalar(1e-5).containsPoint(mesh.getVertexPosition(i,point)))}
+  rig.update(10.65,'rest');assert(!rig.transitioning);expectPose(rig.skeleton.bones.map(()=>new T.Quaternion()))
+  assert(group.position.equals(origin));assert.deepEqual(rig.meshes.map(m=>m.geometry),geometries)
+ }finally{model.dispose();reference.dispose()}
+})
+
+test('Exact seeking cancels transitions and repeated frames cannot accumulate blended rotations',()=>{
+ const model=build('arcanist',true),reference=build('arcanist',true),{rig}=model
+ const sameAsReference=()=>rig.skeleton.bones.forEach((b,i)=>assert(b.quaternion.angleTo(reference.rig.skeleton.bones[i].quaternion)<1e-6,b.name))
+ try{
+  rig.sample(.3,'walk');rig.update(1,'idle');rig.update(1.1,'idle')
+  rig.sample(.3,'walk');reference.rig.sample(.3,'walk');assert(!rig.transitioning);sameAsReference()
+  for(let i=0;i<4;i++){rig.sample(.3,'walk');sameAsReference()}
+  rig.update(2,'idle');rig.update(2.3,'idle');reference.rig.sample(2.3,'idle');sameAsReference()
+  for(let i=0;i<4;i++){rig.update(2.3,'idle');sameAsReference()}
+  rig.update(3,'walk');rig.update(3.1,'walk');rig.update(3.1,'walk',false)
+  assert(!rig.transitioning);assert(rig.skeleton.bones.every(b=>Math.abs(b.quaternion.w-1)<1e-6))
+  rig.update(4,'walk');rig.update(NaN,'idle');assert(!rig.transitioning);assert(rig.skeleton.bones.every(b=>Math.abs(b.quaternion.w-1)<1e-6))
+ }finally{model.dispose();reference.dispose()}
+})
+
 test('Walking arcanist: the long robe follows knees and keeps the underlying trousers covered',()=>{
  for(const low of [true,false]){
  const model=build('arcanist',low,new T.Vector3(),true),robe=model.rig.meshes.find(m=>m.geometry.name==='character-pleated-robe'),legs=model.rig.meshes.filter(m=>m.geometry.name==='character-trouser-leg')

@@ -141,27 +141,56 @@ export function bindCharacterRig(group:T.Group,points:RigLandmarks){
   }
   const mixer=new T.AnimationMixer(group)
   const rest=bones.map(b=>({position:b.position.clone(),quaternion:b.quaternion.clone(),scale:b.scale.clone()}))
-  let current:CharacterAnimation='rest',disposed=false
+  const targetRotations=bones.map(b=>b.quaternion.clone()),fromRotations=bones.map(b=>b.quaternion.clone())
+  const matrix=new T.Matrix4(),box=new T.Box3(),transitionDuration=.2
+  let current:CharacterAnimation='rest',disposed=false,transitioning=false,transitionStart=0
+  const pose=(seconds:number,next:CharacterAnimation)=>{
+    if(next!==current){
+      mixer.stopAllAction()
+      // Restore local transforms: Skeleton.pose() assumes no transformed parent.
+      bones.forEach((bone,i)=>{bone.position.copy(rest[i].position);bone.quaternion.copy(rest[i].quaternion);bone.scale.copy(rest[i].scale)})
+      current=next;if(next!=='rest')mixer.clipAction(clips[next]).reset().play()
+    }else{
+      // The mixer caches track values. Restore its last unblended output before
+      // evaluating again, including bones absent from the new clip's tracks.
+      bones.forEach((bone,i)=>bone.quaternion.copy(targetRotations[i]))
+    }
+    if(next!=='rest')mixer.setTime(Math.max(0,seconds))
+    bones.forEach((bone,i)=>targetRotations[i].copy(bone.quaternion))
+  }
+  const refresh=()=>{
+    group.updateMatrixWorld(true);skeleton.update()
+    for(const mesh of meshes){
+      mesh.boundingBox!.makeEmpty()
+      for(const [id,rest] of envelopes.get(mesh)!){matrix.copy(mesh.bindMatrixInverse).multiply(bones[id].matrixWorld).multiply(skeleton.boneInverses[id]).multiply(mesh.bindMatrix);mesh.boundingBox!.union(box.copy(rest).applyMatrix4(matrix))}
+      mesh.boundingBox!.getBoundingSphere(mesh.boundingSphere!)
+    }
+  }
   return {skeleton,meshes,mixer,
+    get transitioning(){return transitioning},
+    /** Exact, repeatable inspection; seeking cancels any runtime transition. */
     sample(seconds:number,animation:CharacterAnimation='idle',enabled=true){
       if(disposed)return
-      const next=enabled&&Number.isFinite(seconds)?animation:'rest'
-      if(next!==current){
-        mixer.stopAllAction()
-        // Skeleton.pose() assumes root bones have no transformed scene parent.
-        // Restore local bind transforms so moved/elevated tokens stay in place.
-        bones.forEach((bone,i)=>{bone.position.copy(rest[i].position);bone.quaternion.copy(rest[i].quaternion);bone.scale.copy(rest[i].scale)})
-        current=next;if(next!=='rest')mixer.clipAction(clips[next]).reset().play()
-      }
-      if(next!=='rest')mixer.setTime(Math.max(0,seconds))
-      group.updateMatrixWorld(true);skeleton.update()
-      const matrix=new T.Matrix4(),box=new T.Box3()
-      for(const mesh of meshes){
-        mesh.boundingBox!.makeEmpty()
-        for(const [id,rest] of envelopes.get(mesh)!){matrix.copy(mesh.bindMatrixInverse).multiply(bones[id].matrixWorld).multiply(skeleton.boneInverses[id]).multiply(mesh.bindMatrix);mesh.boundingBox!.union(box.copy(rest).applyMatrix4(matrix))}
-        mesh.boundingBox!.getBoundingSphere(mesh.boundingSphere!)
-      }
+      transitioning=false;pose(seconds,enabled&&Number.isFinite(seconds)?animation:'rest');refresh()
     },
-    dispose(){if(disposed)return;disposed=true;mixer.stopAllAction();mixer.uncacheRoot(group);skeleton.dispose()},
+    /** Runtime changes blend from the currently displayed pose, even when
+     * interrupted. The clock is supplied by the viewport and pauses with it. */
+    update(seconds:number,animation:CharacterAnimation='idle',enabled=true){
+      if(disposed)return
+      if(!enabled||!Number.isFinite(seconds)){transitioning=false;pose(0,'rest');refresh();return}
+      const time=Math.max(0,seconds)
+      if(animation!==current){
+        bones.forEach((bone,i)=>fromRotations[i].copy(bone.quaternion))
+        transitionStart=time;transitioning=true
+      }
+      pose(time,animation)
+      if(transitioning){
+        const phase=T.MathUtils.clamp((time-transitionStart)/transitionDuration,0,1),weight=phase*phase*(3-2*phase)
+        bones.forEach((bone,i)=>bone.quaternion.slerpQuaternions(fromRotations[i],targetRotations[i],weight))
+        transitioning=phase<1
+      }
+      refresh()
+    },
+    dispose(){if(disposed)return;disposed=true;transitioning=false;mixer.stopAllAction();mixer.uncacheRoot(group);skeleton.dispose()},
   }
 }

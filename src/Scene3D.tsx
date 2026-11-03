@@ -70,7 +70,7 @@ const clipping = (a: KnownArea) => [new THREE.Plane(new THREE.Vector3(1, 0, 0), 
 export default function Scene3D(props: Props) {
   const { model, selection, marker, route } = props
   const guidesJSON=JSON.stringify({marker,route}),applyGuides=useRef<((point:ScenePosition|null,route:ScenePosition[])=>void)|null>(null)
-  const structuralJSON=useMemo(()=>JSON.stringify({...model,visuals:[],entities:model.entities.map(e=>model.restricted?e:{...e,...(e.geometry.kind==='actor'?{geometry:{...e.geometry,facing:0}}:{}),transform:{position:{x:0,y:0,z:0}}})}),[model])
+  const structuralJSON=useMemo(()=>JSON.stringify({...model,visuals:[],entities:model.entities.map(e=>model.restricted?e:{...e,...(e.geometry.kind==='actor'?{geometry:{...e.geometry,facing:0,characterAnimation:'idle'}}:{}),transform:{position:{x:0,y:0,z:0}}})}),[model])
   const constructionModel=useMemo(()=>JSON.parse(structuralJSON) as SceneRenderModel,[structuralJSON])
   const applyPositions=useRef<((next:SceneRenderModel)=>void)|null>(null),applyPlacement=useRef<((next:Props['placement'])=>void)|null>(null)
   const seenEffects=useRef({frame:model.frame.id,ids:new Set(model.visuals.map(v=>v.id))})
@@ -173,7 +173,7 @@ export default function Scene3D(props: Props) {
     const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()
     const characters:{rig:ReturnType<typeof bindCharacterRig>;group:THREE.Group;animation:NonNullable<RenderEntity['geometry']['characterAnimation']>}[]=[]
     const keep = <T extends THREE.BufferGeometry | THREE.Material | THREE.Texture,>(v: T): T => { resources.add(v); return v }
-    let pending=0,disposed=false,previewDirty=false,environment:THREE.WebGLRenderTarget|undefined,environmentTimer:ReturnType<typeof setTimeout>|undefined
+    let pending=0,disposed=false,previewDirty=false,characterElapsed=0,characterLast:number|undefined,environment:THREE.WebGLRenderTarget|undefined,environmentTimer:ReturnType<typeof setTimeout>|undefined
     const generator=quality!=='low'&&renderer.capabilities?.maxTextures?new THREE.PMREMGenerator(renderer):undefined
     const radianceKey=()=>{const {mode,tuning:t}=lightingState.current;return [mode,t.azimuth,t.elevation,t.sun].join(':')}
     let environmentKey=radianceKey()
@@ -355,11 +355,12 @@ export default function Scene3D(props: Props) {
       lighting.update(camera,controls.target)
       const moving=animationValue.current&&document.visibilityState==='visible',visualTime=performance.now()/1000
       const charactersMoving=characterMotion.current&&document.visibilityState==='visible'
+      if(charactersMoving){if(characterLast!==undefined)characterElapsed+=Math.min(.1,Math.max(0,visualTime-characterLast));characterLast=visualTime}else characterLast=undefined
       const preview=characterPreview.current?.frameId===f.id?characterPreview.current:null
       for(const entry of characters){
         const target=entry.group.userData.selection
         if(preview&&preview.target===target.kind+':'+target.id)entry.rig.sample(preview.seconds,preview.animation,true)
-        else entry.rig.sample(visualTime,entry.animation,charactersMoving&&entry.group.visible)
+        else entry.rig.update(characterElapsed,entry.animation,characterMotion.current&&entry.group.visible)
       }
       for(const outline of outlines)outline.helper.setFromObject(outline.target)
       if((charactersMoving&&characters.length)||previewDirty){renderer.shadowMap.needsUpdate=true;if(contactShadows)contactShadows.needsUpdate=true}previewDirty=false
@@ -370,6 +371,7 @@ export default function Scene3D(props: Props) {
         const p = (label.anchor?label.anchor.position.clone().add(new THREE.Vector3(0,label.offset,0)):label.position.clone()).project(camera), visible = label.anchor?.visible!==false&&p.z > -1 && p.z < 1 && Math.abs(p.x) < .98 && Math.abs(p.y) < .98
         label.node.hidden = !visible; label.node.style.transform = `translate(-50%, -100%) translate(${(p.x + 1) * box.width / 2}px,${(1 - p.y) * box.height / 2}px)`
       }
+      scheduleMotion()
     }
     const requestDraw = (cause?:unknown) => {if(cause!==false){renderer.shadowMap.needsUpdate=true;if(contactShadows)contactShadows.needsUpdate=true}if (!pending && !disposed) pending = requestAnimationFrame(draw) }
     capture.current=()=>{
@@ -387,7 +389,13 @@ export default function Scene3D(props: Props) {
       }catch{setCaptureNotice('Не удалось сохранить снимок. Попробуй после загрузки материалов.')}
     }
     applyCutaway.current=requestDraw
-    applyPositions.current=next=>{for(const e of next.entities){const group=anchors.get(e.interaction.kind+':'+e.interaction.id);if(group){group.position.copy(vector(e.transform.position));if(e.geometry.kind==='actor')group.rotation.y=-(e.geometry.facing??0)*Math.PI/180;group.updateMatrixWorld(true)}}requestDraw()}
+    applyPositions.current=next=>{
+      for(const e of next.entities){
+        const group=anchors.get(e.interaction.kind+':'+e.interaction.id)
+        if(group){group.position.copy(vector(e.transform.position));if(e.geometry.kind==='actor'){group.rotation.y=-(e.geometry.facing??0)*Math.PI/180;const entry=characters.find(c=>c.group===group);if(entry)entry.animation=e.geometry.characterAnimation??'idle'}group.updateMatrixWorld(true)}
+      }
+      requestDraw()
+    }
     applyExposure.current=value=>{renderer.toneMappingExposure=value*lighting.exposure;requestDraw()}
     applyLighting.current=(mode,t)=>{
       lighting.configure(mode,t);backdrop.configure(mode,t);renderer.setClearColor(backdrop.background);if(scene.fog)scene.fog.color.set(backdrop.fogColor)
@@ -715,9 +723,11 @@ export default function Scene3D(props: Props) {
     canvas.addEventListener('contextmenu',context);canvas.addEventListener('pointerup', clickUp); canvas.addEventListener('pointermove', pointerMove);canvas.addEventListener('pointerleave',pointerLeave);canvas.addEventListener('webglcontextlost', lost)
     let motionTimer:ReturnType<typeof setTimeout>|undefined
     const visibleMotionSource=()=>pickables.some(group=>group.userData.liveFlame&&(model.restricted||!latest.current.editorHidden?.includes(group.userData.selection?.id)))
-    const wantsMotion=()=>vfxNeedsMotion()||!!liveEmitters&&visibleMotionSource()&&animationValue.current||characterMotion.current&&characters.some(c=>c.animation!=='rest'&&!latest.current.editorHidden?.includes(c.group.userData.selection?.id))
-    const motionTick=()=>{motionTimer=undefined;if(disposed||!wantsMotion()||document.visibilityState!=='visible'||!element.clientWidth||!element.clientHeight)return;requestDraw(false);motionTimer=setTimeout(motionTick,50)}
-    const syncMotion=()=>{clearTimeout(motionTimer);motionTimer=undefined;vfxLast=undefined;if(!disposed&&wantsMotion()&&document.visibilityState==='visible'&&element.clientWidth&&element.clientHeight)motionTimer=setTimeout(motionTick,50);requestDraw(false)}
+    const wantsMotion=()=>vfxNeedsMotion()||!!liveEmitters&&visibleMotionSource()&&animationValue.current||characterMotion.current&&characters.some(c=>(c.animation!=='rest'||c.rig.transitioning)&&!latest.current.editorHidden?.includes(c.group.userData.selection?.id))
+    const canAnimate=()=>!disposed&&wantsMotion()&&document.visibilityState==='visible'&&!!element.clientWidth&&!!element.clientHeight
+    const motionTick=()=>{motionTimer=undefined;if(canAnimate())requestDraw(false)}
+    const scheduleMotion=()=>{if(motionTimer===undefined&&canAnimate())motionTimer=setTimeout(motionTick,50)}
+    const syncMotion=()=>{clearTimeout(motionTimer);motionTimer=undefined;vfxLast=undefined;characterLast=undefined;scheduleMotion();requestDraw(false)}
     applyCharacterPreview.current=()=>{previewDirty=true;requestDraw(false)}
     applyMotion.current=syncMotion;document.addEventListener('visibilitychange',syncMotion);syncMotion()
     setEffects(latest.current.model.visuals);applyAim.current?.(latest.current.abilityAim??null);applyGuides.current?.(latest.current.marker??null,latest.current.route??[])

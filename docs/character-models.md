@@ -106,3 +106,16 @@ a group also turns the heading of figures carried by selected supports once.
 Re-placing a figure retains its model, animation, heading and diameter. Heading
 changes retain the renderer, meshes, rig and camera. See
 [the controls review](editor-character-controls-review.md) for scope and checks.
+
+Runtime clip changes now blend for 0.2 seconds from the displayed pose, including
+interrupted transitions and a transition to rest. Exact preview seeking stays
+deterministic and bypasses blending. Runtime and inspection share the skeleton
+without retaining rotations of bones absent from the next clip. Pausing global
+character animation restores the bind pose immediately.
+
+Changing only a saved clip retains GPU resources in the unrestricted editor.
+A scene-local animation clock excludes time spent in hidden tabs; returning to
+the tab holds the same phase before advancing. Rest stops scheduling animation
+frames after its transition completes. Collapsing the inspection panel pauses
+its clock and reopening leaves it paused. See
+[the transitions review](animation-transitions-review.md) for scope and checks.

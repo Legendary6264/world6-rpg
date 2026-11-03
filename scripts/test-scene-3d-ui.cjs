@@ -115,6 +115,57 @@ test('Предпросмотр не появляется для нераскры
  await flush(()=>root.render(null));props={}
 })
 
+test('Клипы персонажа меняются без перестройки сцены; переход к покою завершает цикл кадров',async()=>{
+ await flush(()=>root.render(null));props={}
+ const previous=document.visibilityState;Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
+ try{
+  const {createCharacterStudio,characterStudioActors}=load('characterStudio'),scene=createCharacterStudio(),token=scene.tokens[0]
+  for(const t of scene.tokens)t.characterAnimation='rest'
+  let model=masterRenderModel(scene,characterStudioActors)
+  await mount({model,selection:null,selections:[]})
+  const r=instances.at(-1),group=r.scene.children.find(g=>g.userData.selection?.id===token.actorId),camera=r.camera.position.clone(),meshes=[]
+  group.traverse(o=>{if(o.isSkinnedMesh)meshes.push(o)})
+  const skeleton=meshes[0].skeleton,geometries=meshes.map(m=>m.geometry),materials=meshes.map(m=>m.material)
+  await flush(()=>[...document.querySelectorAll('label')].find(l=>l.textContent.includes('Анимация персонажей')).querySelector('input').click())
+  const change=async animation=>{model=structuredClone(model);model.entities.find(e=>e.id===token.actorId).geometry.characterAnimation=animation;await mount({model})}
+  const wait=async()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,350))})
+  await change('walk');await wait()
+  assert.equal(instances.at(-1),r);assert(!r.disposed);assert.equal(r.scene.children.find(g=>g.userData.selection?.id===token.actorId),group)
+  assert(skeleton.bones.some(b=>Math.abs(b.quaternion.x)>.01),'The saved clip starts on the retained skeleton')
+  let frozen
+  await flush(()=>{frozen=skeleton.bones.map(b=>b.quaternion.toArray());Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});document.dispatchEvent(new dom.window.Event('visibilitychange'))})
+  assert.deepEqual(skeleton.bones.map(b=>b.quaternion.toArray()),frozen,'Hiding the tab holds the displayed pose')
+  const hiddenFrames=r.frames;await act(async()=>{await new Promise(resolve=>setTimeout(resolve,130))});assert.equal(r.frames,hiddenFrames)
+  await flush(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});document.dispatchEvent(new dom.window.Event('visibilitychange'))})
+  assert.deepEqual(skeleton.bones.map(b=>b.quaternion.toArray()),frozen,'Resuming excludes time spent in the hidden tab')
+  await change('idle');await wait()
+  assert(Math.abs(skeleton.getBoneByName('gb_leftThigh').quaternion.x)<1e-6,'Untracked leg bones return to the idle bind pose')
+  await change('rest');await wait()
+  assert(skeleton.bones.every(b=>Math.abs(b.quaternion.w-1)<1e-6));const frames=r.frames
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,150))});assert.equal(r.frames,frames,'Rest completes the fade and stops rendering')
+  assert.equal(instances.at(-1),r);assert(r.camera.position.equals(camera));assert.equal(meshes[0].skeleton,skeleton);assert.deepEqual(meshes.map(m=>m.geometry),geometries);assert.deepEqual(meshes.map(m=>m.material),materials)
+  const changed=structuredClone(model);changed.entities.find(e=>e.id===token.actorId).geometry.characterModel='arcanist';await mount({model:changed})
+  assert.notEqual(instances.at(-1),r);assert(r.disposed,'Actual sculpt changes still rebuild and dispose old geometry')
+ }finally{await flush(()=>root.render(null));Object.defineProperty(document,'visibilityState',{configurable:true,value:previous})}
+})
+
+test('Сворачивание предпросмотра удерживает кадр и не возобновляет часы при открытии',async()=>{
+ await flush(()=>root.render(null));props={}
+ const previous=document.visibilityState;Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
+ try{
+  const {createCharacterStudio,characterStudioActors}=load('characterStudio'),scene=createCharacterStudio(),token=scene.tokens[0]
+  await mount({model:masterRenderModel(scene,characterStudioActors),selection:{kind:'token',id:token.actorId},selections:[]})
+  await flush(()=>document.querySelector('[aria-label="Воспроизвести анимацию персонажа"]').click())
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,100))})
+  await flush(()=>{const panel=document.querySelector('.gb-character-preview');panel.open=false;panel.dispatchEvent(new dom.window.Event('toggle'))})
+  const time=document.querySelector('[aria-label="Время анимации персонажа"]').textContent,r=instances.at(-1),frames=r.frames
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,150))});assert.equal(r.frames,frames);assert.equal(document.querySelector('[aria-label="Время анимации персонажа"]').textContent,time)
+  await flush(()=>{const panel=document.querySelector('.gb-character-preview');panel.open=true;panel.dispatchEvent(new dom.window.Event('toggle'))})
+  assert(document.querySelector('[aria-label="Воспроизвести анимацию персонажа"]'))
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,100))});assert.equal(r.frames,frames);assert.equal(document.querySelector('[aria-label="Время анимации персонажа"]').textContent,time)
+ }finally{await flush(()=>root.render(null));Object.defineProperty(document,'visibilityState',{configurable:true,value:previous})}
+})
+
 test('3D UI: настоящая геометрия и камера, выбор объекта, обратное преобразование земли, новые callbacks',async()=>{
  const {world}=create3DSandbox('ui'),scene=world.campaign.scenes.scenes[0],door=scene.objects.find(o=>o.kind==='door')
  let selected,point,oldCallback=0
