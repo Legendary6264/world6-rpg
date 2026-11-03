@@ -17,6 +17,34 @@ const {create3DSandbox}=await module('sandboxCampaign'),{isCampaign,copyCampaign
 const {isSceneState}=await module('scenes'),{masterRenderModel,perceivedRenderModel,snapScenePoint,entityAreas}=await module('scene3dModel')
 const {prepareGameScene}=await module('gameScene'),{perceivedMap}=await module('scenePerception'),{isStarterDraft}=await module('starterCampaignDraft')
 
+test('3D-облики: совместимость старых сцен, копирование кампании и приватная проекция игрока',async()=>{
+ const {world}=create3DSandbox('costume'),scene=world.campaign.scenes.scenes[0],token=scene.tokens[0]
+ assert(isSceneState(world.campaign.scenes),'Old version-1 saves remain valid without appearance fields')
+ token.characterModel='ranger';token.facing=135;token.characterAnimation='walk'
+ assert(isSceneState(world.campaign.scenes));assert.deepEqual(copyCampaign(world.campaign),world.campaign)
+ const own=perceivedMap({actorId:token.actorId,activeSceneId:scene.id,scenes:[{sceneId:scene.id,title:'Область',description:'',frame:scene,areas:[{id:'known',x:0,y:0,z:-2,width:30,depth:20,height:20,visible:true}],objects:[],contacts:[]}]},world.campaign.scenes,world.characters)
+ assert.equal(own.contacts.find(c=>c.kind==='self').characterModel,'ranger')
+ assert.equal(own.contacts.find(c=>c.kind==='self').characterAnimation,'walk')
+ assert.equal(copyCampaign(world.campaign).scenes.scenes[0].tokens[0].characterAnimation,'walk')
+ const contact={id:'public-contact',actorId:token.actorId,kind:'silhouette',label:'Силуэт',signs:'',point:token,radius:0,showHeight:true}
+ const knowledge={actorId:'other-player',activeSceneId:scene.id,scenes:[{sceneId:scene.id,title:'Область',description:'',frame:scene,areas:[{id:'known',x:0,y:0,z:-2,width:30,depth:20,height:20,visible:true}],objects:[],contacts:[contact]}]}
+ const silhouette=perceivedMap(knowledge,world.campaign.scenes,world.characters).contacts[0]
+ assert.equal(silhouette.characterModel,undefined);assert.equal(silhouette.facing,undefined);assert.equal(silhouette.characterAnimation,undefined)
+ contact.kind='identified'
+ const identified=perceivedMap(knowledge,world.campaign.scenes,world.characters).contacts[0]
+ assert.equal(identified.characterModel,'ranger');assert.equal(identified.facing,135);assert.equal(identified.characterAnimation,'walk')
+ assert(!JSON.stringify(identified).includes(token.actorId),'Appearance does not expose the internal actor identifier')
+ contact.showHeight=false
+ assert.equal(perceivedMap(knowledge,world.campaign.scenes,world.characters).contacts[0].characterModel,undefined)
+ token.characterModel='untrusted-model';assert(!isSceneState(world.campaign.scenes));token.characterModel='ranger'
+ token.facing=Infinity;assert(!isSceneState(world.campaign.scenes));token.facing=135
+ token.characterAnimation='untrusted-motion';assert(!isSceneState(world.campaign.scenes));token.characterAnimation='walk'
+ const {createCharacterStudio,characterStudioActors}=await module('characterStudio'),{sceneReferencesValid}=await module('scenes')
+ const studio=createCharacterStudio(),state={version:1,activeSceneId:studio.id,scenes:[studio]}
+ assert(isSceneState(state));assert(sceneReferencesValid(state,characterStudioActors.map(a=>a.id)))
+ assert.equal(new Set(studio.tokens.map(t=>t.characterModel)).size,4)
+})
+
 test('Полигон: отдельные валидные миры, три области, опора Z=3 и сохранение прежнего формата',()=>{
  const a=create3DSandbox('copy-a'),b=create3DSandbox('copy-b'),before=structuredClone(b)
  assert(isCampaign(a.world.campaign));assert(a.world.characters.every(isCharacterDraft));assert(isSceneState(a.world.campaign.scenes))

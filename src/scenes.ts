@@ -1,3 +1,4 @@
+import {isCharacterModel,isCharacterAnimation} from './characterAppearance'
 import { isArtwork } from './visualMedia'
 import {validTabletopAppearance} from './tabletopCatalog'
 import type { Scene, SceneObject, SceneState, SceneToken } from './sceneTypes'
@@ -39,7 +40,7 @@ function validScene(v: unknown): v is Scene {
   const objects = v.objects as SceneObject[]
   if (!unique(objects.map(o => o.id))) return false
   return v.tokens.every(t => {
-    if (!object(t) || !id(t.actorId) || !position(t, v) || !size(t.diameter) || t.diameter > 100 || !object(t.support)) return false
+    if (!object(t) || !id(t.actorId) || !position(t, v) || !size(t.diameter) || t.diameter > 100 || !object(t.support) || t.characterModel!==undefined&&!isCharacterModel(t.characterModel) || t.facing!==undefined&&(!finite(t.facing)||t.facing<0||t.facing>=360) || t.characterAnimation!==undefined&&!isCharacterAnimation(t.characterAnimation)) return false
     if (t.support.kind === 'ground') return sameHeight(Number(t.z), Number(v.groundZ))
     if (t.support.kind === 'air') return true
     if (t.support.kind !== 'object' || !id(t.support.objectId)) return false
@@ -74,6 +75,7 @@ export function copySceneState(state: SceneState): SceneState {
       blocksSight: o.blocksSight, canSupport: o.canSupport, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}),
       ...(o.asset!==undefined?{asset:o.asset}:{}),...(o.facing!==undefined?{facing:o.facing}:{}),...(o.active!==undefined?{active:o.active}:{}),...(o.locked!==undefined?{locked:o.locked}:{}) })),
     tokens: s.tokens.map(t => ({ actorId: t.actorId, x: t.x, y: t.y, z: t.z, diameter: t.diameter,
+      ...(t.characterModel!==undefined?{characterModel:t.characterModel}:{}),...(t.facing!==undefined?{facing:t.facing}:{}),...(t.characterAnimation!==undefined?{characterAnimation:t.characterAnimation}:{}),
       support: t.support.kind === 'object' ? { kind: 'object', objectId: t.support.objectId } : { kind: t.support.kind } })),
   })) }
 }

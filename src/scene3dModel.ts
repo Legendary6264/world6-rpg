@@ -11,7 +11,7 @@ export type RenderEntity = {
   id: string
   supportObjectId?:string
   transform: { position: ScenePosition }
-  geometry: { kind: Scene['objects'][number]['kind'] | 'actor' | 'sound'; width: number; depth: number; height: number; open?: boolean; asset?:string;artwork?:string;facing?:number;active?:boolean;locked?:boolean }
+  geometry: { kind: Scene['objects'][number]['kind'] | 'actor' | 'sound'; width: number; depth: number; height: number; open?: boolean; asset?:string;artwork?:string;facing?:number;active?:boolean;locked?:boolean;characterModel?:string;characterAnimation?: import('./characterAppearance').CharacterAnimation }
   appearance: { color: string; remembered: boolean; heightKnown: boolean }
   identity: { label: string }
   interaction: RenderSelection
@@ -34,7 +34,7 @@ export function masterRenderModel(scene: Scene, actors: SceneActor[], visuals: S
         interaction: { kind: 'object' as const, id: c.identity.data.id } }
     }),
     ...scene.tokens.map(t => ({ id: t.actorId,...(t.support.kind==='object'?{supportObjectId:t.support.objectId}:{}), transform: { position: { x: t.x, y: t.y, z: t.z } },
-      geometry: { kind: 'actor' as const, width: t.diameter, depth: t.diameter, height: 1.7 },
+      geometry: { kind: 'actor' as const, width: t.diameter, depth: t.diameter, height: 1.7, characterModel:t.characterModel, facing:t.facing, characterAnimation:t.characterAnimation },
       appearance: { color: ['#78baa5','#9d92c9','#bd9567','#7d9fb7'][[...t.actorId].reduce((n,c)=>n+c.charCodeAt(0),0)%4], remembered: false, heightKnown: true },
       identity: { label: actors.find(a => a.id === t.actorId)?.name || 'Без имени' },
       interaction: { kind: 'token' as const, id: t.actorId } }))], visuals }
@@ -49,7 +49,7 @@ export function perceivedRenderModel(map: PerceivedMap): SceneRenderModel {
     ...map.contacts.map(c => ({ id: c.id, transform: { position: { x: c.x, y: c.y, z: c.z ?? map.frame.groundZ } },
       geometry: { kind: c.kind === 'sound' ? 'sound' as const : 'actor' as const,
         width: c.kind === 'sound' ? Math.max(.3, (c.radius ?? 1) * 2) : .8,
-        depth: .8, height: c.z === undefined ? .12 : 1.7 },
+        depth: .8, height: c.z === undefined ? .12 : 1.7, characterModel:c.characterModel, facing:c.facing, characterAnimation:c.characterAnimation },
       appearance: { color: c.kind === 'self' ? '#81e6da' : c.kind === 'identified' ? '#b8b0f5' : '#d3a7ee',
         remembered: false, heightKnown: c.z !== undefined },
       identity: { label: c.label + (c.z === undefined ? ' · высота не раскрыта' : '') },

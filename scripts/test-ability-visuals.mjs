@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile, rm, symlink } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
@@ -9,9 +8,10 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { JSDOM } from 'jsdom'
 
-const directory = await mkdtemp(join(tmpdir(), 'world6-visual-renderer-'))
+// Keeping the temporary modules inside node_modules preserves normal package
+// resolution on Windows without symlink privileges or reparse-point support.
+const directory = await mkdtemp(join(resolve('node_modules'), '.world6-visual-renderer-'))
 test.after(() => rm(directory, { recursive: true, force: true }))
-await symlink(resolve('node_modules'), join(directory, 'node_modules'), 'dir')
 for (const file of ['abilityVisuals.ts', 'AbilityVisualEffect.tsx', 'AbilityVisualPicker.tsx', 'magicCatalog.ts']) {
   const source = (await readFile('src/' + file, 'utf8')).replace("import './abilityVisuals.css'", '')
   const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText

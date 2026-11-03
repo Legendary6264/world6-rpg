@@ -10,7 +10,7 @@ function distance(s:Solid,x:number,y:number,z:number){
 // Поверхность из гладкого объединения объёмов: никаких отдельных шаров на суставах.
 export function smoothBodyMesh(root:T.Group,material:T.Material){
  const solids:Solid[]=[],replaced:T.Mesh[]=[]
- root.traverse(o=>{if(o instanceof T.Mesh&&o.material===material&&o.userData.solid){solids.push(o.userData.solid as Solid);replaced.push(o)}})
+ root.traverse(o=>{if(o instanceof T.Mesh&&o.material===material&&o.userData.solid){const solid=o.userData.solid as Solid;if(solid.type==='limb'&&solid.region.endsWith('Hand')&&Math.max(...solid.profile.map(p=>p[1]))<.018)return;solids.push(solid);replaced.push(o)}})
  if(!solids.length)return
  const box=new T.Box3();for(const mesh of replaced)box.expandByObject(mesh);box.expandByScalar(.025)
  const step=.017,nx=Math.ceil((box.max.x-box.min.x)/step)+1,ny=Math.ceil((box.max.y-box.min.y)/step)+1,nz=Math.ceil((box.max.z-box.min.z)/step)+1,values=new Float32Array(nx*ny*nz),owners=new Uint16Array(values.length),index=(x:number,y:number,z:number)=>x+nx*(y+ny*z)

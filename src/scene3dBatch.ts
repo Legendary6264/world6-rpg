@@ -10,7 +10,7 @@ export function batchEntityParts(group:THREE.Group,release:(geometry:THREE.Buffe
   child.updateMatrix()
   const geometry=(child.geometry.index?child.geometry.toNonIndexed():child.geometry.clone()).applyMatrix4(child.matrix)
   const material=child.material,palette=material instanceof THREE.MeshStandardMaterial&&typeof material.userData.paletteBatch==='string'
-  for(const attribute of Object.keys(geometry.attributes))if(!['position','normal','uv'].includes(attribute))geometry.deleteAttribute(attribute)
+  for(const attribute of Object.keys(geometry.attributes))if(!['position','normal','uv','skinIndex','skinWeight'].includes(attribute))geometry.deleteAttribute(attribute)
   if(palette){
    // Compatible tints share one draw. Store their linear RGB on the actual
    // vertices, preserving plank/wood variation without another material call.

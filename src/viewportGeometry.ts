@@ -1,3 +1,6 @@
+import {characterLoft} from './scene3dCharacterGeometry'
+import {prepareCharacterSkin,bindCharacterRig} from './characterRig'
+import type {RigLandmarks} from './characterRig'
 import { smoothBodyMesh } from './smoothBodyMesh'
 import * as T from 'three'
 import type { ReadyCharacterDraft } from './characterModel'
@@ -5,12 +8,14 @@ import type { ItemDefinition } from './rpgTypes'
 import { defaultAppearance } from './creationRules'
 import { raceById } from './raceCatalog'
 const v=(x:number,y:number,z=0)=>new T.Vector3(x,y,z)
-export function disposeObject(root:T.Object3D){const geometries=new Set<T.BufferGeometry>(),materials=new Set<T.Material>();root.traverse(o=>{if(o instanceof T.Mesh){geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m)}});for(const g of geometries)g.dispose();for(const m of materials)m.dispose()}
+const anatomyRigs=new WeakMap<T.Object3D,ReturnType<typeof bindCharacterRig>>()
+export const characterRigFor=(root:T.Object3D)=>anatomyRigs.get(root)
+export function disposeObject(root:T.Object3D){root.traverse(o=>{anatomyRigs.get(o)?.dispose();anatomyRigs.delete(o)});const geometries=new Set<T.BufferGeometry>(),materials=new Set<T.Material>();root.traverse(o=>{if(o instanceof T.Mesh){geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m)}});for(const g of geometries)g.dispose();for(const m of materials)m.dispose()}
 function builder(root:T.Group){
  const mesh=(geometry:T.BufferGeometry,material:T.Material,x=0,y=0,z=0,region='')=>{const m=new T.Mesh(geometry,material);m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;m.userData.region=region;root.add(m);return m}
  const oval=(x:number,y:number,z:number,rx:number,ry:number,rz:number,material:T.Material,region='')=>{const m=mesh(new T.SphereGeometry(1,32,24),material,x,y,z,region);m.scale.set(rx,ry,rz);if(Math.min(rx,ry,rz)>=.035)m.userData.solid={type:'oval',center:new T.Vector3(x,y,z),r:new T.Vector3(rx,ry,rz),region};return m}
  const tube=(points:T.Vector3[],radius:number,material:T.Material,region='')=>mesh(new T.TubeGeometry(new T.CatmullRomCurve3(points),32,radius,10,false),material,0,0,0,region)
- const limb=(from:T.Vector3,to:T.Vector3,profile:[number,number][],material:T.Material,region='',depth=1)=>{const direction=to.clone().sub(from),length=direction.length();const geometry=new T.LatheGeometry(profile.map(([t,r])=>new T.Vector2(r,(t-.5)*length)),24);const m=mesh(geometry,material,0,0,0,region);m.position.copy(from.clone().add(to).multiplyScalar(.5));m.quaternion.setFromUnitVectors(v(0,1),direction.normalize());m.scale.z=depth;m.userData.solid={type:'limb',from:from.clone(),to:to.clone(),profile,region,depth};return m}
+ const limb=(from:T.Vector3,to:T.Vector3,profile:[number,number][],material:T.Material,region='',depth=1)=>{const direction=to.clone().sub(from),length=direction.length();const geometry=characterLoft('anatomical-limb',profile.map(([t,r])=>[(t-.5)*length,r,r]),24,24);const m=mesh(geometry,material,0,0,0,region);m.position.copy(from.clone().add(to).multiplyScalar(.5));m.quaternion.setFromUnitVectors(v(0,1),direction.normalize());m.scale.z=depth;m.userData.solid={type:'limb',from:from.clone(),to:to.clone(),profile,region,depth};return m}
  return {mesh,oval,tube,limb}
 }
 export function buildArtifact(item:ItemDefinition){
@@ -41,12 +46,19 @@ export function buildCharacter(actor:ReadyCharacterDraft){
  const skin=new T.MeshPhysicalMaterial({color:a.skin,roughness:.57,clearcoat:.12,clearcoatRoughness:.68}),hair=new T.MeshStandardMaterial({color:a.hair,roughness:.9}),cloth=new T.MeshStandardMaterial({color:a.outfit,roughness:.9}),ivory=new T.MeshStandardMaterial({color:'#b5a58c',roughness:.56}),eye=new T.MeshPhysicalMaterial({color:a.eyes,roughness:.17,clearcoat:1}),white=new T.MeshStandardMaterial({color:'#d4d0c3',roughness:.25}),dark=new T.MeshStandardMaterial({color:'#302525',roughness:.8}),lip=new T.MeshStandardMaterial({color:new T.Color(a.skin).multiplyScalar(.66),roughness:.63})
  const has=(r:string)=>actor.body.parts[r]?.present===true
  const segment=(p:T.Vector3,q:T.Vector3,r:number,region:string,material:T.Material=skin)=>limb(p,q,[[0,r*.75],[.08,r],[.3,r*1.08],[.55,r*.96],[.85,r*.62],[1,r*.55]],material,region)
+ let rigPoints:RigLandmarks|undefined
  const humanoid=form==='humanoid'||form==='winged'
  if(humanoid){
   const shoulder=.215*(a.shoulders??1),hips=.155*(a.hips??1),waist=.138*(a.waist??1),leg=.83*(a.legRatio??1),hipY=leg+.11,neckY=hipY+.62,headY=neckY+.16,muscle=.65+(a.musculature??.5)*.6
   const torso=mesh(new T.LatheGeometry([[hips*.75,hipY-.08],[hips*1.12,hipY],[hips*1.12,hipY+.07],[waist,hipY+.23],[shoulder*.96*muscle,hipY+.42],[shoulder*1.02,hipY+.52],[shoulder*.86,hipY+.59],[.059,neckY]].map(([r,y])=>new T.Vector2(r,y)),48),skin,0,0,0,'torso');torso.scale.z=.64;torso.userData.solid={type:'torso',profile:[[hipY-.08,hips*.75],[hipY,hips*1.12],[hipY+.07,hips*1.12],[hipY+.23,waist],[hipY+.42,shoulder*.96*muscle],[hipY+.52,shoulder*1.02],[hipY+.59,shoulder*.86],[neckY,.059]],depth:.64,region:'torso'}
-  segment(v(0,neckY-.015),v(0,neckY+.1),.052,'head');oval(0,headY,0,.107*a.head,.14*a.head,.105*a.head,skin,'head');oval(0,headY-.064,.034,.078*(a.jaw??1),.061,.069,skin,'head')
-  oval(0,headY-.023,.111,.022*(a.nose??1),.031,.03*(a.nose??1),skin,'head');oval(0,headY-.065,.105,.034,.009,.012,lip,'head');tube([v(-.026,headY-.065,.116),v(0,headY-.067,.12),v(.026,headY-.065,.116)],.002,dark,'head')
+  segment(v(0,neckY-.015),v(0,neckY+.1),.052,'head')
+  const head=characterLoft('anatomical-sculpted-head',[[-.14,.018,.028,0,.015],[-.126,.052*(a.jaw??1),.05,0,.021],[-.1,.074*(a.jaw??1),.066,0,.026],[-.065,.087*(a.jaw??1),.082,0,.018],[-.025,.102,.096,0,.005],[.022,.107,.103],[.058,.103,.102,0,-.002],[.095,.089,.09,0,-.004],[.125,.057,.06,0,-.006],[.14,.004,.006,0,-.005]],64,64,(p,angle)=>{
+   const g=(x:number,c:number,r:number)=>Math.exp(-(((x-c)/r)**2)),f=Math.max(0,Math.cos(angle))
+   p.z+=f**4*(.025*(a.nose??1)*g(p.x,0,.018)*g(p.y,-.019,.025)+.011*g(p.x,0,.012)*g(p.y,.009,.035)-.012*g(Math.abs(p.x),.043,.019)*g(p.y,.022,.013)+.005*g(Math.abs(p.x),.068,.026)*g(p.y,-.014,.026))
+  });head.scale(a.head,a.head,a.head);mesh(head,skin,0,headY,0,'head')
+  rigPoints={root:v(0,0),hips:v(0,hipY),spine:v(0,hipY+.23),chest:v(0,hipY+.48),neck:v(0,neckY),head:v(0,neckY+.07)}
+  for(const side of [-1,1]){const prefix=side>0?'left':'right';Object.assign(rigPoints,{[prefix+'Arm']:v(side*(shoulder+.018),hipY+.53),[prefix+'Forearm']:v(side*(shoulder+.088),hipY+.25,.012),[prefix+'Hand']:v(side*(shoulder+.13),hipY+.02,.017),[prefix+'Thigh']:v(side*hips*.72,hipY-.017),[prefix+'Shin']:v(side*hips*.84,hipY-leg*.51,.016),[prefix+'Foot']:v(side*hips*.91,.095,-.016)})}
+  oval(0,headY-.065,.105,.034,.009,.012,lip,'head');tube([v(-.026,headY-.065,.116),v(0,headY-.067,.12),v(.026,headY-.065,.116)],.002,dark,'head')
   for(const side of [-1,1]){const prefix=side>0?'left':'right',shoulderP=v(side*(shoulder+.018),hipY+.53),elbow=v(side*(shoulder+.088),hipY+.25,.012),wrist=v(side*(shoulder+.13),hipY+.02,.017)
    oval(side*.043,headY+.022,.094,.022,.009,.009,white,'head');oval(side*.043,headY+.022,.107,.008,.008,.004,eye,'head');oval(side*.043,headY+.022,.112,.003,.005,.002,dark,'head');tube([v(side*.068,headY+.037,.097),v(side*.046,headY+.043,.108),v(side*.027,headY+.038,.101)],.004,hair,'head');oval(side*.106,headY,0,.016,.028,.024,skin,'head')
    if(['elf','noctari','catkin','wolfkin','beastfolk'].includes(race.id)){const ear=mesh(new T.ConeGeometry(.019,.09,16),skin,side*.115,headY+.049,-.004,'head');ear.rotation.z=-side*.55}
@@ -72,6 +84,13 @@ export function buildCharacter(actor:ReadyCharacterDraft){
   for(let n=0;n<7;n++){const feather=oval((n-3)*.025,.54,-.18,.022,.16,.02,ivory,'torso');feather.rotation.x=.6}
  }
  smoothBodyMesh(root,skin)
- for(const item of actor.rpg.inventory.filter(i=>i.equipped)){const gear=buildArtifact(item);gear.scale.multiplyScalar(item.slot==='body'?.45:.38);gear.position.set(item.slot==='body'?0:item.slot==='left'?.38:-.38,item.slot==='body'?1.22:.73,.09);root.add(gear)}
+ for(const item of actor.rpg.inventory.filter(i=>i.equipped)){const gear=buildArtifact(item);gear.scale.multiplyScalar(item.slot==='body'?.45:.38);gear.userData.attachmentBone=item.slot==='left'?'gb_leftHand':item.slot==='right'?'gb_rightHand':'gb_chest';gear.position.set(item.slot==='body'?0:item.slot==='left'?.38:-.38,item.slot==='body'?1.22:.73,.09);root.add(gear)}
+ if(rigPoints){
+  prepareCharacterSkin(root,rigPoints);const rig=bindCharacterRig(root,rigPoints);anatomyRigs.set(root,rig)
+  for(const gear of root.children.filter(c=>c instanceof T.Group&&!c.userData.region)){
+   // Equipped items keep their authored transform at their assigned joint.
+   root.updateMatrixWorld(true);rig.skeleton.getBoneByName(gear.userData.attachmentBone??'gb_chest')!.attach(gear)
+  }
+ }
  const box=new T.Box3().setFromObject(root),height=box.max.y-box.min.y;root.scale.set(a.build,a.height/height,a.build);root.position.y=-box.min.y*root.scale.y;return root
 }

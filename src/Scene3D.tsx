@@ -20,8 +20,9 @@ import { entityAreas } from './scene3dModel'
 import {populateEntityModel} from './scene3dMeshes'
 import type {Surface} from './scene3dMeshes'
 import {SceneAssetLibrary,detailedAsset} from './scene3dAssets'
-import {SceneSurfaceLibrary,surfaceUV} from './scene3dSurfaces'
+import {SceneSurfaceLibrary,surfaceUV,characterSurface} from './scene3dSurfaces'
 import {batchEntityParts} from './scene3dBatch'
+import {prepareCharacterSkin,bindCharacterRig,sceneCharacterLandmarks} from './characterRig'
 import {modelEmission} from './scene3dEmitters'
 import {createSceneLighting,createLightingEnvironment,lightingLabels} from './scene3dLighting'
 import {createSceneBackdrop} from './scene3dBackdrop'
@@ -74,6 +75,7 @@ export default function Scene3D(props: Props) {
   const [effectsEnabled,setEffectsEnabled]=useState(true),[effectsPaused,setEffectsPaused]=useState(false),[effectReplay,setEffectReplay]=useState(0)
   const effectSettings=useRef({enabled:effectsEnabled,paused:effectsPaused,replay:effectReplay}),applyEffects=useRef<((visuals:SceneAbilityVisual[],replay?:boolean)=>void)|null>(null),applyAim=useRef<((aim:SceneAbilityAim|null)=>void)|null>(null)
   const [measurement,setMeasurement]=useState(''),[animated,setAnimated]=useState(readMotionPreference)
+  const [charactersAnimated,setCharactersAnimated]=useState(false),characterMotion=useRef(false)
   const animationValue=useRef(animated),applyMotion=useRef<(()=>void)|null>(null)
   const host = useRef<HTMLDivElement>(null), latest = useRef(props), reset = useRef<(() => void) | null>(null)
   const cameraAction=useRef<((action:'top'|'front'|'iso'|'focus'|'reference')=>void)|null>(null),restoreFocus=useRef(false)
@@ -157,6 +159,7 @@ export default function Scene3D(props: Props) {
     if(!model.restricted&&!videoReference)scene.fog=new THREE.FogExp2(backdrop.fogColor,environmentKind==='underground'?.009:.005)
     renderer.toneMappingExposure=lighting.exposure*exposureValue.current
     const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()
+    const characters:{rig:ReturnType<typeof bindCharacterRig>;group:THREE.Group;animation:NonNullable<RenderEntity['geometry']['characterAnimation']>}[]=[]
     const keep = <T extends THREE.BufferGeometry | THREE.Material | THREE.Texture,>(v: T): T => { resources.add(v); return v }
     let pending=0,disposed=false,environment:THREE.WebGLRenderTarget|undefined,environmentTimer:ReturnType<typeof setTimeout>|undefined
     const generator=quality!=='low'&&renderer.capabilities?.maxTextures?new THREE.PMREMGenerator(renderer):undefined
@@ -241,11 +244,14 @@ export default function Scene3D(props: Props) {
       const source=objectLightReachesRoom(e.geometry),emission=source?modelEmission(group,legacyObjectBehavior(e.geometry)?.emitter):undefined
       // Native tabletop modules bake their final editable scale only after the
       // model callback returns. Project UVs from those completed dimensions.
-      for(const part of group.children)if(part instanceof THREE.Mesh&&part.userData.surfaceTexture){part.updateMatrix();surfaceUV(part.geometry,new THREE.Vector3(),2,part.matrix)}
-      if(legacyAsset(e.geometry)||quality!=='low'&&['wall','door','crate','platform','lamp','actor','water'].includes(e.geometry.kind)){
+      for(const part of group.children)if(part instanceof THREE.Mesh&&part.userData.surfaceTexture){part.updateMatrix();surfaceUV(part.geometry,new THREE.Vector3(),characterSurface(part.userData.surfaceTexture)?.18:2,part.matrix)}
+      const characterPoints=e.geometry.kind==='actor'&&e.appearance.heightKnown?sceneCharacterLandmarks(e):null
+      if(characterPoints)prepareCharacterSkin(group,characterPoints)
+      if(e.geometry.kind==='actor'||legacyAsset(e.geometry)||quality!=='low'&&['wall','door','crate','platform','lamp','water'].includes(e.geometry.kind)){
         batchEntityParts(group,g=>{resources.delete(g);g.dispose()},keep)
         group.traverse(part=>{if(part instanceof THREE.Mesh)part.castShadow=part.castShadow&&!model.restricted})
       }
+      if(characterPoints)characters.push({rig:bindCharacterRig(group,characterPoints),group,animation:e.geometry.characterAnimation??'idle'})
       if(source&&!clay&&quality!=='low'&&flameAssets.has(presentationAssetId(e.geometry)??'')&&!e.appearance.remembered){
         const flames=new Map<THREE.MeshStandardMaterial,THREE.Box3>()
         group.traverse(part=>{if(!(part instanceof THREE.Mesh))return;const mats=Array.isArray(part.material)?part.material:[part.material];for(const m of mats){if(!(m instanceof THREE.MeshStandardMaterial)||!m.userData.lightEmitter)continue;part.updateMatrix();part.geometry.computeBoundingBox();const box=part.geometry.boundingBox?.clone().applyMatrix4(part.matrix);if(box)flames.set(m,flames.get(m)?.union(box)??box)}})
@@ -337,6 +343,9 @@ export default function Scene3D(props: Props) {
       backdrop.update(camera)
       lighting.update(camera,controls.target)
       const moving=animationValue.current&&document.visibilityState==='visible',visualTime=performance.now()/1000
+      const charactersMoving=characterMotion.current&&document.visibilityState==='visible'
+      for(const entry of characters)entry.rig.sample(visualTime,entry.animation,charactersMoving&&entry.group.visible)
+      if(charactersMoving&&characters.length){renderer.shadowMap.needsUpdate=true;if(contactShadows)contactShadows.needsUpdate=true}
       updateFlameMaterials(resources,visualTime,moving);lighting.animate(moving?visualTime:null)
       if(composer)composer.render(0);else renderer.render(scene,camera)
       const box = element.getBoundingClientRect()
@@ -689,7 +698,7 @@ export default function Scene3D(props: Props) {
     canvas.addEventListener('contextmenu',context);canvas.addEventListener('pointerup', clickUp); canvas.addEventListener('pointermove', pointerMove);canvas.addEventListener('pointerleave',pointerLeave);canvas.addEventListener('webglcontextlost', lost)
     let motionTimer:ReturnType<typeof setTimeout>|undefined
     const visibleMotionSource=()=>pickables.some(group=>group.userData.liveFlame&&(model.restricted||!latest.current.editorHidden?.includes(group.userData.selection?.id)))
-    const wantsMotion=()=>vfxNeedsMotion()||!!liveEmitters&&visibleMotionSource()&&animationValue.current
+    const wantsMotion=()=>vfxNeedsMotion()||!!liveEmitters&&visibleMotionSource()&&animationValue.current||characterMotion.current&&characters.some(c=>c.animation!=='rest'&&!latest.current.editorHidden?.includes(c.group.userData.selection?.id))
     const motionTick=()=>{motionTimer=undefined;if(disposed||!wantsMotion()||document.visibilityState!=='visible'||!element.clientWidth||!element.clientHeight)return;requestDraw(false);motionTimer=setTimeout(motionTick,50)}
     const syncMotion=()=>{clearTimeout(motionTimer);motionTimer=undefined;vfxLast=undefined;if(!disposed&&wantsMotion()&&document.visibilityState==='visible'&&element.clientWidth&&element.clientHeight)motionTimer=setTimeout(motionTick,50);requestDraw(false)}
     applyMotion.current=syncMotion;document.addEventListener('visibilitychange',syncMotion);syncMotion()
@@ -703,7 +712,7 @@ export default function Scene3D(props: Props) {
       canvas.removeEventListener('pointerdown',captureDown,true);canvas.removeEventListener('pointermove',captureMove,true);canvas.removeEventListener('pointerup',dragUp,true);canvas.removeEventListener('pointercancel',dragCancel);canvas.removeEventListener('lostpointercapture',dragCancel);canvas.removeEventListener('keydown',keyboard)
       canvas.removeEventListener('contextmenu',context);canvas.removeEventListener('pointerup', clickUp); canvas.removeEventListener('pointermove', pointerMove);canvas.removeEventListener('pointerleave',pointerLeave);canvas.removeEventListener('webglcontextlost', lost)
       window.removeEventListener('blur',blur)
-      passes.forEach(pass=>pass.dispose());composer?.dispose();lighting.dispose();backdrop.dispose();assetLibrary.dispose();surfaceLibrary.dispose();environment?.dispose();generator?.dispose();resources.forEach(v => v.dispose());renderer.dispose();canvas.remove();labelElements.forEach(v => v.node.remove())
+      characters.forEach(c=>c.rig.dispose());passes.forEach(pass=>pass.dispose());composer?.dispose();lighting.dispose();backdrop.dispose();assetLibrary.dispose();surfaceLibrary.dispose();environment?.dispose();generator?.dispose();resources.forEach(v => v.dispose());renderer.dispose();canvas.remove();labelElements.forEach(v => v.node.remove())
     }
     // Changing a callback alone must not rebuild GPU resources or reset the camera.
   }, [constructionModel, quality, grid, labels,clay,orthographic,tabletop,videoReference,environmentKind])
@@ -713,6 +722,7 @@ export default function Scene3D(props: Props) {
   useEffect(()=>{applyMotion.current?.()},[props.effectTimeMs])
   useEffect(()=>{const replay=effectSettings.current.replay!==effectReplay;effectSettings.current={enabled:effectsEnabled,paused:effectsPaused,replay:effectReplay};if(replay)applyEffects.current?.(model.visuals,true);applyMotion.current?.()},[effectsEnabled,effectsPaused,effectReplay,model.visuals])
   useEffect(()=>{animationValue.current=animated;saveMotionPreference(animated);applyMotion.current?.()},[animated])
+  useEffect(()=>{characterMotion.current=charactersAnimated;applyMotion.current?.()},[charactersAnimated])
   useEffect(()=>{applyPositions.current?.(model)},[model])
   useEffect(()=>{applyPlacement.current?.(props.placement)},[props.placement])
   useEffect(()=>{cutawayValue.current=cutaway;applyCutaway.current?.()},[cutaway])
@@ -739,6 +749,7 @@ export default function Scene3D(props: Props) {
       <label>Свет <select aria-label="Освещение 3D" value={lightingMode} onChange={e=>{const mode=e.currentTarget.value as LightingMode;setLightingMode(mode);setTuning(defaultLightTuning(mode))}}>{(Object.keys(lightingLabels) as LightingMode[]).map(mode=><option key={mode} value={mode}>{lightingLabels[mode]}</option>)}</select></label>
       <label>Экспозиция <input aria-label="Экспозиция 3D" type="range" min="0.5" max="1.6" step="0.05" value={exposure} onChange={e=>setExposure(Number(e.currentTarget.value))}/></label>
       {tabletop&&<label><input type="checkbox" checked={animated} onChange={e=>setAnimated(e.currentTarget.checked)}/> Живой огонь</label>}
+      <label><input type="checkbox" checked={charactersAnimated} onChange={e=>setCharactersAnimated(e.currentTarget.checked)}/> Анимация персонажей</label>
       <label><input type="checkbox" checked={effectsEnabled} onChange={e=>setEffectsEnabled(e.currentTarget.checked)}/> Эффекты способностей</label>
       {props.effectTimeMs===undefined&&<><button className="w6-button" type="button" disabled={!effectsEnabled||!model.visuals.length} onClick={()=>setEffectsPaused(v=>!v)}>{effectsPaused?'Продолжить эффекты':'Пауза эффектов'}</button>
       <button className="w6-button" type="button" disabled={!effectsEnabled||!model.visuals.some(v=>v.phase==='sequence')} onClick={()=>{setEffectsPaused(false);setEffectReplay(n=>n+1)}}>Повторить эффект</button></>}

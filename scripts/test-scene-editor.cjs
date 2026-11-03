@@ -34,6 +34,23 @@ function arrangementFixture(){
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
 
+test('Облик, направление и скелетная анимация: сохранение, undo/redo и защита read-only',async()=>{
+ await fixture();const token=active().tokens[0],original=structuredClone(token)
+ await flush(()=>viewport.onSelect({kind:'token',id:token.actorId}))
+ const model=document.querySelector('select[name=characterModel]'),animation=document.querySelector('select[name=characterAnimation]'),facing=document.querySelector('input[name=facing]')
+ assert(model&&animation&&facing)
+ model.value='arcanist';animation.value='walk';facing.value='135'
+ await flush(()=>model.form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})))
+ const saved=active().tokens.find(t=>t.actorId===token.actorId)
+ assert.equal(saved.characterModel,'arcanist');assert.equal(saved.characterAnimation,'walk');assert.equal(saved.facing,135)
+ for(const k of ['x','y','z','diameter','support'])assert.deepEqual(saved[k],original[k],k+' retained')
+ await key('z',{ctrlKey:true});assert.deepEqual(active().tokens.find(t=>t.actorId===token.actorId),original)
+ await key('z',{ctrlKey:true,shiftKey:true});assert.equal(active().tokens.find(t=>t.actorId===token.actorId).characterAnimation,'walk')
+ await fixture({disabled:true});await flush(()=>viewport.onSelect({kind:'token',id:active().tokens[0].actorId}))
+ const form=document.querySelector('select[name=characterModel]').form
+ await flush(()=>form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(writes,0)
+})
+
 test('Редактор: клавиши, дублирование, undo/redo и одна запись на завершённый перенос',async()=>{
  await fixture();const o=active().objects.find(o=>o.kind==='crate'),original=o.x,count=active().objects.length
  await flush(()=>viewport.onSelect({kind:'object',id:o.id}));await key('ArrowRight')

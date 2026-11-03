@@ -1,3 +1,4 @@
+import {characterStudioId,characterStudioActors,createCharacterStudio} from './characterStudio'
 import {lazy,Suspense,useState} from 'react'
 import type {SceneState} from './sceneTypes'
 import {create3DSandbox} from './sandboxCampaign'
@@ -26,7 +27,7 @@ const oldTavernPlayers=['Эрин','Мира','Торен','Лис'].map((name,i
 const tavernPlayers=oldTavernPlayers.map((a,i)=>({...a,id:'preview-reference-'+i}))
 const oldVideoTavernPlayers=tavernPlayers.map((a,i)=>({...a,id:'preview-reference-video-'+i}))
 const videoTavernPlayers=tavernPlayers.map((a,i)=>({...a,id:'preview-reference-video2-'+i}))
-const actors=[...example.world.characters,...players,...figures,...oldTavernPlayers,...tavernPlayers,...oldVideoTavernPlayers,...videoTavernPlayers]
+const actors=[...characterStudioActors,...example.world.characters,...players,...figures,...oldTavernPlayers,...tavernPlayers,...oldVideoTavernPlayers,...videoTavernPlayers]
 function initialScenes():SceneState {
  const state=structuredClone(example.world.campaign.scenes!)
  state.scenes[0].tokens.push(...players.map((a,i)=>({actorId:a.id,x:4+i*2,y:17,z:0,diameter:.8,support:{kind:'ground' as const}})))
@@ -76,6 +77,11 @@ export default function Preview3D(){
   if(!existing&&state.scenes.length>=20)return
   if(save({...state,activeSceneId:id,scenes:existing?state.scenes:[...state.scenes,organic?createOrganicScene(figures.map(p=>p.id)):createDetailScene()]}).ok){setMode('view');setNotice(organic?'Вода и четыре объёмные фигурки. F — приблизить выбранную.':'Мастерская геометрии. Сравни освещение и режим без текстур.')}
  }
+ function openCharacters(){
+  const existing=state.scenes.some(s=>s.id===characterStudioId)
+  if(!existing&&state.scenes.length>=20){setNotice('На полигоне уже 20 сцен. Освободи место для мастерской персонажей.');return}
+  if(save({...state,activeSceneId:characterStudioId,scenes:existing?state.scenes:[...state.scenes,createCharacterStudio()]}).ok){setMode('view');setNotice('Четыре облика. Выбери персонажа и нажми F. Облик и направление взгляда меняются в инспекторе.')}
+ }
  function openBasicModels(){
   const existing=state.scenes.some(s=>s.id===basicModelsSceneId)
   if(!existing&&state.scenes.length>=20)return
@@ -84,7 +90,7 @@ export default function Preview3D(){
  return <main className="gb-preview gb-preview-workspace">
   <header className="gb-preview-header"><a className="gb-preview-brand" href="?" aria-label="Грани Бытия"><span className="gb-preview-monogram">ГБ</span><span><strong>Грани Бытия</strong><small>ИГРОВОЙ СТОЛ</small></span></a>
    <nav className="gb-preview-mode" aria-label="Режим полигона">{([['view','play','Игровой стол'],['edit','cube','Редактор'],['playtest','person','Игрок и эффекты'],['round','person','Учебный раунд']] as const).map(([id,icon,label])=><button key={id} aria-pressed={mode===id} onClick={()=>setMode(id)}><EditorIcon name={icon}/>{label}</button>)}</nav>
-   <div className="gb-preview-header-end"><span className="gb-preview-party"><i/>4 игрока + мастер</span><button className="gb-preview-reference" onClick={()=>openOriginal()}><EditorIcon name="layers"/>Исходные сцены</button><details className="gb-preview-project-menu"><summary aria-label="Примеры и проект"><EditorIcon name="folder"/>Проект<EditorIcon name="chevron" size={12}/></summary><div onClick={e=>e.currentTarget.parentElement?.removeAttribute('open')}>{['Поселение','Лес и дорога','Подземелье'].map((name,i)=><button key={name} onClick={()=>openOriginal(i)} disabled={state.scenes.length>=20&&!state.scenes.some(s=>s.id===example.world.campaign.scenes!.scenes[i].id)}>{name}</button>)}<button onClick={openVideoTavern}>Таверна из ролика</button><button onClick={openTavern}>Таверна</button><button onClick={()=>openDetails()} disabled={state.scenes.length>=20&&!state.scenes.some(s=>s.id===detailSceneId)}>Детальная сцена</button><button onClick={()=>openDetails(true)} disabled={state.scenes.length>=20&&!state.scenes.some(s=>s.id===organicSceneId)}>Вода и фигурки</button><button onClick={openBasicModels} disabled={state.scenes.length>=20&&!state.scenes.some(s=>s.id===basicModelsSceneId)}>Базовые модели</button><button onClick={reset}>Сбросить копию</button></div></details><span className="gb-preview-version">v0.35</span></div>
+   <div className="gb-preview-header-end"><span className="gb-preview-party"><i/>4 игрока + мастер</span><button className="gb-preview-reference" onClick={()=>openOriginal()}><EditorIcon name="layers"/>Исходные сцены</button><details className="gb-preview-project-menu"><summary aria-label="Примеры и проект"><EditorIcon name="folder"/>Проект<EditorIcon name="chevron" size={12}/></summary><div onClick={e=>e.currentTarget.parentElement?.removeAttribute('open')}>{['Поселение','Лес и дорога','Подземелье'].map((name,i)=><button key={name} onClick={()=>openOriginal(i)} disabled={state.scenes.length>=20&&!state.scenes.some(s=>s.id===example.world.campaign.scenes!.scenes[i].id)}>{name}</button>)}<button onClick={openCharacters}>Персонажи · новые модели</button><button onClick={openVideoTavern}>Таверна из ролика</button><button onClick={openTavern}>Таверна</button><button onClick={()=>openDetails()} disabled={state.scenes.length>=20&&!state.scenes.some(s=>s.id===detailSceneId)}>Детальная сцена</button><button onClick={()=>openDetails(true)} disabled={state.scenes.length>=20&&!state.scenes.some(s=>s.id===organicSceneId)}>Вода и фигурки</button><button onClick={openBasicModels} disabled={state.scenes.length>=20&&!state.scenes.some(s=>s.id===basicModelsSceneId)}>Базовые модели</button><button onClick={reset}>Сбросить копию</button></div></details><span className="gb-preview-version">v0.35</span></div>
   </header>
   <div className="gb-preview-editor" hidden={mode==='round'||mode==='playtest'}><Suspense fallback={<p role="status">Открываем игровой стол…</p>}><SceneEditor libraryScope="3d-preview" key={epoch} value={state} actors={actors} onChange={save} mode={mode==='edit'?'build':'play'} workspace/></Suspense></div>
   {mode==='playtest'&&<Suspense fallback={<p role="status">Открываем пробу игрока…</p>}><ScenePlaytest value={state} actors={actors} onChange={save}/></Suspense>}

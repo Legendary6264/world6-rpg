@@ -25,7 +25,7 @@ export const playtestAbilities:DeclarationOptions['abilities']=[
  {id:'practice-shadow',name:'Теневой импульс',rangeM:24,spatial:{shape:'point',includeCaster:false},visualEffect:{familyId:'shadows',durationMs:2800}},
 ]
 export function playtestMap(scene:Scene,actors:SceneActor[],actorId:string,visuals:SceneAbilityVisual[]=[]):PerceivedMap {
- return {frame:mapFrame(scene),title:scene.name,description:'Все предметы этой тестовой сцены раскрыты.',areas:[{id:'practice-visible',x:0,y:0,z:scene.minZ,width:scene.width,depth:scene.depth,height:scene.maxZ-scene.minZ,visible:true}],objects:scene.objects.map(o=>({...publicObject(o),visible:true})),contacts:scene.tokens.map(t=>({id:t.actorId,kind:t.actorId===actorId?'self':'identified',label:actors.find(a=>a.id===t.actorId)?.name??'Герой',signs:'',x:t.x,y:t.y,z:t.z})),visuals}
+ return {frame:mapFrame(scene),title:scene.name,description:'Все предметы этой тестовой сцены раскрыты.',areas:[{id:'practice-visible',x:0,y:0,z:scene.minZ,width:scene.width,depth:scene.depth,height:scene.maxZ-scene.minZ,visible:true}],objects:scene.objects.map(o=>({...publicObject(o),visible:true})),contacts:scene.tokens.map(t=>({id:t.actorId,kind:t.actorId===actorId?'self':'identified',label:actors.find(a=>a.id===t.actorId)?.name??'Герой',signs:'',x:t.x,y:t.y,z:t.z,characterModel:t.characterModel,facing:t.facing,characterAnimation:t.characterAnimation})),visuals}
 }
 export function playtestOptions(map:PerceivedMap):DeclarationOptions {
  return {frame:map.frame,targets:[...map.objects.map(o=>({id:o.id,label:o.name,kind:'object' as const})),...map.contacts.filter(c=>c.kind!=='self').map(c=>({id:c.id,label:c.label,kind:'contact' as const}))],items:[],abilities:playtestAbilities}

@@ -5,17 +5,19 @@ import {populateCraftedEntity} from '../src/scene3dCrafted.ts'
 import {batchEntityParts} from '../src/scene3dBatch.ts'
 import {createSceneLighting,createLightingEnvironment} from '../src/scene3dLighting.ts'
 import {populateFigure,populateWater} from '../src/scene3dOrganic.ts'
+import {characterModels} from '../src/characterAppearance.ts'
+import {clearCharacterModelCache} from '../src/scene3dCharacters.ts'
 import {defaultLightTuning,normalizeLightTuning,lightDirection,readViewLightSettings,saveViewLightSettings} from '../src/scene3dViewSettings.ts'
 import {reliefPlate,flutedColumn} from '../src/scene3dRelief.ts'
 import {SceneContactPass,withContactGeometry} from '../src/scene3dContact.ts'
 
 function build(kind,w,d,h,open=false){
  const group=new THREE.Group(),materials=new Map(),resources=new Set()
- const entity={id:'detail:'+kind,geometry:{kind,width:w,depth:d,height:h,open},appearance:{remembered:false,heightKnown:true,color:'#78baa5'}}
+ const entity={id:'detail:'+kind,geometry:{kind,width:w,depth:d,height:h,open,characterModel:'vanguard'},appearance:{remembered:false,heightKnown:true,color:'#78baa5'}}
  const populate=kind==='actor'?populateFigure:kind==='water'?populateWater:populateCraftedEntity
  populate(entity,(geometry,color,x,y,z,options={})=>{
   const key=JSON.stringify([color,options]);let material=materials.get(key)
-  if(!material){material=new THREE.MeshStandardMaterial({color,roughness:options.roughness??.85,metalness:options.metalness??0,transparent:options.opacity<1,opacity:options.opacity??1,side:THREE.DoubleSide});material.userData.lightEmitter=!!options.emissive;material.userData.castsShadow=options.castShadow!==false;materials.set(key,material)}
+  if(!material){material=new THREE.MeshStandardMaterial({color,roughness:options.roughness??.85,metalness:options.metalness??0,transparent:options.opacity<1,opacity:options.opacity??1,side:THREE.DoubleSide});material.userData.paletteBatch=JSON.stringify(options);material.userData.lightEmitter=!!options.emissive;material.userData.castsShadow=options.castShadow!==false;materials.set(key,material)}
   resources.add(geometry);const mesh=new THREE.Mesh(geometry,material);mesh.position.set(x,y,z);group.add(mesh);return mesh
  })
  return {group,resources,dispose(){resources.forEach(r=>r.dispose());materials.forEach(m=>m.dispose())}}
@@ -147,42 +149,29 @@ test('Рельеф: изогнутая замкнутая пластина и п
  for(const geometry of [plate,column]){assert(geometry.getAttribute('position').array.every(Number.isFinite));assert(geometry.getAttribute('normal').array.every(Number.isFinite));geometry.dispose()}
 })
 
-test('Фигурка: глаза открыты, ткань не выступает сквозь нагрудник',()=>{
- const w=.85,h=1.7,bw=Math.min(w,h*.52),bd=Math.min(w,h*.34),model=build('actor',w,w,h);model.group.updateMatrixWorld(true)
- const materialAt=(x,y)=>new THREE.Raycaster(new THREE.Vector3(x,y,bd*.45),new THREE.Vector3(0,0,-1)).intersectObject(model.group,true)[0]?.object.material.color.getHexString()
- for(const side of [-1,1]){
-  assert.equal(materialAt(side*bw*.048,h*.905),'393932','The iris is in front of skin and below the hairline')
-  assert.equal(materialAt(side*bw*.045,h*.735),'89958e','The chestplate is in front of the underlying tunic')
- }
- model.dispose()
-})
-
-test('Фигурка: раздельные пальцы, открытые глазницы, вогнутая ушная раковина и свод обуви',()=>{
- const w=.85,h=1.7,bw=Math.min(w,h*.52),bd=Math.min(w,h*.34),baseTop=Math.min(.035,h*.03)+.00025,model=build('actor',w,w,h)
+test('Персонаж: лицо, кисти и броня видны снаружи, а не погребены внутри одежды',()=>{
+ const w=.85,h=1.7,sx=Math.min(h,w/.48),sz=Math.min(h,w/.43),model=build('actor',w,w,h)
  model.group.updateMatrixWorld(true)
- const frontHit=(x,y)=>new THREE.Raycaster(new THREE.Vector3(x,y,bd*.45),new THREE.Vector3(0,0,-1)).intersectObject(model.group,true)[0]
+ const hit=(x,y)=>new THREE.Raycaster(new THREE.Vector3(x,y,sz*.5),new THREE.Vector3(0,0,-1)).intersectObject(model.group,true)[0]
  for(const side of [-1,1]){
-  for(let finger=0;finger<4;finger++)assert.equal(frontHit(bw*(side*.29+(finger-1.5)*.021),h*.456)?.object.material.color.getHexString(),'bda58c','Four fingers each have a visible independent surface')
-  for(let gap=0;gap<3;gap++)assert.notEqual(frontHit(bw*(side*.29+(gap-1)*.021),h*.456)?.object.material.color.getHexString(),'bda58c','Light can pass between fingers below the palm')
-  const ear=model.group.children.find(p=>p.geometry.name==='figure-ear'&&Math.sign(new THREE.Box3().setFromObject(p).getCenter(new THREE.Vector3()).x)===side)
-  const earX=y=>new THREE.Raycaster(new THREE.Vector3(side*bw*.2,h*y,bd*.015),new THREE.Vector3(-side,0,0)).intersectObject(ear)[0]?.point.x*side
-  assert(earX(.909)>earX(.89)+bw*.012,'The rolled ear rim stands proud of its recessed concha')
-  const underside=z=>new THREE.Raycaster(new THREE.Vector3(side*bw*.13,baseTop+h*.0005,bd*z),new THREE.Vector3(0,1,0),0,h*.03).intersectObject(model.group,true)[0]?.point.y-baseTop
-  assert(underside(.01)>underside(.158)+h*.008,'The waist of the sole is above its forefoot contact')
-  assert(underside(.01)>underside(-.083)+h*.008,'The heel is a separate solid contact below the arch')
+  assert.equal(hit(side*sx*.019,h*.941)?.object.geometry.name,'character-pupil','Both eyes remain visible outside the sculpted face')
+  assert.equal(hit(side*sx*.045,h*.72)?.object.geometry.name,'character-forged-cuirass','The cuirass clears the underlying tunic')
+  for(let finger=0;finger<4;finger++)assert.equal(hit(sx*(side*.148+(finger-1.5)*.0101+side*.001),h*.456)?.object.geometry.name,'character-finger','Four separately tapered fingers')
+  for(let gap=0;gap<3;gap++)assert.notEqual(hit(sx*(side*.148+(gap-1)*.0101+side*.001),h*.456)?.object.geometry.name,'character-finger','Light passes between adjacent fingers')
  }
- assert(frontHit(0,h*.891).point.z>bd*.19,'The nose has a projecting bridge and tip rather than a painted mark')
+ assert(hit(0,h*.93).point.z>sz*.052,'The nose has a projecting bridge and tip')
  model.dispose()
 })
 
-test('Фигурка: новые объёмные формы замкнуты, имеют наружные нормали и укладываются в бюджет',()=>{
- const model=build('actor',.85,.85,1.7),closed=new Set(['figure-tunic','figure-boot-upper','figure-boot-welt','figure-boot-forefoot','figure-boot-heel','figure-bracer','figure-hand-palm','figure-finger','figure-thumb','figure-ear','figure-belt-pouch','figure-head','figure-nose','figure-shoulder-strap'])
- let triangles=0
+test('Персонаж: замкнутые основные формы, наружные нормали и ограниченное число вызовов отрисовки',()=>{
+ const model=build('actor',.85,.85,1.7),closed=new Set(['character-tailored-tunic','character-neck','character-trouser-leg','character-boot','character-hand-palm','character-finger','character-thumb','character-sculpted-head','character-nose','character-leather-belt','character-sewn-pouch'])
+ let triangles=0,verified=0
  for(const part of model.group.children){
   const g=part.geometry,p=g.getAttribute('position'),n=g.getAttribute('normal'),index=g.index,count=index?.count??p.count
   triangles+=count/3
-  assert(n.array.every(Number.isFinite),'All figure normals remain finite')
+  assert(n.array.every(Number.isFinite),'All sculpted normals remain finite')
   if(!closed.has(g.name))continue
+  verified++
   const edgeCounts=new Map(),directions=new Map(),key=i=>[p.getX(i),p.getY(i),p.getZ(i)].map(v=>Math.round(v*1e6)).join(','),a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();let volume=0
   for(let i=0;i<count;i+=3){
    const ia=index?index.getX(i):i,ib=index?index.getX(i+1):i+1,ic=index?index.getX(i+2):i+2
@@ -197,10 +186,68 @@ test('Фигурка: новые объёмные формы замкнуты, �
   assert([...directions.values()].every(v=>v===0),g.name+' closes each boundary with consistent face winding')
   assert(volume>1e-10,g.name+' has outward winding and positive enclosed volume')
  }
- assert(triangles<38000,'Detailed hands and face stay within 38k triangles per figure')
+ assert(verified>=20,'Exercise the actual new surfaces, including fingers')
+ assert(triangles<180000,'Full character stays within the 180k triangle budget')
  batchEntityParts(model.group,g=>{model.resources.delete(g);g.dispose()},g=>{model.resources.add(g);return g})
- assert(model.group.children.length<=12,'Repeated skin, leather and trim reuse material batches')
+ assert(model.group.children.length<=12,'Clothing, skin and trim are batched by compatible materials')
  model.dispose()
+})
+
+test('Четыре облика: габариты, материалы и экономный режим сохраняют форму персонажа',()=>{
+ for(const model of characterModels)for(const low of [false,true])for(const [w,d,h] of [[.8,.8,1.7],[2,.35,3.6],[.3,.1,.2]]){
+  const group=new THREE.Group(),resources=[];let triangles=0
+  assert(populateFigure({id:'figure',geometry:{kind:'actor',width:w,depth:d,height:h,characterModel:model.id},appearance:{heightKnown:true,color:'#78baa5'}},(geometry,color,x,y,z,options={})=>{
+   const material=new THREE.MeshStandardMaterial({color,roughness:options.roughness??.8,metalness:options.metalness??0}),part=new THREE.Mesh(geometry,material)
+   part.position.set(x,y,z);group.add(part);resources.push(geometry,material);triangles+=(geometry.index?.count??geometry.attributes.position.count)/3
+   assert(geometry.attributes.position.array.every(Number.isFinite));assert(geometry.attributes.normal.array.every(Number.isFinite));return part
+  },low))
+  const bounds=new THREE.Box3().setFromObject(group)
+  assert(bounds.min.x>=-w/2-.002&&bounds.max.x<=w/2+.002,model.id+' width')
+  assert(bounds.min.z>=-d/2-.002&&bounds.max.z<=d/2+.002,model.id+' depth')
+  assert(bounds.min.y>=-.002&&bounds.max.y<=h+.002,model.id+' height')
+  assert(triangles<(low?28000:180000),'Bound geometry cost at both quality levels')
+  assert(group.children.some(m=>m.geometry.name==='character-sculpted-head'),'Economy mode keeps a sculpted face')
+  assert.equal(group.children.filter(m=>m.geometry.name==='character-finger').length,8)
+  assert.equal(group.children.some(m=>m.geometry.type==='BoxGeometry'),false,'No box-based fallback body')
+  if(model.id==='vanguard')assert(group.children.some(m=>m.material.metalness>.7),'Steel remains metallic')
+  resources.forEach(r=>r.dispose())
+ }
+})
+
+test('Скульпт и поза: зрачки всех обликов открыты, а брюки арканиста скрыты мантией',()=>{
+ for(const model of characterModels){
+  const group=new THREE.Group(),resources=[]
+  populateFigure({id:'portrait-qa',geometry:{kind:'actor',width:.8,depth:.8,height:1.7,characterModel:model.id},appearance:{heightKnown:true,color:'#78baa5'}},(geometry,color,x,y,z)=>{
+   const material=new THREE.MeshStandardMaterial({color}),part=new THREE.Mesh(geometry,material);part.position.set(x,y,z);group.add(part);resources.push(geometry,material);return part
+  })
+  group.updateMatrixWorld(true)
+  const pupils=group.children.filter(m=>m.geometry.name==='character-pupil');assert.equal(pupils.length,2)
+  for(const pupil of pupils){
+   const centre=new THREE.Box3().setFromObject(pupil).getCenter(new THREE.Vector3()),ray=new THREE.Raycaster(centre.clone().add(new THREE.Vector3(0,0,1)),new THREE.Vector3(0,0,-1))
+   assert.equal(ray.intersectObject(group,true)[0]?.object,pupil,model.id+' eye stays seated after body/head posing')
+  }
+  if(model.id==='arcanist'){
+   for(const x of [.075,.085,.09])for(const y of [.44,.46,.48]){
+    const hits=new THREE.Raycaster(new THREE.Vector3(x*1.7,y*1.7,1),new THREE.Vector3(0,0,-1)).intersectObject(group,true)
+    assert(hits.length);assert.notEqual(hits[0].object.geometry.name,'character-trouser-leg','The underlying thigh does not pierce the robe')
+   }
+   const shaft=group.children.find(m=>m.geometry.name==='character-carved-staff'),box=new THREE.Box3().setFromObject(shaft),crystal=group.children.find(m=>m.geometry.name==='character-staff-crystal')
+   assert(box.max.x-box.min.x<.04,'The shaft is not bent by the raised-arm pose')
+   const prongs=group.children.filter(m=>m.geometry.name==='character-staff-prong')
+   assert(prongs.every(p=>new THREE.Box3().setFromObject(p).intersectsBox(new THREE.Box3().setFromObject(crystal))),'Prongs stay connected to the crystal')
+  }
+  resources.forEach(r=>r.dispose())
+ }
+})
+
+test('Кэш моделей: геометрия позы копируется без повторного скульпта и не зависит от жизни экземпляра',()=>{
+ clearCharacterModelCache()
+ const first=build('actor',.8,.8,1.7),before=new THREE.Box3().setFromObject(first.group),head=first.group.children.find(m=>m.geometry.name==='character-sculpted-head')
+ head.geometry.attributes.position.setXYZ(0,10,10,10);first.dispose()
+ const second=build('actor',.8,.8,1.7),after=new THREE.Box3().setFromObject(second.group)
+ assert(before.min.distanceTo(after.min)<1e-6&&before.max.distanceTo(after.max)<1e-6,'Mutating or disposing an instance never changes cached geometry')
+ second.group.traverse(m=>{if(m.isMesh)assert(m.geometry.attributes.position.array.every(Number.isFinite))})
+ second.dispose();clearCharacterModelCache()
 })
 
 test('Контактный проход: прозрачность, листва и подсветка не становятся сплошными заслонками; состояние восстанавливается',()=>{
