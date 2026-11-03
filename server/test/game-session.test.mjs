@@ -3,6 +3,24 @@ import assert from 'node:assert/strict'
 import {fixture} from './fixtures.mjs'
 import {createDefaultCharacter} from '../generated/characterModel.mjs'
 import {lobbyPermissions} from '../generated/lobbyAccess.mjs'
+import {unpackArchive} from '../campaign-archive-format.mjs'
+
+for(const dialect of ['sqlite','postgres'])test('Финал переносится с полной копией: 4000 символов, восстановление и явное продолжение · '+dialect,async t=>{
+ const f=await fixture(t,dialect),{api}=f,gm=await f.register('portable-gm'),{id}=await api('/lobbies',gm.token,'POST',{title:'Перенос финала',description:'Тестовая копия',genre:'Приключение',slots:4,energy:'any',rank:'mortal',visibility:'private'},201),root='/lobbies/'+id,path=root+'/play/session'
+ const world=()=>api(root+'/world',gm.token),command={revision:(await world()).revision,title:'И'.repeat(80),summary:'я'.repeat(4000),keepPending:false,commandKey:crypto.randomUUID()}
+ const result=await api(path+'/finish',gm.token,'POST',command),finished=await world(),s=finished.campaign.gameSession
+ assert.equal(s.status,'finished');assert(s.summary.includes(command.title)&&s.summary.includes(command.summary));assert.equal(s.finishedAt,result.result.finishedAt)
+ const exported=await api(root+'/archive',gm.token),data=Buffer.from(exported.data,'base64'),saved=await unpackArchive(data)
+ assert.deepEqual(saved.world.campaign.gameSession,s)
+ await f.restart();assert.deepEqual((await world()).campaign.gameSession,s);assert.equal((await api(path,gm.token)).result.summary,command.summary)
+ await api(path,gm.token,'POST',{operation:'resume',revision:(await world()).revision,commandKey:'session:'+crypto.randomUUID()})
+ const upload=await fetch(f.base+'/api'+root+'/archive/calculate?revision='+(await world()).revision,{method:'POST',headers:{Authorization:'Bearer '+gm.token,'Content-Type':'application/gzip'},body:data}),preview=await upload.json();assert.equal(upload.status,200,JSON.stringify(preview))
+ await api(root+'/archive/apply',gm.token,'POST',{previewId:preview.id,generation:preview.generation,reason:'Возврат завершённой истории',commandKey:crypto.randomUUID()})
+ const restored=await api(path+'/details',gm.token);assert.equal(restored.session.status,'finished');assert.equal(restored.session.summary,s.summary)
+ await api(path+'/finish',gm.token,'POST',{...command,revision:(await world()).revision,commandKey:crypto.randomUUID()},409)
+ await api(path,gm.token,'POST',{operation:'resume',revision:(await world()).revision,commandKey:'session:'+crypto.randomUUID()})
+ assert.equal((await api(path+'/details',gm.token)).session.status,'playing');assert.equal((await world()).campaign.seconds,0)
+})
 
 for(const dialect of ['sqlite','postgres'])test('Совместная игра от приглашения до финального снимка · '+dialect,async t=>{
  const f=await fixture(t,dialect),{api}=f,gm=await f.register('session-gm'),players=[await f.register('session-player-a'),await f.register('session-player-b')],outside=await f.register('session-outside')
@@ -74,9 +92,9 @@ for(const dialect of ['sqlite','postgres'])test('Совместная игра �
   const before=await world();finish=await finishBody()
   await api(path+'/finish',gm.token,'POST',{...finish,revision:finish.revision-1},409)
   const replies=await Promise.all([f.request(path+'/finish',gm.token,'POST',finish),f.request(path+'/finish',gm.token,'POST',finish)]);assert(replies.every(r=>r.status===200));assert.equal(replies.filter(r=>!r.data.duplicate).length,1);reply=replies[0].data
-  assert.equal((await api(root,gm.token)).status,'closed');finalWorld=await world();assert.deepEqual(finalWorld.campaign,before.campaign);assert.deepEqual(finalWorld.characters,before.characters);assert.equal(finalWorld.revision,before.revision+1)
+  assert.equal((await api(root,gm.token)).status,'closed');finalWorld=await world();assert.deepEqual(finalWorld.campaign,{...before.campaign,gameSession:finalWorld.campaign.gameSession});assert.equal(finalWorld.campaign.gameSession.status,'finished');assert(finalWorld.campaign.gameSession.summary.includes(finish.summary));assert.deepEqual(finalWorld.characters,before.characters);assert.equal(finalWorld.revision,before.revision+1)
   const points=(await api(root+'/rounds/history',gm.token)).checkpoints;assert.equal(points.length,2);assert(points.some(p=>p.id===reply.result.id))
-  const message=await f.server.db.get('SELECT body FROM messages WHERE id=?',['game-finish:'+reply.result.id]);assert(message.body.includes(finish.summary));const snapshot=await f.server.db.get('SELECT world_json FROM campaign_checkpoints WHERE id=?',[reply.result.id]);assert.deepEqual(JSON.parse(snapshot.world_json).campaign,before.campaign)
+  const message=await f.server.db.get('SELECT body FROM messages WHERE id=?',['game-finish:'+reply.result.id]);assert(message.body.includes(finish.summary));const snapshot=await f.server.db.get('SELECT world_json FROM campaign_checkpoints WHERE id=?',[reply.result.id]);assert.deepEqual(JSON.parse(snapshot.world_json).campaign,finalWorld.campaign)
   await api(root+'/messages',players[0].token,'POST',{body:'Новый ход после финала'},409);await api(path+'/start',gm.token,'POST',{revision:await revision()},409);await api(path+'/finish',gm.token,'POST',{...finish,summary:'Другой итог'},409)
   await f.restart();const duplicate=await api(path+'/finish',gm.token,'POST',finish);assert.equal(duplicate.duplicate,true);assert.deepEqual(duplicate.result,reply.result);assert.deepEqual(await world(),finalWorld)
  })

@@ -65,6 +65,7 @@ for(const dialect of ['sqlite','postgres'])test('Совместная игра �
   assert((await Promise.all(broadcasts)).every(e=>e.id===id));connections.forEach(s=>s.close())
   ending=await api(path,p1.token);assert.equal(ending.session.status,'finished');assert.equal(ending.session.outcome,'success');assert.equal(ending.session.summary,body.summary);assert.deepEqual((await api(path,p2.token)).session,ending.session);assert.equal((await api(root,gm.token)).status,'closed')
   const state=await api(root+'/world',gm.token);assert.equal(state.campaign.seconds,5);assert.equal(state.revision,revision+1)
+  const checkpoint=await f.server.db.get("SELECT world_json FROM campaign_checkpoints WHERE lobby_id=? AND name='Победа'",[id]);assert.deepEqual(JSON.parse(checkpoint.world_json).campaign.gameSession,state.campaign.gameSession)
  })
  await t.test('Перезапуск сохраняет финал и блокирует новые ходы; продолжить может только мастер',async()=>{
   await f.restart();assert.deepEqual((await api(path,p1.token)).session,ending.session)

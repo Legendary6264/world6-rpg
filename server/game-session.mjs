@@ -1,4 +1,5 @@
 import {legacySessionContext} from './game-sessions.mjs'
+import {commitWorld} from './world-coordinator.mjs'
 import {createHash} from 'node:crypto'
 import {fail,integer,now,text} from './validation.mjs'
 import {requireChief} from './permissions.mjs'
@@ -68,15 +69,20 @@ export function gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembe
     if(previous.author_id!==req.user.id||previous.request_hash!==hash||!message)fail(409,'Ключ уже связан с другой командой.')
     return {result:publicResult({...previous,body:message.body}),duplicate:true}
    }
-   if(lobby.status==='closed')fail(409,'Игра уже закрыта. Обнови её итог.')
+   if(lobby.status==='closed'||JSON.parse(lobby.world_json).campaign.gameSession?.status==='finished')fail(409,'Игра уже завершена. Обнови итог; для новой игры явно продолжи сессию.')
    if(lobby.revision!==revision)fail(409,'Кампания изменилась. Проверь итог и текущий раунд перед завершением.')
    for(const table of ['round_receipts','round_change_receipts','campaign_archive_receipts','campaign_trade_commands'])if(await tx.get('SELECT command_key FROM '+table+' WHERE lobby_id=? AND command_key=?',[lobby.id,b.commandKey]))fail(409,'Ключ уже связан с другой командой.')
-   const p=await progress(tx,lobby)
+   const context=await legacySessionContext(tx,lobby,req.user.id),p=await progress(tx,lobby,context)
    if(p.finishBlockers.length)fail(409,p.finishBlockers.join(' '))
    if(p.pendingWork&&!b.keepPending)fail(409,'Есть незавершённые действия или заряды. Подтверди их сохранение в финальном снимке или разреши их судьбу в раунде.')
-   const point=await createCampaignCheckpoint(tx,lobby,{name,commandKey:b.commandKey,requestHash:hash,authorId:req.user.id}),body=finalBody(name,summary)
+   const body=finalBody(name,summary),at=now()
+   context.world.campaign.gameSession={...context.session,status:'finished',startedAt:context.session.startedAt??lobby.created_at,finishedAt:at,outcome:'stopped',summary:body}
+   // The portable world and the final checkpoint must retain the same ending,
+   // even when the chat database is not part of an exported campaign archive.
+   const point=await createCampaignCheckpoint(tx,{...lobby,world_json:JSON.stringify(context.world)},{name,commandKey:b.commandKey,requestHash:hash,authorId:req.user.id,at})
+   await commitWorld(tx,lobby,context.world,{at})
    await tx.run('INSERT INTO messages(id,lobby_id,author_id,body,created_at) VALUES(?,?,?,?,?)',[finalMessageId(point.id),lobby.id,req.user.id,body,point.created_at])
-   await tx.run("UPDATE lobbies SET status='closed',revision=revision+1,updated_at=? WHERE id=?",[point.created_at,lobby.id])
+   await tx.run("UPDATE lobbies SET status='closed' WHERE id=?",[lobby.id])
    await tx.run('DELETE FROM round_previews WHERE lobby_id=?',[lobby.id]);await tx.run('DELETE FROM round_change_previews WHERE lobby_id=?',[lobby.id])
    await record(tx,req,'finish-game');return {result:publicResult({...point,body}),duplicate:false}
   });if(!result.duplicate){updated(req.params.id);publicUpdated()}res.json(result)

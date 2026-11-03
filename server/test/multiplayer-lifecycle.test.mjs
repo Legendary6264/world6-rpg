@@ -6,6 +6,7 @@ import {fixture,lobbyBody} from './fixtures.mjs'
 import {createDefaultCharacter} from '../generated/characterModel.mjs'
 import {createScene,emptyScenes,sceneObject} from '../generated/scenes.mjs'
 import {emptyAbility} from '../generated/rpgSchema.mjs'
+import {unpackArchive} from '../campaign-archive-format.mjs'
 
 const wait=()=>({kind:'wait',seconds:5,note:''})
 const speak=(text,target={kind:'none'})=>({kind:'speak',text,target,volume:'normal',note:''})
@@ -126,6 +127,9 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
   const notices=sockets.map(s=>once(s,'lobbyChanged',{signal:AbortSignal.timeout(5000)})),results=await Promise.all([f.request(session+'/finish',gm.token,'POST',command),f.request(session+'/finish',gm.token,'POST',command)])
   assert(results.every(r=>r.status===200));assert.equal(results.filter(r=>r.data.duplicate).length,1);assert((await Promise.all(notices)).every(([e])=>e.id===id))
   const result=results[0].data.result,closed=await world();assert.equal(closed.campaign.seconds,10);assert.deepEqual(closed.characters,before.characters)
+  const exported=await api(root+'/archive',gm.token),portable=await unpackArchive(Buffer.from(exported.data,'base64'))
+  assert.equal(portable.world.campaign.gameSession.status,'finished');assert(portable.world.campaign.gameSession.summary.includes(command.title));assert(portable.world.campaign.gameSession.summary.includes(command.summary))
+  assert.deepEqual(portable.checkpoints.find(p=>p.name===command.title).world.campaign.gameSession,closed.campaign.gameSession)
   sockets.forEach(s=>s.close());await f.restart()
   assert.equal((await api(session+'/finish',gm.token,'POST',command)).duplicate,true)
   for(const [i,p] of players.entries()){

@@ -12,7 +12,7 @@ const exact=(v,keys)=>!!v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v
 const sessionFor=(state,lobby)=>{
  const s=structuredClone(state.campaign.gameSession??emptyGameSession())
  if(lobby.status==='closed'&&s.status!=='finished')Object.assign(s,{status:'finished',startedAt:s.startedAt??lobby.created_at,finishedAt:lobby.updated_at,outcome:'stopped',summary:'Лобби закрыто. Итог и финальный снимок доступны на общем игровом столе.'})
- else if(lobby.status==='playing'&&s.status!=='playing')Object.assign(s,{status:'playing',startedAt:s.startedAt??lobby.created_at,finishedAt:null,outcome:null,summary:''})
+ else if(lobby.status==='playing'&&s.status==='setup')Object.assign(s,{status:'playing',startedAt:s.startedAt??lobby.created_at,finishedAt:null,outcome:null,summary:''})
  return s
 }
 export async function legacySessionContext(tx,lobby,userId){
@@ -90,7 +90,7 @@ export function gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembe
    }
    c.world.campaign.gameSession=s
    if(b.operation==='finish'){
-    const title={success:'Победа',failure:'Неудача',stopped:'Игра остановлена'}[s.outcome],point=await createCampaignCheckpoint(tx,lobby,{name:title,commandKey:b.commandKey,requestHash,authorId:req.user.id})
+    const title={success:'Победа',failure:'Неудача',stopped:'Игра остановлена'}[s.outcome],point=await createCampaignCheckpoint(tx,{...lobby,world_json:JSON.stringify(c.world)},{name:title,commandKey:b.commandKey,requestHash,authorId:req.user.id,at})
     await tx.run('INSERT INTO messages(id,lobby_id,author_id,body,created_at) VALUES(?,?,?,?,?)',['game-finish:'+point.id,lobby.id,req.user.id,'Итог игры «'+title+'»\n\n'+s.summary,point.created_at])
    }
    const stored=await store(tx,lobby,req.user,b.commandKey,requestHash,c.world,{operation:'game-session-'+b.operation,revision:revision+1,appliedAt:at},req)

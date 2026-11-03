@@ -86,7 +86,7 @@ export default function LobbyGameSession({accountId,lobby,disabled,onHeroes,onRo
     </form>}
    </>}
   </>}
-  {value&&'session' in value&&<LobbySessionPreparation accountId={accountId} lobbyId={lobby.id} disabled={unavailable} onHeroes={onHeroes} onScene={onSetup}/>}
+  {value&&'session' in value&&<LobbySessionPreparation accountId={accountId} lobbyId={lobby.id} disabled={unavailable} onHeroes={onHeroes} onScene={onSetup} showEnding={!value.result}/>}
   <p role="status">{message}</p>{warning&&<p role="alert">{warning}</p>}
   {(remote.error||invalid)&&<button className="w6-button" disabled={busy} onClick={refresh}>Обновить состояние игры</button>}
  </section>

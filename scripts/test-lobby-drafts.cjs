@@ -2670,17 +2670,22 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     await account(gm,room.title);await lobbyTab('Раунд');await click('Открыть инструменты заявлений')
     await until(()=>enabledButton('Закрыть приём заявлений'),'last empty collection');await click('Закрыть приём заявлений')
     window.confirm=()=>true;await until(()=>enabledButton('Сохранить сбор в истории'),'archive unused collection');await click('Сохранить сбор в истории')
+    await until(()=>calls.some(c=>c.url===path+'/declarations'&&c.method==='PATCH'&&c.body?.operation==='archive'&&c.status===200),'archive acknowledgement')
     await lobbyTab('Играть');await click('Завершить игру')
     await input('[aria-label="Название итога игры"]','Финал игры друзей')
     await input('[aria-label="Общий итог игры"]','Оба героя завершили переход. Встречаемся в следующем приключении.')
     await flush(()=>document.querySelector('[aria-label="Подтвердить общий итог и завершение"]').click())
+    // A late refresh after our own archival must retain the same revision guard
+    // as a remote player's change. Follow the explicit review flow if needed.
+    await until(()=>enabledButton('Сохранить итог и завершить')||enabledButton('Итог проверен с текущей версией'),'finale revision check')
+    if(enabledButton('Итог проверен с текущей версией')){await click('Итог проверен с текущей версией');await flush(()=>document.querySelector('[aria-label="Подтвердить общий итог и завершение"]').click())}
     try{await until(()=>enabledButton('Сохранить итог и завершить'),'finale ready after archival')}
     catch(error){throw Error(error.message+' '+JSON.stringify({failed:calls.filter(c=>c.status>=400),session:document.querySelector('.gb-game-session')?.textContent}),{cause:error})}
     const beforeFinish=await api(path+'/world',gm.token)
     await click('Сохранить итог и завершить');await until(()=>document.querySelector('[aria-label="Итог совместной игры"]'),'saved shared result')
     const finish=calls.find(c=>c.url===path+'/play/session/finish'&&c.status===200)
     assert(finish);assert.equal((await api(path,gm.token)).status,'closed')
-    const finished=await api(path+'/world',gm.token);assert.deepEqual(finished.campaign,beforeFinish.campaign);assert.equal(finished.revision,beforeFinish.revision+1)
+    const finished=await api(path+'/world',gm.token);assert.deepEqual(finished.campaign,{...beforeFinish.campaign,gameSession:finished.campaign.gameSession});assert.equal(finished.campaign.gameSession.status,'finished');assert(finished.campaign.gameSession.summary.includes('Оба героя завершили переход.'));assert.equal(finished.revision,beforeFinish.revision+1)
     await act(async()=>{await f.restart()})
     assert.equal((await api(path+'/play/session/finish',gm.token,'POST',finish.body)).duplicate,true)
     for(const accountInfo of [player,player2]){
