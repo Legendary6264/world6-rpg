@@ -1,4 +1,6 @@
 import {resolveAbilityVisual} from './generated/abilityVisuals.mjs'
+import {createHash} from 'node:crypto'
+import {rejectRetiredCommand} from './campaign-retention-state.mjs'
 import {commitWorld} from './world-coordinator.mjs'
 import { fail, id, integer, now, worldSize } from './validation.mjs'
 import { requireLobbyPermission } from './permissions.mjs'
@@ -77,7 +79,7 @@ async function save(tx, req, lobby, state, declarations, record, action) {
   await commitWorld(tx,lobby,state,{at:now()})
   await record(tx, req, action)
 }
-export function declarationRoutes(app, { db, auth, updated, lockedMembership, record }) {
+export function declarationRoutes(app, { db, auth, updated, lockedMembership, record, store, oldCommand }) {
   app.post('/api/lobbies/:id/declarations/preview', auth.middleware, async (req, res) => {
     const value = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireMaster(member); assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
@@ -174,10 +176,22 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
   })
   app.put('/api/lobbies/:id/characters/:characterId/declarations', auth.middleware, async (req, res) => {
     if (!isActionSequence(req.body.actions)) fail(400, 'Добавь от 1 до 20 действий с допустимыми параметрами.')
-    const baseVersion = integer(req.body.baseVersion)
-    await db.transaction(async tx => {
-      const { lobby, member } = await lockedMembership(tx, req); assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
+    const baseVersion = integer(req.body.baseVersion),key=req.body.commandKey
+    if(key!==undefined&&(typeof key!=='string'||!/^declaration:[a-zA-Z0-9_-]{8,140}$/.test(key)))fail(400,'Проверь ключ отправки хода.')
+    const hash=key?createHash('sha256').update(JSON.stringify(['submit-declaration',req.params.characterId,req.body.collectionId,req.body.epoch,baseVersion,req.body.controlStamp,req.body.actions.map(copyDeclaredAction)])).digest('hex'):null
+    const result=await db.transaction(async tx => {
+      const { lobby, member } = await lockedMembership(tx, req)
       const { state, actor, binding, declarations, c, controlStamp } = await context(tx, req, lobby); requireCharacterController(member, binding, req.user.id)
+      const generation=key?await roundGeneration(tx,lobby.id):null
+      if(key){
+        await rejectRetiredCommand(tx,lobby.id,key)
+        const previous=await oldCommand(tx,lobby,req.user,key,hash)
+        if(previous){
+          if(previous.receipt.operation!=='submit-declaration'||previous.receipt.generation!==generation)fail(409,'Кампания восстановлена. Проверь актуальный ход вместо повтора прежней команды.')
+          return {entryVersion:previous.receipt.entryVersion,duplicate:true}
+        }
+      }
+      assertOpen(lobby);await requireCampaignRunning(tx,lobby.id)
       checkEpoch(c, req.body)
       if (req.body.controlStamp !== controlStamp) fail(409, 'Управление героем изменилось. Проверь черновик перед отправкой.')
       if (c.phase !== 'open' || !c.participantIds.includes(actor.id) || !binding.approved) fail(409, 'Приём закрыт или герой ещё не участвует в этом сборе.')
@@ -187,8 +201,13 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
       const prepared = prepareActions(req.body.actions, state, actor, c,!!binding.npc), entry = { actorId: actor.id, actorName: actor.name, revision: baseVersion + 1,
         status: 'submitted', ...prepared, submittedBy: req.user.id, submittedAt: now(), note: '' }
       c.entries = [...c.entries.filter(e => e.actorId !== actor.id), entry]; event(c, req, 'submit', entry)
-      await save(tx, req, lobby, state, declarations, record, 'submit-declaration')
-    }); updated(req.params.id); res.json({ entryVersion: baseVersion + 1 })
+      if(key){
+        if(!isActionDeclarations(declarations))fail(400,'Не удалось проверить заявления.')
+        state.campaign.declarations=declarations;worldSize(state)
+        await store(tx,lobby,req.user,key,hash,state,{operation:'submit-declaration',actorId:actor.id,collectionId:c.id,generation,entryVersion:entry.revision,revision:lobby.revision+1,appliedAt:entry.submittedAt},req)
+      }else await save(tx, req, lobby, state, declarations, record, 'submit-declaration')
+      return {entryVersion:entry.revision,duplicate:false}
+    }); if(!result.duplicate)updated(req.params.id); res.json(result)
   })
   app.post('/api/lobbies/:id/characters/:characterId/declarations/return', auth.middleware, async (req, res) => {
     await db.transaction(async tx => {

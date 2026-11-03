@@ -5,6 +5,7 @@ import { createDefaultCharacter } from '../generated/characterModel.mjs'
 import { emptyItem, emptyAbility } from '../generated/rpgSchema.mjs'
 import { emptyScenes, createScene, sceneObject, placeSceneToken } from '../generated/scenes.mjs'
 import { parseLobbyBackup } from '../generated/lobbyBackup.mjs'
+import { unpackArchive } from '../campaign-archive-format.mjs'
 
 async function setup(t, dialect) {
   const f = await fixture(t, dialect), { api } = f, gm = await f.register('owner'), player = await f.register('orders-player'), other = await f.register('orders-other'), helper = await f.register('orders-helper')
@@ -36,9 +37,47 @@ async function setup(t, dialect) {
   const body = (v, actions) => ({ collectionId: v.collection.id, epoch: v.collection.epoch, baseVersion: v.entry?.revision ?? 0, controlStamp: v.controlStamp, actions })
   const send = async (actions, i = 0, token = i ? other.token : player.token, status = 200, old) => api(route(i) + '/declarations', token, 'PUT', body(old ?? await view(i, token), actions), status)
   const phase = async operation => { const v = await api(root + '/declarations', gm.token); return api(root + '/declarations', gm.token, 'PATCH', { collectionId: v.declarations.active.id, epoch: v.declarations.active.epoch, operation }) }
-  return { ...f, get server() { return f.server }, gm, player, other, helper, root, heroes, npc, route, revision, grant, start, view, body, send, phase }
+  return { ...f, get server() { return f.server }, get base() { return f.base }, gm, player, other, helper, root, heroes, npc, route, revision, grant, start, view, body, send, phase }
 }
 const wait = (note = '') => [{ kind: 'wait', seconds: 1, note }]
+for(const dialect of ['sqlite','postgres'])test('Доставка хода: повтор, закрытие сбора, перезапуск и откат · '+dialect,async t=>{
+ const f=await setup(t,dialect),{api,player,other,gm}=f;await f.start(false)
+ const path=f.route(0)+'/declarations',command={...f.body(await f.view(),wait('Приватный надёжный ход')),commandKey:'declaration:'+crypto.randomUUID()},revision=await f.revision()
+ const replies=await Promise.all([f.request(path,player.token,'PUT',command),f.request(path,player.token,'PUT',command)])
+ assert(replies.every(r=>r.status===200));assert.equal(replies.filter(r=>r.data.duplicate).length,1);assert.equal(await f.revision(),revision+1)
+ const state=await api(f.root+'/world',gm.token);assert.equal(state.campaign.declarations.active.history.filter(e=>e.kind==='submit').length,1)
+ await api(path,player.token,'PUT',{...command,actions:wait('Изменённый ход с прежним ключом')},409)
+ await api(path,other.token,'PUT',command,403)
+ await api(f.route(1)+'/declarations',other.token,'PUT',{...command,actions:wait()},409)
+ await f.phase('close');await f.restart()
+ const closed=await api(f.root+'/world',gm.token),ack=await api(path,player.token,'PUT',command)
+ assert.deepEqual(ack,{entryVersion:1,duplicate:true});assert.deepEqual(await api(f.root+'/world',gm.token),closed)
+ await api(path,player.token,'PUT',{...command,commandKey:'declaration:'+crypto.randomUUID()},409)
+ const archive=await api(f.root+'/archive',gm.token),data=Buffer.from(archive.data,'base64'),saved=await unpackArchive(data)
+ assert.deepEqual(saved.world.campaign.declarations.active.entries.find(e=>e.actorId===f.heroes[0]).actions,command.actions)
+ const upload=await fetch(f.base+'/api'+f.root+'/archive/calculate?revision='+await f.revision(),{method:'POST',headers:{Authorization:'Bearer '+gm.token,'Content-Type':'application/gzip'},body:data}),preview=await upload.json()
+ assert.equal(upload.status,200,JSON.stringify(preview))
+ await api(f.root+'/archive/apply',gm.token,'POST',{previewId:preview.id,generation:preview.generation,reason:'Проверка восстановления подтверждённого хода',commandKey:crypto.randomUUID()})
+ const restored=await api(f.root+'/world',gm.token);assert.deepEqual(restored.campaign.declarations.active.entries.find(e=>e.actorId===f.heroes[0]).actions,command.actions)
+ await api(path,player.token,'PUT',command,409)
+ const backup=await api(f.root+'/backup',gm.token)
+ await api(f.root+'/restore',gm.token,'POST',{world:backup.world,bindings:backup.bindings,revision:await f.revision()})
+ await api(path,player.token,'PUT',command,409)
+})
+
+for(const dialect of ['sqlite','postgres'])test('Отправка хода атомарна при отказе аудита и отзыве управления · '+dialect,async t=>{
+ const f=await setup(t,dialect),{api,player,gm}=f;await f.start()
+ const path=f.route(0)+'/declarations',command={...f.body(await f.view(),wait()),commandKey:'declaration:'+crypto.randomUUID()},before=await api(f.root+'/world',gm.token),db=f.server.db,original=db.transaction
+ db.transaction=fn=>original(tx=>fn({...tx,run:(sql,args)=>{if(sql.startsWith('INSERT INTO audit')&&args.includes('submit-declaration'))throw Error('TEST-DECLARATION-AUDIT');return tx.run(sql,args)}}))
+ try{await api(path,player.token,'PUT',command,500)}finally{db.transaction=original}
+ assert.deepEqual(await api(f.root+'/world',gm.token),before);assert.equal(await db.get('SELECT command_key FROM campaign_trade_commands WHERE lobby_id=? AND command_key=?',[f.root.split('/').at(-1),command.commandKey]),undefined)
+ await api(path,player.token,'PUT',command)
+ await api(f.route(0)+'/control',player.token,'POST',{delegated:true,revision:await f.revision()})
+ await api(path,player.token,'PUT',command,403)
+ await api(f.route(0)+'/control',player.token,'POST',{delegated:false,revision:await f.revision()})
+ assert.equal((await api(path,player.token,'PUT',command)).duplicate,true)
+})
+
 for (const dialect of ['sqlite', 'postgres']) test('Временная шкала: права, версии и отсутствие исполнения · ' + dialect, async t => {
   const f = await setup(t, dialect), { api, gm, player, other, helper } = f
   await f.start()

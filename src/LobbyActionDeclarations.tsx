@@ -7,6 +7,7 @@ import { spatialLabel } from './abilitySpatial'
 import { useEffect, useRef, useState } from 'react'
 import { useOnline } from './onlineContext'
 import { useRemote } from './onlineHooks'
+import { NetworkError } from './onlineClient'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
 import { actionKinds, isDeclaredAction, actionTarget } from './actionDeclarations'
 import type { DeclaredAction, HeroDeclarations } from './actionDeclarations'
@@ -14,14 +15,17 @@ import type { ScenePosition } from './sceneTypes'
 type Form = { kind: string; targetKind: string; targetId: string; x: string; y: string; z: string; seconds: string; quantity: string;
   itemId: string; abilityId: string; stage: string; volume: string; speech: string; operation: string; note: string; support: string; route: ScenePosition[]; itemOperation?:string; listeningMode?:string }
 type Base = { collectionId: string; epoch: number; baseVersion: number; controlStamp: string }
-type Draft = { form: Form; actions: DeclaredAction[]; base?: Base; quick?: QuickActionDraft }
+type Submission = Base & {actions:DeclaredAction[];commandKey:string}
+type Draft = { form: Form; actions: DeclaredAction[]; base?: Base; quick?: QuickActionDraft; submission?:Submission }
+const validBase=(b:Base)=>!!b&&typeof b.collectionId==='string'&&Number.isSafeInteger(b.epoch)&&Number.isSafeInteger(b.baseVersion)&&typeof b.controlStamp==='string'
 const emptyQueue: DeclaredAction[] = []
 const emptyForm = (): Form => ({ kind: 'move', targetKind: 'none', targetId: '', x: '', y: '', z: '', seconds: '', quantity: '1', itemId: '', abilityId: '', stage: 'prepare', volume: 'normal', speech: '', operation: 'inspect', note: '', support: 'ground', route: [], listeningMode:'' })
 const valid = (v: unknown): v is Draft => !!v && typeof v === 'object' && (() => { const d = v as Draft
   return (d.quick===undefined||isQuickActionDraft(d.quick)) && !!d.form && Object.keys(emptyForm()).filter(k => k !== 'route'&&k!=='listeningMode').every(k => typeof d.form[k as keyof Form] === 'string' && (d.form[k as keyof Form] as string).length <= 4000) &&
     Array.isArray(d.form.route) && d.form.route.length <= 20 && d.form.route.every(p => !!p && ['x', 'y', 'z'].every(k => typeof p[k as keyof ScenePosition] === 'number' && Number.isFinite(p[k as keyof ScenePosition]))) &&
     (d.form.listeningMode===undefined||['','listen','eavesdrop'].includes(d.form.listeningMode)) &&
-    (d.form.itemOperation===undefined||typeof d.form.itemOperation==='string'&&d.form.itemOperation.length<=40) && Array.isArray(d.actions) && d.actions.length <= 20 && d.actions.every(isDeclaredAction) && (!d.base || typeof d.base.collectionId === 'string' && Number.isSafeInteger(d.base.epoch) && Number.isSafeInteger(d.base.baseVersion) && typeof d.base.controlStamp === 'string') })()
+    (d.form.itemOperation===undefined||typeof d.form.itemOperation==='string'&&d.form.itemOperation.length<=40) && Array.isArray(d.actions) && d.actions.length <= 20 && d.actions.every(isDeclaredAction) && (!d.base || validBase(d.base)) &&
+    (!d.submission||validBase(d.submission)&&typeof d.submission.commandKey==='string'&&/^declaration:[a-zA-Z0-9_-]{8,140}$/.test(d.submission.commandKey)&&Array.isArray(d.submission.actions)&&d.submission.actions.length>0&&d.submission.actions.length<=20&&d.submission.actions.every(isDeclaredAction)) })()
 const hasDraftContent=(d:Draft)=>d.actions.length>0||d.form.route.length>0||!!d.quick?.text.trim()||Object.keys(emptyForm()).some(k=>k!=='route'&&(d.form[k as keyof Form]??emptyForm()[k as keyof Form])!==emptyForm()[k as keyof Form])
 const coordinate = (s: string) => s.trim() ? Number(s.replace(',', '.')) : NaN
 export default function LobbyActionDeclarations({ accountId, lobbyId, characterId, checkingAccess, selectedContact, pickedPoint, members, map = null, selectedObject = '', onQueue,sceneActionRef,onAimChange }: {
@@ -60,14 +64,17 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
     const next=remember({...draft,actions:[...draft.actions,action],...(action.kind==='speak'?{quick:{...(draft.quick??emptyQuickAction()),text:''}}:{})});setUndo({actions:draft.actions,base:JSON.stringify(next.base)});setMessage('Действие добавлено в ход.');return true
   }
   async function submit() {
-    if(!canSend||inFlight.current)return
-    const source = draft, b = source.base ?? base(); if (!b) return
+    if(!available||!value||!draft.submission&&!canSend||inFlight.current)return
+    const source = draft, b = source.base ?? source.submission ?? base(); if (!b) return
+    const command=source.submission??{...b,actions:source.actions,commandKey:'declaration:'+crypto.randomUUID()}
+    remember({...source,submission:command})
     inFlight.current=true
     const abort = new AbortController(); pending.current = abort; setBusy(true)
-    try { const result = await request<{ entryVersion: number }>(path, { method: 'PUT', signal: abort.signal, body: JSON.stringify({ ...b, actions: source.actions }) })
+    try { const result = await request<{ entryVersion: number }>(path, { method: 'PUT', signal: abort.signal, body: JSON.stringify(command) })
       if (!active.current || abort.signal.aborted) return
-      setUndo(null); remember({ form: emptyForm(), actions: [], quick:draft.quick??emptyQuickAction(), base: { ...b, baseVersion: result.entryVersion } }); setMessage('Заявление отправлено. Последствия ещё не применены.'); refresh()
-    } catch (e) { if (active.current && !abort.signal.aborted) setMessage((e as Error).message) } finally { inFlight.current=false; if (active.current && pending.current === abort) {pending.current=null;setBusy(false)} }
+      if(!Number.isSafeInteger(result?.entryVersion)||result.entryVersion<1)throw Error('Сервер не подтвердил версию хода. Повтори ту же отправку после проверки соединения.')
+      setUndo(null); remember({ form: emptyForm(), actions: [], quick:source.quick??emptyQuickAction(), base: { collectionId:b.collectionId,epoch:b.epoch,controlStamp:b.controlStamp,baseVersion:result.entryVersion } }); setMessage('Заявление отправлено. Сервер подтвердил ход; последствия применяет мастер при исполнении раунда.'); refresh()
+    } catch (e) { if (active.current && !abort.signal.aborted) {if(e instanceof NetworkError&&e.status>=400&&e.status<500)remember({...source,submission:undefined});setMessage((e as Error).message);refresh()} } finally { inFlight.current=false; if (active.current && pending.current === abort) {pending.current=null;setBusy(false)} }
   }
   function loadSent() {
     if (!value?.entry || (draft.actions.length || Object.keys(f).some(k => k !== 'route' && f[k as keyof Form] !== emptyForm()[k as keyof Form])) && !window.confirm('Заменить текущий черновик отправленной последовательностью?')) return
@@ -75,7 +82,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
   }
   const stale = hasDraftContent(draft) && !!draft.base && (!c || draft.base.collectionId !== c.id || draft.base.epoch !== c.epoch || draft.base.baseVersion !== (value?.entry?.revision ?? 0) || draft.base.controlStamp !== value?.controlStamp)
   useEffect(() => { onQueue?.(stale ? emptyQueue : draft.actions) }, [draft.actions, stale, onQueue])
-  const editable = !busy && !checkingAccess && !remote.loading, canSend = editable && !!value?.canSubmit && !!value.options && draft.actions.length > 0 && !stale && (value.entry?.status !== 'submitted' || !!c?.allowReplace)
+  const available = !busy && !checkingAccess && !remote.loading,editable=available&&!draft.submission, canSend = editable && !!value?.canSubmit && !!value.options && draft.actions.length > 0 && !stale && (value.entry?.status !== 'submitted' || !!c?.allowReplace)
   useEffect(()=>{if(sceneActionRef)sceneActionRef.current=action=>editable&&!stale?appendAction(action):false;return ()=>{if(sceneActionRef)sceneActionRef.current=null}})
   const targetLabel = (a: DeclaredAction) => {
     const t=actionTarget(a)
@@ -118,6 +125,6 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       <button type="button" className="w6-button" disabled={!undo||undo.base!==JSON.stringify(draft.base)||stale} onClick={()=>{if(undo){remember({...draft,actions:undo.actions});setUndo(null)}}}>Отменить правку очереди</button>
       {stale && <><p role="alert">Изменились приём, управление или моё заявление. Проверь черновик и доступные цели.</p><button className="w6-button" disabled={!c} onClick={() => remember({ ...draft, base: base() })}>Последовательность проверена с текущей версией</button></>}
       <button className="w6-button" disabled={!canSend} onClick={() => void submit()}>{value?.entry?.status === 'submitted' ? 'Заменить заявление' : 'Отправить заявление'}</button>
-    </fieldset>{warning && <p role="alert">{warning}</p>}<p role="status">{message}</p>
+    </fieldset>{draft.submission&&<div role="status"><p>Подтверждение хода не получено. Повтор подтвердит прежнюю отправку без второго хода.</p><button type="button" className="w6-button" disabled={!available} onClick={()=>void submit()}>Повторить отправку хода</button></div>}{warning && <p role="alert">{warning}</p>}<p role="status">{message}</p>
   </section>
 }

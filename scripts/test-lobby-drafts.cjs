@@ -195,6 +195,43 @@ test('Доработка игры: мастер подтверждает осм�
   }finally{await f.close()}
 })
 
+test('Надёжный ход: потерянный ответ и закрытие сбора допускают точный повтор после перезагрузки',async()=>{
+ const f=await fixture()
+ try{
+  f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a');let command
+  f.intercept((url,o)=>{
+   if(o?.method!=='PUT'||!url.endsWith('/declarations'))return
+   const body=JSON.parse(o.body);f.writes.push({url,...body})
+   if(!command){command=body;f.declarations.a.entry={revision:1,status:'submitted',actions:body.actions,submittedBy:f.accountId,submittedAt:new Date().toISOString(),note:''};f.declarations.a.collection.phase='closed';f.declarations.a.collection.epoch++;f.declarations.a.canSubmit=false;throw new(load('onlineClient').NetworkError)(0,'Ответ хода потерян')}
+   assert.deepEqual(body,command);return {entryVersion:1,duplicate:true}
+  })
+  await f.open('a');await click('Открыть экран героя');await click('Ждать 1 с');await click('Отправить заявление')
+  assert(enabledButton('Повторить отправку хода'));assert(!enabledButton('Ждать 1 с'));assert.equal(f.writes.length,1)
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');await click('Повторить отправку хода')
+  assert.equal(f.writes.length,2);assert(!enabledButton('Повторить отправку хода'));assert(document.body.textContent.includes('Сервер подтвердил ход'))
+ }finally{await f.close()}
+})
+
+test('Надёжный ход: отказ сервера сохраняет очередь и позволяет проверить её перед новой отправкой',async()=>{
+ const f=await fixture()
+ try{
+  f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+  f.intercept((url,o)=>o?.method==='PUT'&&url.endsWith('/declarations')?Promise.reject(new(load('onlineClient').NetworkError)(409,'Управление или приём изменились')):undefined)
+  await f.open('a');await click('Открыть экран героя');await click('Ждать 1 с');await click('Отправить заявление')
+  assert(document.body.textContent.includes('Управление или приём изменились'));assert(!enabledButton('Повторить отправку хода'));assert(enabledButton('Убрать действие 1'))
+  f.intercept(null);await click('Отправить заявление');assert.equal(f.writes[0].actions[0].kind,'wait');assert(f.writes[0].commandKey.startsWith('declaration:'))
+ }finally{await f.close()}
+})
+
+test('Надёжный ход: несовместимый успешный ответ не очищает очередь и ключ отправки',async()=>{
+ const f=await fixture()
+ try{
+  f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a');const bodies=[]
+  f.intercept((url,o)=>{if(o?.method==='PUT'&&url.endsWith('/declarations')){bodies.push(o.body);return bodies.length===1?{ok:true}:{entryVersion:1,duplicate:true}}})
+  await f.open('a');await click('Открыть экран героя');await click('Ждать 1 с');await click('Отправить заявление');assert(enabledButton('Повторить отправку хода'));await click('Повторить отправку хода');assert.equal(bodies[0],bodies[1])
+ }finally{await f.close()}
+})
+
 test('Доработка игры: быстрая реплика переживает переключение героя и перезагрузку экрана',async()=>{
   const f=await fixture()
   try{
@@ -2570,6 +2607,9 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     together.campaign.perceptions.heroes.push({...structuredClone(together.campaign.perceptions.heroes.find(h=>h.actorId===heroId)),actorId:hero2Id})
     await api(path+'/world',gm.token,'PUT',{revision:together.revision,world:together})
     assert.equal((await api(path,gm.token)).members.length,3)
+    await account(player,room.title);await lobbyTab('Играть');await until(()=>enabledButton('Я готов играть'),'first player readiness');await click('Я готов играть')
+    await account(player2,room.title);await lobbyTab('Играть');await until(()=>enabledButton('Я готов играть'),'second player readiness');await click('Я готов играть')
+    await account(gm,room.title)
     events++;await flush(render)
     await lobbyTab('Играть');await until(()=>enabledButton('Начать совместную игру'),'ready multiplayer session');await click('Начать совместную игру')
     await until(()=>document.body.textContent.includes('Игра начата.'),'session started')
@@ -2634,7 +2674,8 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
     await input('[aria-label="Название итога игры"]','Финал игры друзей')
     await input('[aria-label="Общий итог игры"]','Оба героя завершили переход. Встречаемся в следующем приключении.')
     await flush(()=>document.querySelector('[aria-label="Подтвердить общий итог и завершение"]').click())
-    await until(()=>enabledButton('Сохранить итог и завершить'),'finale ready after archival')
+    try{await until(()=>enabledButton('Сохранить итог и завершить'),'finale ready after archival')}
+    catch(error){throw Error(error.message+' '+JSON.stringify({failed:calls.filter(c=>c.status>=400),session:document.querySelector('.gb-game-session')?.textContent}),{cause:error})}
     const beforeFinish=await api(path+'/world',gm.token)
     await click('Сохранить итог и завершить');await until(()=>document.querySelector('[aria-label="Итог совместной игры"]'),'saved shared result')
     const finish=calls.find(c=>c.url===path+'/play/session/finish'&&c.status===200)
@@ -2648,7 +2689,8 @@ test('R07 play path: мастер и два игрока через HTTP/UI: п�
       assert(!enabledButton('Завершить игру'));assert(!enabledButton('Сохранить итог и завершить'))
     }
     assert(!calls.some(c=>c.method!=='GET'&&c.status>=400),'UI sent no rejected mutation')
-  } finally { await flush(()=>tree.unmount()) }
+  } catch(error){throw Error(error.message+' '+JSON.stringify({cause:error.cause?.code,lastRequests:calls.slice(-8).map(({url,method,status})=>({url,method,status}))}),{cause:error})}
+  finally { await flush(()=>tree.unmount()) }
 })
 
 function speechRound(f,id) {

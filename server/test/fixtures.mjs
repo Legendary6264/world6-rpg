@@ -20,7 +20,12 @@ export async function fixture(t,dialect='sqlite') {
  let server=await createApplication(config,{Pool}),base='http://127.0.0.1:'+(await server.listen()).port
  async function restart(){await server.close();server=await createApplication(config,{Pool});base='http://127.0.0.1:'+(await server.listen()).port}
  t.after(async()=>{await server.close();await rm(directory,{recursive:true,force:true})})
- async function request(path,token,method='GET',body){const r=await fetch(base+'/api'+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()}}
+ async function request(path,token,method='GET',body){
+  let r
+  try{r=await fetch(base+'/api'+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body)})}
+  catch(error){throw Error(method+' '+path+': '+(error.cause?.code??error.message),{cause:error})}
+  return {status:r.status,data:await r.json()}
+ }
  async function api(path,token,method='GET',body,status=200){const r=await request(path,token,method,body);assert.equal(r.status,status,path+': '+JSON.stringify(r.data));return r.data}
  async function register(name){return api('/auth/register','', 'POST',{email:name+'@example.test',displayName:name,password:'Audit-regression-password-2026'},201)}
  return {get server(){return server},get base(){return base},request,api,register,restart}

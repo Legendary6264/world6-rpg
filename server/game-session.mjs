@@ -13,20 +13,17 @@ const publicResult=p=>p?{id:p.id,title:p.name,summary:p.body.slice(finalBody(p.n
 async function latestResult(tx,lobbyId){
  return publicResult(await tx.get("SELECT p.id,p.name,p.created_at,p.source_revision,m.body FROM campaign_checkpoints p JOIN messages m ON m.id='game-finish:'||p.id AND m.lobby_id=p.lobby_id AND m.author_id=p.author_id WHERE p.lobby_id=? ORDER BY p.created_at DESC,p.id DESC LIMIT 1",[lobbyId]))
 }
-async function progress(tx,lobby){
+async function progress(tx,lobby,context){
  const state=JSON.parse(lobby.world_json),c=state.campaign.declarations?.active,generation=await roundGeneration(tx,lobby.id)
  const executed=!!c&&await collectionExecuted(tx,lobby.id,generation,c.id),pause=await campaignSession(tx,lobby.id)
- const members=await tx.all('SELECT m.user_id,u.disabled FROM members m JOIN users u ON u.id=m.user_id WHERE m.lobby_id=?',[lobby.id])
  const bindings=await tx.all('SELECT b.character_id,b.owner_id,b.approved,n.character_id AS npc FROM character_bindings b LEFT JOIN lobby_npcs n ON n.lobby_id=b.lobby_id AND n.character_id=b.character_id WHERE b.lobby_id=?',[lobby.id])
- const friends=members.filter(m=>m.user_id!==lobby.owner_id&&!m.disabled)
- const heroes=bindings.filter(b=>b.approved&&!b.npc&&friends.some(m=>m.user_id===b.owner_id))
- const scenes=state.campaign.scenes?.scenes??[],prepared=heroes.filter(b=>{
-  const perception=state.campaign.perceptions?.heroes.find(h=>h.actorId===b.character_id)
-  return scenes.some(s=>s.tokens.some(t=>t.actorId===b.character_id)&&perception?.activeSceneId===s.id&&perception.scenes.some(p=>p.sceneId===s.id&&p.areas.some(a=>a.visible)))
- })
- const ready=[{id:'friends',label:'В лобби вошёл хотя бы один другой участник',done:friends.length>0,section:'setup'},
-  {id:'heroes',label:'Мастер принял героя другого участника',done:heroes.length>0,section:'heroes'},
-  {id:'scene',label:'Герой размещён на открытой ему сцене',done:prepared.length>0,section:'game'}]
+ const party=(context??await legacySessionContext(tx,lobby,lobby.owner_id)).participants,hasPlayers=party.length>0
+ // Both launch APIs must honor the same party and controller checks. A single
+ // prepared hero must not close enrollment while the other players are waiting.
+ const ready=[{id:'friends',label:'В лобби вошёл хотя бы один игрок',done:hasPlayers,section:'setup'},
+  {id:'heroes',label:'У каждого игрока есть принятый герой под своим управлением',done:hasPlayers&&party.every(p=>p.heroCount>0),section:'heroes'},
+  {id:'scene',label:'Герои всех игроков размещены на открытой им игровой сцене',done:hasPlayers&&party.every(p=>p.placed),section:'game'},
+  {id:'players',label:'Все игроки подтвердили готовность'+(party.some(p=>!p.ready)?': ожидаем '+party.filter(p=>!p.ready).map(p=>p.name).join(', '):''),done:hasPlayers&&party.every(p=>p.ready),section:'game'}]
  const pendingWork=(state.campaign.roundWork?.entries.length??0)+state.characters.reduce((n,a)=>n+a.rpg.casts.filter(c=>['preparing','ready','maintaining'].includes(c.status)).length,0)
  const finishBlockers=[...(c&&!executed?['Текущий сбор ещё не исполнен. Примени раунд или явно сохрани сбор в истории без исполнения.']:[])]
  const people=bindings.filter(b=>b.approved&&!b.npc).map(b=>b.character_id)
@@ -38,7 +35,7 @@ async function progress(tx,lobby){
 export function gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembership,record}){
  app.get('/api/lobbies/:id/play/session',auth.middleware,async(req,res)=>{
   const value=await db.transaction(async tx=>{
-   const {lobby,member}=await lockedMembership(tx,req),p=await progress(tx,lobby),chief=member.role==='GM'&&lobby.owner_id===req.user.id,c=await legacySessionContext(tx,lobby,req.user.id),{ready:_ready,...session}=c.session
+   const {lobby,member}=await lockedMembership(tx,req),c=await legacySessionContext(tx,lobby,req.user.id),p=await progress(tx,lobby,c),chief=member.role==='GM'&&lobby.owner_id===req.user.id,{ready:_ready,...session}=c.session
    return {session,chief,myReady:c.participants.find(p=>p.mine)?.ready??false,participants:c.participants.map(({actorIds:_actorIds,...p})=>p),blockers:c.blockers,canStart:false,...(chief&&c.scene?{sceneName:c.scene.name}:{}),durationSeconds:c.scene?.roundDurationSeconds??5,roundPhase:c.world.campaign.declarations?.active?.phase??null,revision:p.revision,status:p.status,paused:p.paused,seconds:p.seconds,phase:p.phase,round:p.round,
     ...(chief?{ready:p.ready,pendingWork:p.pendingWork,finishBlockers:p.finishBlockers,canStart:p.canStart}:{}),result:lobby.status==='closed'?(await latestResult(tx,lobby.id)??(JSON.parse(lobby.world_json).campaign.gameSession?.status==='finished'?{id:'legacy:'+lobby.id,title:{success:'Победа',failure:'Неудача',stopped:'Игра остановлена'}[session.outcome],summary:session.summary,finishedAt:session.finishedAt,sourceRevision:lobby.revision}:null)):null}
   });res.json(value)
