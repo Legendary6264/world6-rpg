@@ -1,10 +1,12 @@
+import SceneCharacterPreview from './SceneCharacterPreview'
+import type {CharacterPreviewFrame} from './SceneCharacterPreview'
 import {createSceneAbilityEffect} from './scene3dAbilityEffects'
 import {sampleAbilityVisual} from './abilityVisualTimeline'
 import {sceneAbilityAimLines} from './sceneAbilityAim'
 import type {SceneAbilityAim} from './sceneAbilityAim'
 import type {SceneAbilityVisual} from './sceneAbilityVisuals'
 import {editorKey} from './sceneEditorKeyboard'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import {EffectComposer} from 'three/examples/jsm/postprocessing/EffectComposer.js'
@@ -68,7 +70,7 @@ const clipping = (a: KnownArea) => [new THREE.Plane(new THREE.Vector3(1, 0, 0), 
 export default function Scene3D(props: Props) {
   const { model, selection, marker, route } = props
   const guidesJSON=JSON.stringify({marker,route}),applyGuides=useRef<((point:ScenePosition|null,route:ScenePosition[])=>void)|null>(null)
-  const structuralJSON=useMemo(()=>JSON.stringify({...model,visuals:[],entities:model.entities.map(e=>model.restricted?e:{...e,transform:{position:{x:0,y:0,z:0}}})}),[model])
+  const structuralJSON=useMemo(()=>JSON.stringify({...model,visuals:[],entities:model.entities.map(e=>model.restricted?e:{...e,...(e.geometry.kind==='actor'?{geometry:{...e.geometry,facing:0}}:{}),transform:{position:{x:0,y:0,z:0}}})}),[model])
   const constructionModel=useMemo(()=>JSON.parse(structuralJSON) as SceneRenderModel,[structuralJSON])
   const applyPositions=useRef<((next:SceneRenderModel)=>void)|null>(null),applyPlacement=useRef<((next:Props['placement'])=>void)|null>(null)
   const seenEffects=useRef({frame:model.frame.id,ids:new Set(model.visuals.map(v=>v.id))})
@@ -76,12 +78,15 @@ export default function Scene3D(props: Props) {
   const effectSettings=useRef({enabled:effectsEnabled,paused:effectsPaused,replay:effectReplay}),applyEffects=useRef<((visuals:SceneAbilityVisual[],replay?:boolean)=>void)|null>(null),applyAim=useRef<((aim:SceneAbilityAim|null)=>void)|null>(null)
   const [measurement,setMeasurement]=useState(''),[animated,setAnimated]=useState(readMotionPreference)
   const [charactersAnimated,setCharactersAnimated]=useState(false),characterMotion=useRef(false)
+  const characterPreview=useRef<CharacterPreviewFrame|null>(null),applyCharacterPreview=useRef<(()=>void)|null>(null)
+  const previewFrame=useCallback((frame:CharacterPreviewFrame|null)=>{characterPreview.current=frame;applyCharacterPreview.current?.()},[])
   const animationValue=useRef(animated),applyMotion=useRef<(()=>void)|null>(null)
   const host = useRef<HTMLDivElement>(null), latest = useRef(props), reset = useRef<(() => void) | null>(null)
   const cameraAction=useRef<((action:'top'|'front'|'iso'|'focus'|'reference')=>void)|null>(null),restoreFocus=useRef(false)
   const capture=useRef<(()=>void)|null>(null),[captureNotice,setCaptureNotice]=useState('')
   const updateSelection=useRef<((selection:RenderSelection|null)=>void)|null>(null)
   const environmentKind=sceneEnvironment(model.frame)
+  const previewEntity=!model.restricted&&selection?.kind==='token'?model.entities.find(e=>e.interaction.kind==='token'&&e.interaction.id===selection.id&&e.geometry.kind==='actor'&&e.appearance.heightKnown):undefined
   const tabletop=model.entities.some(e=>!!e.geometry.asset)
   const videoReference=isVideoTavern(model.frame.id)&&!model.restricted
   const [quality, setQuality] = useState('balanced'), [grid, setGrid] = useState(!tabletop), [labels, setLabels] = useState(!tabletop)
@@ -168,7 +173,7 @@ export default function Scene3D(props: Props) {
     const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()
     const characters:{rig:ReturnType<typeof bindCharacterRig>;group:THREE.Group;animation:NonNullable<RenderEntity['geometry']['characterAnimation']>}[]=[]
     const keep = <T extends THREE.BufferGeometry | THREE.Material | THREE.Texture,>(v: T): T => { resources.add(v); return v }
-    let pending=0,disposed=false,environment:THREE.WebGLRenderTarget|undefined,environmentTimer:ReturnType<typeof setTimeout>|undefined
+    let pending=0,disposed=false,previewDirty=false,environment:THREE.WebGLRenderTarget|undefined,environmentTimer:ReturnType<typeof setTimeout>|undefined
     const generator=quality!=='low'&&renderer.capabilities?.maxTextures?new THREE.PMREMGenerator(renderer):undefined
     const radianceKey=()=>{const {mode,tuning:t}=lightingState.current;return [mode,t.azimuth,t.elevation,t.sun].join(':')}
     let environmentKey=radianceKey()
@@ -350,9 +355,14 @@ export default function Scene3D(props: Props) {
       lighting.update(camera,controls.target)
       const moving=animationValue.current&&document.visibilityState==='visible',visualTime=performance.now()/1000
       const charactersMoving=characterMotion.current&&document.visibilityState==='visible'
-      for(const entry of characters)entry.rig.sample(visualTime,entry.animation,charactersMoving&&entry.group.visible)
+      const preview=characterPreview.current?.frameId===f.id?characterPreview.current:null
+      for(const entry of characters){
+        const target=entry.group.userData.selection
+        if(preview&&preview.target===target.kind+':'+target.id)entry.rig.sample(preview.seconds,preview.animation,true)
+        else entry.rig.sample(visualTime,entry.animation,charactersMoving&&entry.group.visible)
+      }
       for(const outline of outlines)outline.helper.setFromObject(outline.target)
-      if(charactersMoving&&characters.length){renderer.shadowMap.needsUpdate=true;if(contactShadows)contactShadows.needsUpdate=true}
+      if((charactersMoving&&characters.length)||previewDirty){renderer.shadowMap.needsUpdate=true;if(contactShadows)contactShadows.needsUpdate=true}previewDirty=false
       updateFlameMaterials(resources,visualTime,moving);lighting.animate(moving?visualTime:null)
       if(composer)composer.render(0);else renderer.render(scene,camera)
       const box = element.getBoundingClientRect()
@@ -377,7 +387,7 @@ export default function Scene3D(props: Props) {
       }catch{setCaptureNotice('Не удалось сохранить снимок. Попробуй после загрузки материалов.')}
     }
     applyCutaway.current=requestDraw
-    applyPositions.current=next=>{for(const e of next.entities){const group=anchors.get(e.interaction.kind+':'+e.interaction.id);if(group){group.position.copy(vector(e.transform.position));group.updateMatrixWorld(true)}}requestDraw()}
+    applyPositions.current=next=>{for(const e of next.entities){const group=anchors.get(e.interaction.kind+':'+e.interaction.id);if(group){group.position.copy(vector(e.transform.position));if(e.geometry.kind==='actor')group.rotation.y=-(e.geometry.facing??0)*Math.PI/180;group.updateMatrixWorld(true)}}requestDraw()}
     applyExposure.current=value=>{renderer.toneMappingExposure=value*lighting.exposure;requestDraw()}
     applyLighting.current=(mode,t)=>{
       lighting.configure(mode,t);backdrop.configure(mode,t);renderer.setClearColor(backdrop.background);if(scene.fog)scene.fog.color.set(backdrop.fogColor)
@@ -708,6 +718,7 @@ export default function Scene3D(props: Props) {
     const wantsMotion=()=>vfxNeedsMotion()||!!liveEmitters&&visibleMotionSource()&&animationValue.current||characterMotion.current&&characters.some(c=>c.animation!=='rest'&&!latest.current.editorHidden?.includes(c.group.userData.selection?.id))
     const motionTick=()=>{motionTimer=undefined;if(disposed||!wantsMotion()||document.visibilityState!=='visible'||!element.clientWidth||!element.clientHeight)return;requestDraw(false);motionTimer=setTimeout(motionTick,50)}
     const syncMotion=()=>{clearTimeout(motionTimer);motionTimer=undefined;vfxLast=undefined;if(!disposed&&wantsMotion()&&document.visibilityState==='visible'&&element.clientWidth&&element.clientHeight)motionTimer=setTimeout(motionTick,50);requestDraw(false)}
+    applyCharacterPreview.current=()=>{previewDirty=true;requestDraw(false)}
     applyMotion.current=syncMotion;document.addEventListener('visibilitychange',syncMotion);syncMotion()
     setEffects(latest.current.model.visuals);applyAim.current?.(latest.current.abilityAim??null);applyGuides.current?.(latest.current.marker??null,latest.current.route??[])
     requestDraw()
@@ -715,7 +726,7 @@ export default function Scene3D(props: Props) {
       restoreFocus.current=document.activeElement===canvas
       cameraState.current = { id: f.id, position: camera.position.clone(), target: controls.target.clone(),zoom:camera.zoom }
       applyGuides.current=null;applyEffects.current=null;applyAim.current=null;vfx.forEach(e=>e.dispose());clearAim()
-      reset.current = null;cameraAction.current=null;capture.current=null;updateSelection.current=null;applyExposure.current=null;applyLighting.current=null;applyCutaway.current=null;applyPositions.current=null;applyPlacement.current=null;applyMotion.current=null;disposed = true;clearTimeout(motionTimer);document.removeEventListener('visibilitychange',syncMotion);clearTimeout(environmentTimer);endMarquee(false);selectionBox.remove();endPaint(false);endDrag(false);transformReadout.remove();cancelAnimationFrame(pending);observer.disconnect();controls.dispose()
+      reset.current = null;cameraAction.current=null;capture.current=null;updateSelection.current=null;applyExposure.current=null;applyLighting.current=null;applyCutaway.current=null;applyPositions.current=null;applyPlacement.current=null;applyMotion.current=null;applyCharacterPreview.current=null;disposed = true;clearTimeout(motionTimer);document.removeEventListener('visibilitychange',syncMotion);clearTimeout(environmentTimer);endMarquee(false);selectionBox.remove();endPaint(false);endDrag(false);transformReadout.remove();cancelAnimationFrame(pending);observer.disconnect();controls.dispose()
       canvas.removeEventListener('pointerdown',captureDown,true);canvas.removeEventListener('pointermove',captureMove,true);canvas.removeEventListener('pointerup',dragUp,true);canvas.removeEventListener('pointercancel',dragCancel);canvas.removeEventListener('lostpointercapture',dragCancel);canvas.removeEventListener('keydown',keyboard)
       canvas.removeEventListener('contextmenu',context);canvas.removeEventListener('pointerup', clickUp); canvas.removeEventListener('pointermove', pointerMove);canvas.removeEventListener('pointerleave',pointerLeave);canvas.removeEventListener('webglcontextlost', lost)
       window.removeEventListener('blur',blur)
@@ -774,6 +785,7 @@ export default function Scene3D(props: Props) {
       <label>Контактные тени <output>{Math.round(tuning.contact*100)}%</output><input aria-label="Контактные тени" type="range" min="0" max="1" step="0.05" disabled={quality==='low'||model.restricted} value={tuning.contact} onChange={e=>changeTuning('contact',Number(e.currentTarget.value))}/></label>
       <button className="w6-button" type="button" onClick={()=>{setTuning(defaultLightTuning(lightingMode));setExposure(1)}}>Сбросить свет</button>
     </div><p>Настройки сохраняются в этом браузере и меняют только вид сцены.</p></details>
+    {previewEntity&&<SceneCharacterPreview key={JSON.stringify([model.frame.id,previewEntity.interaction.kind,previewEntity.interaction.id,previewEntity.geometry.characterAnimation??'idle'])} frameId={model.frame.id} target={'token:'+previewEntity.interaction.id} label={previewEntity.identity.label} animation={previewEntity.geometry.characterAnimation??'idle'} onFrame={previewFrame}/>}
     <div className="gb-3d-canvas" data-environment={environmentKind} ref={host}><SceneAtmosphere environment={environmentKind} night={lightingMode==='night'}/></div>{measurement&&<output className="gb-ruler-readout">↔ {measurement}</output>}
     {failure && <p role="alert" className="gb-scene-state">{failure}</p>}
     <p className="gb-map-caption">{props.brush?`${props.brush.mode==='measure'?'ЛКМ и тяни — измерить расстояние':props.brush.mode==='wall'?'ЛКМ и тяни — построить стену':props.brush.mode==='room'?'ЛКМ и тяни — построить комнату':props.brush.mode==='rectangle'?'ЛКМ и тяни — заполнить прямоугольник':'Зажми ЛКМ — рисовать пол'} · Esc — отмена · Alt+ЛКМ — камера`:props.onMove?'ЛКМ — перенос · Shift во время переноса — точно, без сетки · Esc — отмена · Alt+ЛКМ — камера':'ЛКМ — выбор · перетаскивание — поворот'} · ПКМ/СКМ — сдвиг · колесо — масштаб · F — к выбранному · 1/2/3 — виды. XYZ в метрах. {hover}</p>

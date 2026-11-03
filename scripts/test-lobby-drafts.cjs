@@ -742,7 +742,7 @@ test('Сцены: полёт и боковой вид сохраняют коо�
   await click('Разместить героя');await flush(()=>[...document.querySelectorAll('.gb-hero-library button')].find(b=>b.textContent.includes('Hero a')).click());await click('Разместить в центре')
   await input('[name="z"]','12.5')
   document.querySelector('[name="support"]').value='air'
-  await click('Сохранить положение')
+  await click('Сохранить параметры персонажа')
   let draft=storage.readLobbyDraft(f.accountId,'a'),position=structuredClone(draft.world.campaign.scenes.scenes[0].tokens[0])
   assert.equal(position.z,12.5);assert.equal(position.support.kind,'air')
   await click('Параметры сцены');document.querySelector('[name="view"]').value='side'
@@ -769,7 +769,7 @@ test('Сцены: клик не привязывается к сетке; уда
   await click('Разместить героя');await flush(()=>[...document.querySelectorAll('.gb-hero-library button')].find(b=>b.textContent.includes('Hero a')).click())
   await flush(()=>svg.dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,clientX:4.125,clientY:7.75})))
   document.querySelector('[name="support"]').value='object:'+platform.id
-  await click('Сохранить положение')
+  await click('Сохранить параметры персонажа')
   scene=storage.readLobbyDraft(f.accountId,'a').world.campaign.scenes.scenes[0]
   assert.equal(scene.tokens[0].support.objectId,platform.id);assert.equal(scene.tokens[0].z,1)
   await click('Объекты');await flush(()=>document.querySelector('[data-outliner-key="object:'+platform.id+'"]').click());await click('Свойства')

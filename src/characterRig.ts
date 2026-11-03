@@ -1,6 +1,6 @@
 import * as T from 'three'
 import type { RenderEntity } from './scene3dModel'
-import { characterModelFor } from './characterAppearance.ts'
+import { characterModelFor, characterAnimationDuration } from './characterAppearance.ts'
 import type { CharacterAnimation } from './characterAppearance'
 export type RigLandmarks = Record<string, T.Vector3>
 const v=(x:number,y:number,z=0)=>new T.Vector3(x,y,z)
@@ -105,8 +105,8 @@ function animationClips(){
     return new T.AnimationClip(name,duration,tracks)
   }
   return {
-    idle:clip('idle',4,{chest:[[0,0,0],[.012,0,0],[0,0,0],[-.006,0,0],[0,0,0]],head:[[0,0,0],[0,.014,0],[0,0,0],[0,-.014,0],[0,0,0]],leftArm:[[0,0,0],[-.009,0,-.006],[0,0,0],[.009,0,.006],[0,0,0]],rightArm:[[0,0,0],[.009,0,.006],[0,0,0],[-.009,0,-.006],[0,0,0]]}),
-    walk:clip('walk',1.2,{leftThigh:[[.28,0,0],[0,0,0],[-.28,0,0],[0,0,0],[.28,0,0]],rightThigh:[[-.28,0,0],[0,0,0],[.28,0,0],[0,0,0],[-.28,0,0]],leftShin:[[0,0,0],[.42,0,0],[0,0,0],[0,0,0],[0,0,0]],rightShin:[[0,0,0],[0,0,0],[0,0,0],[.42,0,0],[0,0,0]],leftArm:[[-.18,0,0],[0,0,0],[.18,0,0],[0,0,0],[-.18,0,0]],rightArm:[[.18,0,0],[0,0,0],[-.18,0,0],[0,0,0],[.18,0,0]],chest:[[0,.015,0],[0,0,0],[0,-.015,0],[0,0,0],[0,.015,0]]}),
+    idle:clip('idle',characterAnimationDuration('idle'),{chest:[[0,0,0],[.012,0,0],[0,0,0],[-.006,0,0],[0,0,0]],head:[[0,0,0],[0,.014,0],[0,0,0],[0,-.014,0],[0,0,0]],leftArm:[[0,0,0],[-.009,0,-.006],[0,0,0],[.009,0,.006],[0,0,0]],rightArm:[[0,0,0],[.009,0,.006],[0,0,0],[-.009,0,-.006],[0,0,0]]}),
+    walk:clip('walk',characterAnimationDuration('walk'),{leftThigh:[[.28,0,0],[0,0,0],[-.28,0,0],[0,0,0],[.28,0,0]],rightThigh:[[-.28,0,0],[0,0,0],[.28,0,0],[0,0,0],[-.28,0,0]],leftShin:[[0,0,0],[.42,0,0],[0,0,0],[0,0,0],[0,0,0]],rightShin:[[0,0,0],[0,0,0],[0,0,0],[.42,0,0],[0,0,0]],leftArm:[[-.18,0,0],[0,0,0],[.18,0,0],[0,0,0],[-.18,0,0]],rightArm:[[.18,0,0],[0,0,0],[-.18,0,0],[0,0,0],[.18,0,0]],chest:[[0,.015,0],[0,0,0],[0,-.015,0],[0,0,0],[0,.015,0]]}),
   }
 }
 const clips=animationClips()

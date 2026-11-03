@@ -92,3 +92,17 @@ Long robes, coat skirts and low cape panels blend across both leg chains,
 including the shin at the knee. This avoids knee penetration during the walk
 preview without splitting the closed cloth surface at its centre. Regression
 coverage raycasts through the robe in eight phases and both quality levels.
+
+## Editor playback controls
+
+Selecting a known character in the unrestricted 3D editor exposes a collapsible
+local playback panel. Play, pause and seeking sample the existing skeleton;
+reset restores the usual scene animation. Preview time never enters campaign
+data. Hidden tabs suspend its clock, and changing selection clears its pose.
+Persistent model and animation choices still use the token inspector.
+
+R, the rotation toolbar and the context menu turn a selected character. Turning
+a group also turns the heading of figures carried by selected supports once.
+Re-placing a figure retains its model, animation, heading and diameter. Heading
+changes retain the renderer, meshes, rig and camera. See
+[the controls review](editor-character-controls-review.md) for scope and checks.

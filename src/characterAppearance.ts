@@ -7,9 +7,10 @@ export const characterModels = [
 ] as const
 export type CharacterModelId = typeof characterModels[number]['id']
 export const characterAnimations = [
-  {id:'idle', name:'Дыхание'}, {id:'walk', name:'Шаг на месте'}, {id:'rest', name:'Без анимации'},
+  {id:'idle', name:'Дыхание', duration:4}, {id:'walk', name:'Шаг на месте', duration:1.2}, {id:'rest', name:'Без анимации', duration:0},
 ] as const
 export type CharacterAnimation = typeof characterAnimations[number]['id']
+export const characterAnimationDuration = (animation:CharacterAnimation) => characterAnimations.find(a=>a.id===animation)!.duration
 export const isCharacterAnimation = (value:unknown):value is CharacterAnimation => characterAnimations.some(a=>a.id===value)
 export function isCharacterModel(value: unknown): value is CharacterModelId {
   return characterModels.some(model => model.id === value)

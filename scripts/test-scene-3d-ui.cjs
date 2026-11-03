@@ -39,6 +39,82 @@ async function mount(patch={}){props={...props,...patch};await flush(()=>root.re
 function screenPoint(renderer,x,y,z){const p=new THREE.Vector3(x,z,y).project(renderer.camera);return {clientX:(p.x+1)*450,clientY:(1-p.y)*300}}
 async function clickAt(renderer,p){await flush(()=>{for(const type of ['pointerdown','pointerup'])renderer.domElement.dispatchEvent(new dom.window.MouseEvent(type,{...p,button:0,bubbles:true}))})}
 
+test('Предпросмотр героя: выбор кадра меняет реальные кости, пауза и сброс не меняют сцену',async()=>{
+ await flush(()=>root.render(null));props={}
+ const previous=document.visibilityState;Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
+ try{
+  const {createCharacterStudio,characterStudioActors}=load('characterStudio'),scene=createCharacterStudio(),token=scene.tokens[0],model=masterRenderModel(scene,characterStudioActors),before=structuredClone(model)
+  await mount({model,selection:{kind:'token',id:token.actorId},selections:[]})
+  const renderer=instances.at(-1),group=renderer.scene.children.find(g=>g.userData.selection?.id===token.actorId)
+  const meshes=[];group.traverse(o=>{if(o.isSkinnedMesh)meshes.push(o)})
+  const skeleton=meshes[0].skeleton,geometries=meshes.map(m=>m.geometry)
+  const choose=async value=>flush(()=>{const select=document.querySelector('[aria-label="Анимация предпросмотра"]');select.value=value;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+  const press=async label=>flush(()=>document.querySelector('[aria-label="'+label+'"]').click())
+  await choose('walk')
+  await flush(()=>{const slider=document.querySelector('[aria-label="Кадр анимации персонажа"]');Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set.call(slider,'25');slider.dispatchEvent(new dom.window.Event('input',{bubbles:true}))})
+  assert(Math.abs(skeleton.getBoneByName('gb_leftShin').quaternion.x)>.1,'A scrubbed frame bends the actual knee')
+  assert(document.querySelector('[aria-label="Время анимации персонажа"]').textContent.startsWith('0.30'))
+  await press('Воспроизвести анимацию персонажа');await act(async()=>{await new Promise(resolve=>setTimeout(resolve,130))})
+  await press('Приостановить анимацию персонажа')
+  const pose=skeleton.bones.map(b=>b.quaternion.toArray()),time=document.querySelector('[aria-label="Время анимации персонажа"]').textContent,frames=renderer.frames
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,110))})
+  assert.deepEqual(skeleton.bones.map(b=>b.quaternion.toArray()),pose);assert.equal(document.querySelector('[aria-label="Время анимации персонажа"]').textContent,time);assert.equal(renderer.frames,frames)
+  const turned=structuredClone(model);turned.entities.find(e=>e.id===token.actorId).geometry.facing=315
+  await mount({model:turned})
+  assert.equal(instances.at(-1),renderer,'Changing heading retains the WebGL renderer')
+  assert.equal(renderer.scene.children.find(g=>g.userData.selection?.id===token.actorId),group)
+  assert(Math.abs(group.rotation.y+315*Math.PI/180)<1e-8);assert.deepEqual(skeleton.bones.map(b=>b.quaternion.toArray()),pose)
+  await press('Сбросить предпросмотр персонажа');assert(skeleton.bones.every(b=>Math.abs(b.quaternion.w-1)<1e-6))
+  assert.equal(instances.at(-1),renderer);assert.deepEqual(meshes.map(m=>m.geometry),geometries);assert.deepEqual(model,before)
+ }finally{await flush(()=>root.render(null));Object.defineProperty(document,'visibilityState',{configurable:true,value:previous})}
+})
+
+test('Направление героя: исходный угол и поворот сохраняют renderer, скелет, камеру и меши',async()=>{
+ await flush(()=>root.render(null));props={}
+ const {createCharacterStudio,characterStudioActors}=load('characterStudio'),scene=createCharacterStudio(),token=scene.tokens[0]
+ token.facing=135
+ const model=masterRenderModel(scene,characterStudioActors);await mount({model,selection:{kind:'token',id:token.actorId}})
+ const renderer=instances.at(-1),group=renderer.scene.children.find(g=>g.userData.selection?.id===token.actorId),camera=renderer.camera.position.clone(),meshes=[]
+ group.traverse(o=>{if(o.isSkinnedMesh)meshes.push(o)})
+ assert(Math.abs(group.rotation.y+135*Math.PI/180)<1e-8)
+ const changed=structuredClone(model);changed.entities.find(e=>e.id===token.actorId).geometry.facing=225
+ await mount({model:changed})
+ assert.equal(instances.at(-1),renderer);assert.equal(renderer.scene.children.find(g=>g.userData.selection?.id===token.actorId),group);assert(renderer.camera.position.equals(camera))
+ assert(Math.abs(group.rotation.y+225*Math.PI/180)<1e-8)
+ const current=[];group.traverse(o=>{if(o.isSkinnedMesh)current.push(o)});assert.deepEqual(current,meshes)
+ await flush(()=>root.render(null));props={}
+})
+
+test('Предпросмотр героя: скрытая вкладка останавливает часы, смена выбора снимает старую позу',async()=>{
+ await flush(()=>root.render(null));props={}
+ const previous=document.visibilityState;Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
+ try{
+  const {createCharacterStudio,characterStudioActors}=load('characterStudio'),scene=createCharacterStudio(),first=scene.tokens[0],second=scene.tokens[1]
+  await mount({model:masterRenderModel(scene,characterStudioActors),selection:{kind:'token',id:first.actorId},selections:[]})
+  const r=instances.at(-1),group=r.scene.children.find(g=>g.userData.selection?.id===first.actorId),bones=group.getObjectByName('gb_chest').parent.children
+  await flush(()=>document.querySelector('[aria-label="Воспроизвести анимацию персонажа"]').click());await act(async()=>{await new Promise(resolve=>setTimeout(resolve,100))})
+  Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});await flush(()=>document.dispatchEvent(new dom.window.Event('visibilitychange')))
+  const time=document.querySelector('[aria-label="Время анимации персонажа"]').textContent,frames=r.frames
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,110))});assert.equal(r.frames,frames);assert.equal(document.querySelector('[aria-label="Время анимации персонажа"]').textContent,time)
+  Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});await flush(()=>document.dispatchEvent(new dom.window.Event('visibilitychange')))
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,100))});assert(r.frames>frames)
+  await mount({selection:{kind:'token',id:second.actorId}})
+  assert.equal(instances.at(-1),r);assert(group.getObjectByName('gb_chest').quaternion.w===1);assert(bones.every(b=>!b.isBone||Math.abs(b.quaternion.w-1)<1e-6))
+  assert(document.querySelector('.gb-character-preview summary').textContent.includes('Следопыт'));assert(document.querySelector('[aria-label="Время анимации персонажа"]').textContent.startsWith('0.00'))
+  assert(document.querySelector('[aria-label="Сбросить предпросмотр персонажа"]').disabled)
+ }finally{await flush(()=>root.render(null));Object.defineProperty(document,'visibilityState',{configurable:true,value:previous})}
+})
+
+test('Предпросмотр не появляется для нераскрытых контактов и неизвестной высоты',async()=>{
+ await flush(()=>root.render(null));props={}
+ const {createCharacterStudio,characterStudioActors}=load('characterStudio'),scene=createCharacterStudio(),model=masterRenderModel(scene,characterStudioActors),token=scene.tokens[0]
+ model.entities.find(e=>e.id===token.actorId).appearance.heightKnown=false
+ await mount({model,selection:{kind:'token',id:token.actorId}});assert(!document.querySelector('[aria-label="Предпросмотр персонажа"]'))
+ model.entities.find(e=>e.id===token.actorId).appearance.heightKnown=true;model.restricted=true
+ await mount({model:{...model},selection:{kind:'token',id:token.actorId}});assert(!document.querySelector('[aria-label="Предпросмотр персонажа"]'))
+ await flush(()=>root.render(null));props={}
+})
+
 test('3D UI: настоящая геометрия и камера, выбор объекта, обратное преобразование земли, новые callbacks',async()=>{
  const {world}=create3DSandbox('ui'),scene=world.campaign.scenes.scenes[0],door=scene.objects.find(o=>o.kind==='door')
  let selected,point,oldCallback=0

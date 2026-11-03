@@ -75,6 +75,12 @@ export function rotateEditorGroup(state:SceneState,items:readonly EditorItem[]):
  if(!scene||!selected.size)throw Error('Сначала выбери объекты или персонажей.')
  const all=[...scene.objects.filter(o=>selected.has('object:'+o.id)),...scene.tokens.filter(t=>selected.has('token:'+t.actorId))]
  if(all.length!==selected.size)throw Error('Часть выделения больше не находится на сцене.')
+ // Turning a single figure changes its heading without rounding its position
+ // or reordering tokens. Supports and presentation fields stay attached.
+ if(all.length===1&&'actorId' in all[0]){
+  const id=all[0].actorId
+  return replaceScene(state,{...scene,tokens:scene.tokens.map(t=>t.actorId===id?{...t,facing:((t.facing??0)+90)%360}:t)})
+ }
  // Use the same full footprint pivot as scaling. Small objects on a table
  // must not move its rotation centre away from the table itself.
  const width=(p:typeof all[number])=>'width' in p?p.width:p.diameter,depth=(p:typeof all[number])=>'depth' in p?p.depth:p.diameter
@@ -82,7 +88,8 @@ export function rotateEditorGroup(state:SceneState,items:readonly EditorItem[]):
  const round=(n:number)=>Math.round(n*1e6)/1e6,turn=<T extends ScenePosition>(p:T):T=>({...p,x:round(cx-(p.y-cy)),y:round(cy+(p.x-cx))})
  const objects=scene.objects.map(o=>selected.has('object:'+o.id)?{...turn(o),width:o.depth,depth:o.width,facing:((o.facing??0)+90)%360}:o)
  assertEditorObjectBounds(scene,objects.filter(o=>selected.has('object:'+o.id)))
- const tokens=scene.tokens.map(t=>selected.has('token:'+t.actorId)||t.support.kind==='object'&&selected.has('object:'+t.support.objectId)?turn(t):t)
+ // A rider follows its support once, even when both are selected.
+ const tokens=scene.tokens.map(t=>selected.has('token:'+t.actorId)||t.support.kind==='object'&&selected.has('object:'+t.support.objectId)?{...turn(t),facing:((t.facing??0)+90)%360}:t)
  return replaceScene(state,{...scene,objects,tokens})
 }
 

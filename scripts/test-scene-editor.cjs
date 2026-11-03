@@ -34,6 +34,51 @@ function arrangementFixture(){
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
 
+test('Поворот героя: R, панель, отмена и повтор сохраняют точные XYZ, опору и оформление',async()=>{
+ await fixture();const token=active().tokens[0],id=token.actorId
+ const next=structuredClone(current),edited=next.scenes.find(s=>s.id===next.activeSceneId).tokens.find(t=>t.actorId===id)
+ edited.x=8.123456789;edited.y=9.987654321;edited.facing=315;edited.characterModel='ranger';edited.characterAnimation='walk'
+ await flush(()=>setExternal(next));await flush(()=>viewport.onSelect({kind:'token',id}))
+ const before=structuredClone(current),original=structuredClone(active().tokens.find(t=>t.actorId===id)),order=active().tokens.map(t=>t.actorId)
+ const rotate=button('Повернуть на 90°');assert(rotate&&!rotate.disabled)
+ await key('r');const turned=active().tokens.find(t=>t.actorId===id)
+ assert.deepEqual(turned,{...original,facing:45});assert.deepEqual(active().tokens.map(t=>t.actorId),order)
+ await key('z',{ctrlKey:true});assert.deepEqual(current,before)
+ await key('z',{ctrlKey:true,shiftKey:true});assert.equal(active().tokens.find(t=>t.actorId===id).facing,45)
+ await flush(()=>rotate.click());assert.equal(active().tokens.find(t=>t.actorId===id).facing,135)
+ const input=document.querySelector('input[name=facing]'),prior=writes;await key('r',{},input);assert.equal(writes,prior,'Typing in a field never rotates a token')
+ await fixture({disabled:true});await flush(()=>viewport.onSelect({kind:'token',id:active().tokens[0].actorId}));assert(button('Повернуть на 90°').disabled);await key('r');assert.equal(writes,0)
+})
+
+test('Поворот группы: направление героя и его опоры меняется один раз, другие герои сохраняются',()=>{
+ const {createScene,emptyScenes,sceneObject}=load('scenes'),{rotateEditorGroup}=load('sceneEditorCommands')
+ const state=createScene(emptyScenes(),'turn-group','Поворот','top'),scene=state.scenes[0]
+ scene.objects=[{...sceneObject('platform','support',{x:10,y:10,z:0}),width:4,depth:2,height:1,canSupport:true}]
+ scene.tokens=[{actorId:'rider',x:11,y:10,z:1,diameter:.5,facing:315,characterModel:'arcanist',characterAnimation:'walk',support:{kind:'object',objectId:'support'}},{actorId:'other',x:20,y:12,z:0,diameter:1,support:{kind:'ground'}}]
+ const before=structuredClone(state),support={kind:'object',id:'support'},rider={kind:'token',id:'rider'}
+ for(const selection of [[support],[support,rider]]){
+  const result=rotateEditorGroup(state,selection).scenes[0],token=result.tokens[0]
+  assert.equal(token.facing,45);assert.equal(token.x,10);assert.equal(token.y,11);assert.equal(token.z,1)
+  assert.equal(token.characterModel,'arcanist');assert.equal(token.characterAnimation,'walk');assert.deepEqual(token.support,scene.tokens[0].support);assert.deepEqual(result.tokens[1],scene.tokens[1])
+ }
+ const solo=rotateEditorGroup(state,[rider]).scenes[0].tokens[0];assert.deepEqual(solo,{...scene.tokens[0],facing:45})
+ assert.deepEqual(state,before);assert.throws(()=>rotateEditorGroup(state,[{kind:'token',id:'removed'}]),/больше не/)
+})
+
+test('Повторное размещение героя сохраняет облик, анимацию, направление и диаметр между сценами',async()=>{
+ const world=await fixture(),id=active().tokens[0].actorId,actor=world.characters.find(a=>a.id===id),next=structuredClone(current)
+ const token=next.scenes.find(s=>s.id===next.activeSceneId).tokens.find(t=>t.actorId===id)
+ Object.assign(token,{characterModel:'wayfarer',characterAnimation:'walk',facing:225,diameter:.7})
+ next.activeSceneId=next.scenes.find(s=>s.id!==next.activeSceneId).id
+ await flush(()=>setExternal(next));await flush(()=>button('Разместить героя').click());await flush(()=>button(actor.name).click())
+ const before=structuredClone(current);await flush(()=>viewport.onPoint({x:5,y:6,z:0}))
+ const placed=active().tokens.find(t=>t.actorId===id)
+ assert.equal(current.scenes.flatMap(s=>s.tokens).filter(t=>t.actorId===id).length,1)
+ for(const field of ['characterModel','characterAnimation','facing','diameter'])assert.equal(placed[field],token[field])
+ assert.deepEqual(placed.support,{kind:'ground'});assert.equal(placed.x,5);assert.equal(placed.y,6);assert.equal(placed.z,active().groundZ)
+ await key('z',{ctrlKey:true});assert.deepEqual(current,before)
+})
+
 test('Облик, направление и скелетная анимация: сохранение, undo/redo и защита read-only',async()=>{
  await fixture();const token=active().tokens[0],original=structuredClone(token)
  await flush(()=>viewport.onSelect({kind:'token',id:token.actorId}))
@@ -139,6 +184,7 @@ test('Группа: выбранная опора несёт героя один
  assert.equal(copied[0].x-copied[1].x,pair[0].x-pair[1].x);assert(copied[0].x<pair[0].x);assert(copied.every(o=>o.x-o.width/2>=0&&o.x+o.width/2<=scene.width))
  const rotating=structuredClone(state),rs=rotating.scenes[2],rp=rs.objects.find(o=>o.id===platform.id),dx=rs.width/2-rp.x,dy=rs.depth/2-rp.y
  rp.x+=dx;rp.y+=dy;rs.tokens[0].x+=dx;rs.tokens[0].y+=dy
+ rs.tokens[0].facing=0
  const rotationBefore=structuredClone(rotating);let turned=rotating;for(let i=0;i<4;i++)turned=rotateEditorGroup(turned,items)
  assert.deepEqual(turned.scenes[2].tokens,rotationBefore.scenes[2].tokens);assert.equal(turned.scenes[2].objects.find(o=>o.id===platform.id).x,rp.x);assert.deepEqual(state,before)
 })
