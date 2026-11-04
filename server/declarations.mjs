@@ -1,4 +1,5 @@
-import {resolveAbilityVisual} from './generated/abilityVisuals.mjs'
+import {objectOperations,supportsObjectOperation} from './generated/tabletopInteractions.mjs'
+import {declarationAbilities} from './generated/declarationAbilities.mjs'
 import {createHash} from 'node:crypto'
 import {rejectRetiredCommand} from './campaign-retention-state.mjs'
 import {commitWorld} from './world-coordinator.mjs'
@@ -22,7 +23,7 @@ function options(state, actor, c, npc=false) {
     return {frame:scene?{width:scene.width,depth:scene.depth,minZ:scene.minZ,maxZ:scene.maxZ}:null,
       targets:scene?[...scene.tokens.filter(t=>t.actorId!==actor.id).map(t=>({id:t.actorId,kind:'contact',label:state.characters.find(a=>a.id===t.actorId)?.name??'Существо'})),...scene.objects.map(o=>({id:o.id,kind:'object',label:o.name}))]:[],
       items:actor.rpg.inventory.filter(i=>i.quantity>0).map(i=>({id:i.id,name:i.name,quantity:i.quantity})),
-      abilities:[...new Map([...actor.rpg.abilities.filter(a=>a.approved),...actor.rpg.casts.filter(c=>c.ability.approved&&['preparing','ready'].includes(c.status)).map(c=>c.ability)].map(a=>[a.id,{id:a.id,name:a.name,rangeM:a.rangeM,visualEffect:resolveAbilityVisual(a),...(a.spatial?{spatial:copyAbility(a).spatial}:{})}])).values()]}
+      ...declarationAbilities(actor.rpg)}
   }
   const p = state.campaign.perceptions?.heroes.find(h => h.actorId === actor.id) ?? emptyPerception(actor.id)
   const map = perceivedMap(p, state.campaign.scenes, state.characters)
@@ -31,7 +32,7 @@ function options(state, actor, c, npc=false) {
   return { frame: visible ? { width: visible.frame.width, depth: visible.frame.depth, minZ: visible.frame.minZ, maxZ: visible.frame.maxZ } : null,
     targets: [...(visible?.contacts ?? []).filter(t => t.kind !== 'self' && t.kind !== 'sound').map(t => ({ id: t.id, kind: 'contact', label: t.label })), ...(visible?.objects ?? []).map(o => ({ id: o.id, kind: 'object', label: o.name }))],
     items: actor.rpg.inventory.filter(i => i.quantity > 0).map(i => ({ id: i.id, name: i.name, quantity: i.quantity })),
-    abilities: [...new Map([...actor.rpg.abilities.filter(a => a.approved),...actor.rpg.casts.filter(c=>c.ability.approved&&['preparing','ready'].includes(c.status)).map(c=>c.ability)].map(a=>[a.id,{id:a.id,name:a.name,rangeM:a.rangeM,visualEffect:resolveAbilityVisual(a),...(a.spatial?{spatial:copyAbility(a).spatial}:{})}])).values()] }
+    ...declarationAbilities(actor.rpg) }
 }
 function prepareActions(actions, state, actor, c,npc=false) {
   const o = options(state, actor, c,npc)
@@ -39,6 +40,7 @@ function prepareActions(actions, state, actor, c,npc=false) {
   const inFrame = p => o.frame && p.x >= 0 && p.x <= o.frame.width && p.y >= 0 && p.y <= o.frame.depth && p.z >= o.frame.minZ && p.z <= o.frame.maxZ
   const known = state.campaign.perceptions?.heroes.find(h => h.actorId === actor.id)?.scenes.find(s => s.sceneId === c.sceneId)
   const result = [], resolved = []
+  const selectedCasts=new Set()
   actions.forEach((input, index) => {
     const a = copyDeclaredAction(input), focus=actionTarget(a)
     if (!o.frame && (a.kind === 'move' || focus && ['point','area','direction'].includes(focus.kind))) fail(409, 'Мастер должен открыть герою схему сцены для выбора координат.')
@@ -57,6 +59,8 @@ function prepareActions(actions, state, actor, c,npc=false) {
     }
     if (a.kind === 'item' && !o.items.some(i => i.id === a.itemId && i.quantity >= a.quantity)) fail(409, 'Проверь предмет и количество в инвентаре героя.')
     if (a.kind === 'ability' && !(a.stage==='prepare'?actor.rpg.abilities.some(b=>b.id===a.abilityId&&b.approved):o.abilities.some(b => b.id === a.abilityId))) fail(409, 'Выбери утверждённую способность героя или существующий заряд для выпуска.')
+    if(a.kind==='ability'&&a.castId&&!o.casts.some(c=>c.id===a.castId&&c.abilityId===a.abilityId))fail(409,'Выбранный собственный заряд больше не доступен. Проверь заряд и отправь исправленное заявление.')
+    if(a.kind==='ability'&&a.castId){if(selectedCasts.has(a.castId))fail(400,'Один заряд нельзя выпустить дважды в одной очереди.');selectedCasts.add(a.castId)}
     result.push(a)
   }); return { actions: result, resolved }
 }
@@ -99,7 +103,7 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
       const { lobby, member } = await lockedMembership(tx, req); requireMaster(member)
       const state = JSON.parse(lobby.world_json),bindings=await bindingsFor(tx,lobby)
       return { revision: lobby.revision, paused:(await campaignSession(tx,lobby.id)).paused, declarations: state.campaign.declarations ?? emptyDeclarations(),
-        scenes: (state.campaign.scenes?.scenes ?? []).map(s => ({ id: s.id, name: s.name, objects: s.objects.map(o => ({ id: o.id, name: o.name })) })),
+        scenes: (state.campaign.scenes?.scenes ?? []).map(s => ({ id: s.id, name: s.name, objects: s.objects.map(o => ({ id: o.id, name: o.name, operations:objectOperations.filter(operation=>supportsObjectOperation(o,operation)) })) })),
         roundWork: state.campaign.roundWork ?? { version: 1, entries: [] },
         movementBodies: (state.campaign.scenes?.scenes ?? []).flatMap(s => s.tokens.map(t => ({ sceneId: s.id, actorId: t.actorId, diameter: t.diameter, x:t.x,y:t.y,z:t.z }))),
         executed: !!(state.campaign.declarations?.active?.id && await collectionExecuted(tx,lobby.id,await roundGeneration(tx,lobby.id),state.campaign.declarations.active.id)),

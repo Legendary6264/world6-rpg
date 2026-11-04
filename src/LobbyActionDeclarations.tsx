@@ -2,6 +2,7 @@ import type {SceneAbilityAim} from './sceneAbilityAim'
 import { emptyQuickAction, isQuickActionDraft, gameActionLabel, gameTurnStatus } from './gameControls'
 import type { QuickActionDraft } from './gameControls'
 import GameActionBar from './GameActionBar'
+import AbilityChargeSelect from './AbilityChargeSelect'
 import type { PerceivedMap } from './scenePerception'
 import { spatialLabel } from './abilitySpatial'
 import { useEffect, useRef, useState } from 'react'
@@ -13,7 +14,7 @@ import { actionKinds, isDeclaredAction, actionTarget } from './actionDeclaration
 import type { DeclaredAction, HeroDeclarations } from './actionDeclarations'
 import type { ScenePosition } from './sceneTypes'
 type Form = { kind: string; targetKind: string; targetId: string; x: string; y: string; z: string; seconds: string; quantity: string;
-  itemId: string; abilityId: string; stage: string; volume: string; speech: string; operation: string; note: string; support: string; route: ScenePosition[]; itemOperation?:string; listeningMode?:string }
+  itemId: string; abilityId: string; stage: string; volume: string; speech: string; operation: string; note: string; support: string; route: ScenePosition[]; itemOperation?:string; listeningMode?:string; castId?:string }
 type Base = { collectionId: string; epoch: number; baseVersion: number; controlStamp: string }
 type Submission = Base & {actions:DeclaredAction[];commandKey:string}
 type Draft = { form: Form; actions: DeclaredAction[]; base?: Base; quick?: QuickActionDraft; submission?:Submission }
@@ -25,6 +26,7 @@ const valid = (v: unknown): v is Draft => !!v && typeof v === 'object' && (() =>
     Array.isArray(d.form.route) && d.form.route.length <= 20 && d.form.route.every(p => !!p && ['x', 'y', 'z'].every(k => typeof p[k as keyof ScenePosition] === 'number' && Number.isFinite(p[k as keyof ScenePosition]))) &&
     (d.form.listeningMode===undefined||['','listen','eavesdrop'].includes(d.form.listeningMode)) &&
     (d.form.itemOperation===undefined||typeof d.form.itemOperation==='string'&&d.form.itemOperation.length<=40) && Array.isArray(d.actions) && d.actions.length <= 20 && d.actions.every(isDeclaredAction) && (!d.base || validBase(d.base)) &&
+    (d.form.castId===undefined||typeof d.form.castId==='string'&&d.form.castId.length<=160) &&
     (!d.submission||validBase(d.submission)&&typeof d.submission.commandKey==='string'&&/^declaration:[a-zA-Z0-9_-]{8,140}$/.test(d.submission.commandKey)&&Array.isArray(d.submission.actions)&&d.submission.actions.length>0&&d.submission.actions.length<=20&&d.submission.actions.every(isDeclaredAction)) })()
 const hasDraftContent=(d:Draft)=>d.actions.length>0||d.form.route.length>0||!!d.quick?.text.trim()||Object.keys(emptyForm()).some(k=>k!=='route'&&(d.form[k as keyof Form]??emptyForm()[k as keyof Form])!==emptyForm()[k as keyof Form])
 const coordinate = (s: string) => s.trim() ? Number(s.replace(',', '.')) : NaN
@@ -45,17 +47,22 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
   function addPoint() { const p = point(); if (!Object.values(p).every(Number.isFinite) || f.route.length >= 20) { setMessage('Укажи X/Y/Z; маршрут содержит не больше 20 точек.'); return }
     remember({ ...draft, form: { ...f, route: [...f.route, p] } }); setMessage('Точка добавлена в маршрут.') }
   function addAction() {
+    if(f.kind==='ability'&&f.stage==='prepare'&&value?.options?.abilities.find(a=>a.id===f.abilityId)?.canPrepare===false){setMessage('Доступен только прежний оплаченный заряд. Новая подготовка требует утверждённой способности.');return}
+    if(f.kind==='ability'&&f.stage==='release'&&f.castId&&!value?.options?.casts?.some(c=>c.id===f.castId&&c.abilityId===f.abilityId)){setMessage('Выбранный заряд больше не доступен. Проверь его перед добавлением действия.');return}
     const target = ['point','area','direction'].includes(f.targetKind) ? { kind: f.targetKind, point: point() } : ['contact', 'object'].includes(f.targetKind) ? { kind: f.targetKind, id: f.targetId } : { kind: f.targetKind }
     const shared = { note: f.note, kind: f.kind }, candidate = f.kind === 'move' ? { ...shared, route: f.route.length ? f.route : [point()], support: f.support } :
       f.kind === 'wait' ? { ...shared, seconds: coordinate(f.seconds),...(f.listeningMode?{listening:{mode:f.listeningMode,target}}:{}) } : f.kind === 'interact' ? { ...shared, target, operation: f.operation } :
         f.kind === 'speak' ? { ...shared, target, volume: f.volume, text: f.speech } : f.kind === 'item' ? { ...shared, target, itemId: f.itemId, quantity: coordinate(f.quantity),...(f.itemOperation?{operation:f.itemOperation}:{}) } :
-          { ...shared, target, abilityId: f.abilityId, stage: f.stage }
+          { ...shared, target, abilityId: f.abilityId, stage: f.stage, ...(f.stage==='release'&&f.castId?{castId:f.castId}:{}) }
     if (!isDeclaredAction(candidate) || draft.actions.length >= 20) { setMessage('Проверь параметры действия. В последовательности допустимо от 1 до 20 действий.'); return }
+    if(repeatedCharge(candidate)){setMessage('Этот заряд уже запланирован к выпуску в очереди. Каждый заряд выпускается один раз.');return}
     remember({ ...draft, actions: [...draft.actions, candidate], form: { ...f, route: [], note: '' } }); setMessage('Действие добавлено в черновик.')
   }
   function editQueue(actions:DeclaredAction[]) { const next=remember({...draft,actions});setUndo({actions:draft.actions,base:JSON.stringify(next.base)}) }
+  const repeatedCharge=(action:DeclaredAction)=>action.kind==='ability'&&action.stage==='release'&&!!action.castId&&draft.actions.some(a=>a.kind==='ability'&&a.stage==='release'&&a.castId===action.castId)
   function appendAction(action:DeclaredAction):boolean {
     if(!isDeclaredAction(action)||draft.actions.length>=20)return false
+    if(repeatedCharge(action)){setMessage('Этот заряд уже запланирован к выпуску в очереди. Каждый заряд выпускается один раз.');return false}
     if(action.kind==='item'&&action.operation==='consume'){
       const available=value?.options?.items.find(i=>i.id===action.itemId)?.quantity
       const planned=draft.actions.reduce((n,a)=>n+(a.kind==='item'&&a.itemId===action.itemId&&a.operation==='consume'?a.quantity:0),0)
@@ -90,7 +97,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       t.kind==='self'?'На себя':t.kind==='none'?'Без конкретной цели':value?.options?.targets.find(x=>x.kind===t.kind&&x.id===t.id)?.label??'Прежняя отметка; требуется проверка'
   }
   const turnStatus=gameTurnStatus(value,draft.actions.length>0)
-  const spatial=value?.options?.abilities.find(a=>a.id===f.abilityId)?.spatial
+  const spatial=(f.stage==='release'&&f.castId?value?.options?.casts?.find(c=>c.id===f.castId&&c.abilityId===f.abilityId):value?.options?.abilities.find(a=>a.id===f.abilityId))?.spatial
   const pointsNeeded = f.kind === 'move' || (f.kind!=='wait'||!!f.listeningMode)&&['point','area','direction'].includes(f.targetKind)
   return <section className="w6-fieldset gb-action-declarations"><h4>Заявление действий</h4><p role="status">{remote.loading ? 'Проверяем приём заявлений…' : remote.error}</p>
     <div className={'gb-turn-status gb-turn-'+turnStatus.tone} role="status"><strong>{turnStatus.title}</strong><p>{turnStatus.hint}</p></div><p className="w6-copy">Заявление описывает план. Время, ресурсы и положение героя меняются только при последующем исполнении. Неисполненная реплика не рассылается слушателям.</p>
@@ -115,7 +122,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       {f.kind === 'speak' && <><label className="w6-field"><span>Громкость</span><select aria-label="Громкость" value={f.volume} onChange={e => field('volume', e.currentTarget.value)}><option value="whisper">Шёпот</option><option value="normal">Обычная речь</option><option value="shout">Крик</option></select></label><label className="w6-field"><span>Планируемая реплика</span><textarea aria-label="Планируемая реплика" maxLength={4000} value={f.speech} onChange={e => field('speech', e.currentTarget.value)}/></label></>}
       {f.kind === 'item' && <><label className="w6-field"><span>Операция с предметом</span><select aria-label="Операция с предметом" value={f.itemOperation??''} onChange={e=>field('itemOperation',e.currentTarget.value)}><option value="">Уточнить с мастером</option><option value="equip">Экипировать</option><option value="unequip">Снять</option><option value="activate">Активировать артефакт</option><option value="consume">Использовать расходник · одна доза</option></select></label><label className="w6-field"><span>Предмет для действия</span><select aria-label="Предмет для действия" value={f.itemId} onChange={e => field('itemId', e.currentTarget.value)}><option value="">Выбери предмет</option>{value?.options?.items.map(i => <option key={i.id} value={i.id}>{i.name} × {i.quantity}</option>)}</select></label><label className="w6-field"><span>Количество</span><input aria-label="Количество для действия" value={f.quantity} onChange={e => field('quantity', e.currentTarget.value)} inputMode="numeric"/></label></>}
       {f.kind==='ability'&&spatial&&<p>{spatialLabel(spatial)}. Подготовка без привязки; для выпуска выбери {spatial.shape==='point'?'точку':spatial.shape==='sphere'?'область и её центр':'направление и его опорную точку'}.</p>}
-      {f.kind === 'ability' && <><label className="w6-field"><span>Способность для действия</span><select aria-label="Способность для действия" value={f.abilityId} onChange={e => field('abilityId', e.currentTarget.value)}><option value="">Выбери утверждённую способность</option>{value?.options?.abilities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label><label className="w6-field"><span>Этап способности</span><select aria-label="Этап способности" value={f.stage} onChange={e => field('stage', e.currentTarget.value)}><option value="prepare">Подготовить заряд</option><option value="release">Применить</option></select></label></>}
+      {f.kind === 'ability' && <><label className="w6-field"><span>Способность для действия</span><select aria-label="Способность для действия" value={f.abilityId} onChange={e => remember({...draft,form:{...f,abilityId:e.currentTarget.value,castId:''}})}><option value="">Выбери утверждённую способность</option>{value?.options?.abilities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label><label className="w6-field"><span>Этап способности</span><select aria-label="Этап способности" value={f.stage} onChange={e => field('stage', e.currentTarget.value)}><option value="prepare">Подготовить заряд</option><option value="release">Применить</option></select></label>{f.stage==='release'&&<AbilityChargeSelect label="Заряд для точного действия" options={value?.options} abilityId={f.abilityId} value={f.castId??''} onChange={id=>field('castId',id)}/>}</>}
       <label className="w6-field"><span>Пояснение действия</span><textarea aria-label="Пояснение действия" maxLength={1000} value={f.note} onChange={e => field('note', e.currentTarget.value)}/></label>
       <button className="w6-button" onClick={addAction}>Добавить действие в последовательность</button>
     </fieldset></details><fieldset disabled={!editable} className="gb-game-queue"><legend>Мой ход · {draft.actions.length} / 20 действий</legend>

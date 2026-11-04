@@ -18,7 +18,7 @@ import { actionSummary } from './actionDeclarations'
 import { roundRuleRows } from './roundRules'
 import { emptyRuleForm, isRuleForm, ruleFormDecision } from './roundRuleForms'
 import LobbyRoundRules from './LobbyRoundRules'
-import type { RuleActor, RuleForm } from './roundRuleForms'
+import type { RuleActor, RuleForm, RuleSceneObject } from './roundRuleForms'
 import type { DeclarationCollection } from './actionDeclarations'
 import type { RoundWork } from './roundWork'
 import type { ActorTiming } from './roundTimeline'
@@ -54,7 +54,7 @@ const coords = (p: {x:number;y:number;z:number}) => [p.x, p.y, p.z].map(n => n.t
 export default function LobbyRoundExecution({ accountId, lobbyId, collection, revision, checkingAccess, timings, timingReady, roundWork, executed, actors, objects, movementBodies }: {
   accountId: string; lobbyId: string; collection: DeclarationCollection; revision: number; checkingAccess: boolean;
   timings: ActorTiming[]; timingReady: boolean; roundWork: RoundWork; executed: boolean; actors: RuleActor[];
-  objects: { sceneId: string; id: string; name: string }[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]
+  objects: (RuleSceneObject & {sceneId:string})[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]
 }) {
   const { request, refresh } = useOnline(), key = lobbyFormKey('round-execution', accountId, lobbyId, collection.id)
   const heightsKey = lobbyFormKey('movement-bodies', accountId, lobbyId, collection.sceneId)
@@ -116,7 +116,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
     const targetId=target.kind==='self'?r.actorId:target.kind==='contact'?work?.targetActorId??collection.entries.find(e=>e.actorId===r.actorId)?.resolved.find(v=>v.index===Number(r.key.slice(r.key.lastIndexOf(':')+1)))?.actorId:null
     return releaseSignature(r.actorId,work?.sceneId??collection.sceneId,r.action.abilityId,targetId??target)
   }
-  const ruleForm=(r:typeof ruleRows[number])=>draft.rules?.find(f=>f.key===r.key&&f.kind===r.action.kind&&!(r.action.kind==='item'&&r.action.operation&&f.operation!==r.action.operation))??emptyRuleForm(r,actors.find(a=>a.id===r.actorId)?.casts?.find(c=>c.id===roundWork.entries.find(w=>w.id===r.key)?.ability?.castId)?.binding)
+  const ruleForm=(r:typeof ruleRows[number])=>draft.rules?.find(f=>f.key===r.key&&f.kind===r.action.kind&&!(r.action.kind==='ability'&&r.action.castId&&f.charge!=='cast:'+r.action.castId)&&!(r.action.kind==='item'&&r.action.operation&&f.operation!==r.action.operation))??emptyRuleForm(r,actors.find(a=>a.id===r.actorId)?.casts?.find(c=>c.id===roundWork.entries.find(w=>w.id===r.key)?.ability?.castId)?.binding)
   const rules=ruleRows.map(r=>ruleFormDecision(ruleForm(r))),rulesReady=rules.every((d,i)=>{const a=ruleRows[i].action;return d?.confirmed&&!(a.kind==='ability'&&a.stage==='release'&&d.kind==='ability'&&(!d.charge||'point' in a.target&&d.spatialConfirmed!==true))})
   const objectName = (sceneId: string, id: string) => objects.find(o => o.sceneId === sceneId && o.id === id)?.name ?? 'Прежний объект'
   function remember(next: Draft) { setDraft(next); const shared = writeLobbyForm(heightsKey, next.bodyHeights ?? {}), saved = writeLobbyForm(key, next); setWarning(saved && shared ? '' : 'Решения не сохранены на устройстве. Не закрывай страницу.'); return saved }
@@ -184,7 +184,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         <label className="w6-check"><input aria-label="Движение подтверждено мастером" type="checkbox" checked={!!draft.movementConfirmed} onChange={e=>change({...draft,movementConfirmed:e.currentTarget.checked})}/>Проверил возможность ходьбы/полёта, высоту тела и бюджет с учётом состояния героев</label>
         <p>Ходьба требует непрерывной опоры на одной высоте и возможности двигаться. Для полёта без работающих крыльев мастер указывает основание, проверяет его условия и расходы. Прыжки, падение и толкание пока требуют отдельного решения.</p>
       </fieldset>}
-      <LobbyRoundRules rows={ruleRows} actors={actors} actorIds={bodyRows.map(b=>b.actorId)} form={ruleForm} onChange={f=>change({...draft,rules:[...(draft.rules??[]).filter(x=>x.key!==f.key&&ruleRows.some(r=>r.key===x.key)),f]})}/>
+      <LobbyRoundRules rows={ruleRows} actors={actors} objects={objects.filter(o=>o.sceneId===collection.sceneId)} actorIds={bodyRows.map(b=>b.actorId)} form={ruleForm} onChange={f=>change({...draft,rules:[...(draft.rules??[]).filter(x=>x.key!==f.key&&ruleRows.some(r=>r.key===x.key)),f]})}/>
       {replayError&&!checkingAccess&&<><p role="alert">Не удалось проверить источник прежних бросков: {replayError}</p><button className="w6-button" onClick={()=>setReplayAttempt(n=>n+1)}>Повторить проверку переигровки</button></>}
       {(replayValue||draft.replayEnabled)&&<fieldset><legend>Переигровка изменённого раунда</legend>
         <p>Обычный расчёт использует новые броски. В переигровке сопоставь каждый выпуск с прежним или выбери новые броски. Расходы, условия и последствия рассчитываются заново.</p>

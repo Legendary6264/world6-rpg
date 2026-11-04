@@ -1,4 +1,6 @@
 import { isActionInput } from './rpgSchema'
+import {isAbilityObjectEffects,applyAbilityObjectEffects,abilityObjectDetails} from './abilityEnvironment'
+import type {AbilityObjectEffect,AbilityObjectOutcome} from './abilityEnvironment'
 import { activateArtifact, consumeItemPlan, equipItem, makeActionPlan, modifiersText, readyRoundPreparation, releaseRoundPlan, releaseSpatialRoundPlan } from './rpgEngine'
 import type { DeclaredAction, DeclarationCollection } from './actionDeclarations'
 import type { ActionInput } from './rpgTypes'
@@ -6,9 +8,9 @@ import type { World } from './rpgEngine'
 import type { RoundWork, RoundWorkEntry } from './roundWork'
 import type { ReplaySelection, RollGroup } from './roundReplay'
 export type RuleDecision = {key:string;kind:'item';confirmed:boolean;operation:'equip'|'unequip'|'activate'|'consume';input?:ActionInput} |
-  {key:string;kind:'ability';confirmed:boolean;binding:'bound'|'unbound';charge:string;input:ActionInput;spatialConfirmed?:boolean;targetInputs?:{actorId:string;input:ActionInput}[]}
+  {key:string;kind:'ability';confirmed:boolean;binding:'bound'|'unbound';charge:string;input:ActionInput;spatialConfirmed?:boolean;targetInputs?:{actorId:string;input:ActionInput}[];environment?:AbilityObjectEffect[]}
 export type RuleRow = {key:string;actorId:string;action:Extract<DeclaredAction,{kind:'item'|'ability'}>}
-export type RuleOutcome = {key:string;actorId:string;kind:'item'|'prepare'|'ready'|'release';text:string;details:string;castId?:string;rolls?:number[];rollGroups?:RollGroup[];targets?:{actorId:string;name:string;details:string}[]}
+export type RuleOutcome = {key:string;actorId:string;kind:'item'|'prepare'|'ready'|'release';text:string;details:string;castId?:string;rolls?:number[];rollGroups?:RollGroup[];targets?:{actorId:string;name:string;details:string}[];environment?:AbilityObjectOutcome[]}
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 export const newRuleKey=(actorId:string,index:number)=>'new:'+actorId+':'+index
 export function roundRuleRows(collection:DeclarationCollection,work:RoundWork,continued:string[]):RuleRow[] {
@@ -18,21 +20,25 @@ export function roundRuleRows(collection:DeclarationCollection,work:RoundWork,co
 }
 export function isRuleDecision(v:unknown):v is RuleDecision {
   return record(v)&&typeof v.key==='string'&&v.key.length<=400&&/^[a-zA-Z0-9:_-]+$/.test(v.key)&&typeof v.confirmed==='boolean'&&
-    (v.kind==='item'?['equip','unequip','activate','consume'].includes(String(v.operation))&&(v.operation!=='consume'||isActionInput(v.input)):
+    (v.kind==='item'?v.environment===undefined&&['equip','unequip','activate','consume'].includes(String(v.operation))&&(v.operation!=='consume'||isActionInput(v.input)):
       v.kind==='ability'&&['bound','unbound'].includes(String(v.binding))&&typeof v.charge==='string'&&v.charge.length<=500&&isActionInput(v.input)&&Number.isInteger(v.input.manualLocal)&&v.input.criticalContactFactor>0&&
-      (v.spatialConfirmed===undefined||typeof v.spatialConfirmed==='boolean')&&(v.targetInputs===undefined||Array.isArray(v.targetInputs)&&v.targetInputs.length<=200&&new Set(v.targetInputs.map(t=>record(t)?t.actorId:undefined)).size===v.targetInputs.length&&v.targetInputs.every(t=>record(t)&&typeof t.actorId==='string'&&/^[a-zA-Z0-9:_-]{1,160}$/.test(t.actorId)&&isActionInput(t.input)&&Number.isInteger(t.input.manualLocal)&&t.input.criticalContactFactor>0)))
+      (v.environment===undefined||isAbilityObjectEffects(v.environment))&&(v.spatialConfirmed===undefined||typeof v.spatialConfirmed==='boolean')&&(v.targetInputs===undefined||Array.isArray(v.targetInputs)&&v.targetInputs.length<=200&&new Set(v.targetInputs.map(t=>record(t)?t.actorId:undefined)).size===v.targetInputs.length&&v.targetInputs.every(t=>record(t)&&typeof t.actorId==='string'&&/^[a-zA-Z0-9:_-]{1,160}$/.test(t.actorId)&&isActionInput(t.input)&&Number.isInteger(t.input.manualLocal)&&t.input.criticalContactFactor>0)))
 }
 export function decisionsFor(rows:RuleRow[],value:unknown):Map<string,RuleDecision> {
   if(!rows.length&&value===undefined)return new Map()
   if(!Array.isArray(value)||value.length!==rows.length||value.length>200||!value.every(isRuleDecision)||new Set(value.map(v=>v.key)).size!==value.length||
     !value.every(d=>d.confirmed&&rows.some(r=>r.key===d.key&&r.action.kind===d.kind)))throw Error('Для каждого предмета/этапа способности нужны проверенные параметры и подтверждение мастера.')
+  for(const decision of value)if(decision.kind==='ability'&&decision.environment?.length){
+    const action=rows.find(r=>r.key===decision.key)!.action
+    if(action.kind!=='ability'||action.stage!=='release'||!('point' in action.target)||decision.spatialConfirmed!==true)throw Error('Последствия для окружения требуют подтверждённого пространственного выпуска.')
+  }
   return new Map(value.map(d=>[d.key,d]))
 }
 function targetId(work:RoundWorkEntry) {
   if(work.action.kind!=='ability'&&work.action.kind!=='item')throw Error('Некорректная цель действия.')
   if(work.action.target.kind==='self')return work.actorId
   if(work.action.target.kind==='contact'&&work.targetActorId)return work.targetActorId
-  throw Error('Для этого действия нужны собственная цель либо раскрытое существо. Точки, области и объекты ещё не подключены.')
+  throw Error('Для этого действия нужны собственная цель либо раскрытое существо. Для пространства выбери координаты по форме заряда.')
 }
 function actionInput(world:World,work:RoundWorkEntry,decision:{input:ActionInput},unbound=false):ActionInput {
   const input=structuredClone(decision.input)
@@ -98,6 +104,7 @@ export function finishRoundRule(world:World,work:RoundWorkEntry,key:string,decis
   const referenced=decision.charge.startsWith('prepare:')?works.get(decision.charge.slice(8)):undefined
   if(referenced&&referenced.actorId!==work.actorId)throw Error('Выпуск может ссылаться только на собственную подготовку.')
   const castId=decision.charge.startsWith('cast:')?decision.charge.slice(5):referenced?.ability?.castId
+  if(work.action.castId&&castId!==work.action.castId)throw Error('Выпускаемый заряд должен совпадать с выбором игрока. Верни заявление для смены заряда.')
   const cast=actor.rpg.casts.find(c=>c.id===castId)
   if(!cast||cast.ability.id!==work.action.abilityId)throw Error('Выбери собственный готовый заряд этой способности либо её подготовку ранее в очереди.')
   const rolls:number[]=[],groups=new Map<string,number[]>();let state=2166136261
@@ -113,5 +120,12 @@ export function finishRoundRule(world:World,work:RoundWorkEntry,key:string,decis
   const spatial='point' in work.action.target
   if(spatial&&decision.spatialConfirmed!==true)throw Error('Подтверди геометрию, затронутых существ и параметры пространственного выпуска.')
   const plan=unwrap(spatial?releaseSpatialRoundPlan(world,actor.id,cast.id,work.sceneId,work.action.target,decision.input,work.id+'-release',random,decision.targetInputs):releaseRoundPlan(world,actor.id,cast.id,targetId(work),actionInput(world,work,decision),work.id+'-release',random))
-  return {world:plan.world,outcome:{key,actorId:actor.id,kind:'release',castId:cast.id,text:plan.text,details:(plan.details+'\n'+consequences(world,plan.world)).slice(0,12000),...(spatial?{targets:plan.targets}:{}),rollGroups:[...groups].map(([targetId,values])=>({targetId,values})),...(rolls.length?{rolls}: {})}}
+  const environment=decision.environment?.length&&'point' in work.action.target&&cast.ability.spatial?applyAbilityObjectEffects(plan.world,work.sceneId,actor.id,work.action.target.point,cast.ability.spatial,decision.environment):[]
+  const environmentDetails=abilityObjectDetails(environment)
+  if(environment.length){
+    const append=<T extends {id:string;details:string}>(l:T):T=>l.id===plan.eventId?{...l,details:(environmentDetails+'\n'+l.details).slice(0,12000)}:l
+    plan.world.campaign.logs=plan.world.campaign.logs.map(append)
+    const owner=plan.world.characters.find(c=>c.id===actor.id)!;owner.rpg.logs=owner.rpg.logs.map(append)
+  }
+  return {world:plan.world,outcome:{key,actorId:actor.id,kind:'release',castId:cast.id,text:plan.text,details:([environmentDetails,plan.details,consequences(world,plan.world)].filter(Boolean).join('\n')).slice(0,12000),...(environment.length?{environment}:{}),...(spatial?{targets:plan.targets}:{}),rollGroups:[...groups].map(([targetId,values])=>({targetId,values})),...(rolls.length?{rolls}: {})}}
 }

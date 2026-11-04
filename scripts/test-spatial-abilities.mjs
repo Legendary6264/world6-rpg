@@ -161,3 +161,119 @@ test('Пространство: лечение использует отдель
  const result=both(w,point(),{targetInputs:[{actorId:'c',input:{...fields,region:'rightArm'}}]})
  assert(result.world.characters[1].body.parts.torso.current>50);assert(result.world.characters[2].body.parts.rightArm.current>50);assert.equal(result.world.characters[2].body.parts.torso.current,50)
 })
+
+
+const {sceneObject}=await module('scenes')
+const {declarationAbilities}=await module('declarationAbilities')
+const {isAbilityObjectEffects}=await module('abilityEnvironment')
+const {isRuleDecision}=await module('roundRules')
+const {emptyRuleForm,ruleFormDecision,isRuleForm}=await module('roundRuleForms')
+const envWorld=()=>{const w=prepare().world;w.campaign.scenes.scenes[0].objects=[{...sceneObject('lamp','lamp',{x:8,y:2,z:0}),height:1,name:'Фонарь',active:true},{...sceneObject('lamp','outside',{x:18,y:2,z:0}),height:1,name:'Дальний фонарь',active:true}];return w}
+const extinguish=(objectId='lamp')=>({objectId,operation:'extinguish',reason:'Разрешено правилом способности; преград нет'})
+
+test('Заряды: текущая способность и каждый оплаченный снимок имеют собственные параметры без секретных полей',()=>{
+ const w=prepare().world,a=w.characters[0],first=a.rpg.casts[0],second=structuredClone(first);second.id='second-paid';second.ability.spatial=sphere(3);second.ability.visualEffect={familyId:'water'};a.rpg.casts.push(second)
+ first.targetId='HIDDEN-TARGET';first.input.note='HIDDEN-INPUT';a.rpg.abilities[0].spatial=sphere(7)
+ const options=declarationAbilities(a.rpg);assert.equal(options.abilities[0].spatial.radiusM,7);assert.equal(options.abilities[0].canPrepare,true);assert.deepEqual(options.casts.map(c=>c.spatial.radiusM),[1,3]);assert.equal(options.casts[1].visualEffect.familyId,'water')
+ for(const secret of ['HIDDEN-TARGET','HIDDEN-INPUT','targetId','input','roundPreparation'])assert(!JSON.stringify(options).includes(secret))
+ options.casts[0].spatial.radiusM=99;assert.equal(first.ability.spatial.radiusM,1)
+ a.rpg.abilities=[];const paidOnly=declarationAbilities(a.rpg);assert.equal(paidOnly.abilities[0].canPrepare,false);assert.equal(paidOnly.casts.length,2)
+ first.ability.chargePolicy={maxHoldSeconds:10,holdCost:{mana:2,shadow:0,stamina:0},requireConditions:false,refundPreparingPercent:0,refundReadyPercent:0}
+ const charged=declarationAbilities(a.rpg).casts[0];assert.equal(charged.holdUntil,first.readyAt+10);assert.equal(charged.holdCost.mana,2)
+})
+
+test('Заряды: явный выбор сохраняется в заявлении и форме мастера, замена другим снимком блокируется',()=>{
+ const w=prepare().world,a=w.characters[0],first=a.rpg.casts[0],second={...structuredClone(first),id:'another-cast'};second.ability.spatial=sphere(.1);a.rpg.casts.push(second)
+ const selected={...action('release',point()),castId:second.id},copy=copyDeclaredAction(selected);assert(isDeclaredAction(copy));assert.equal(copy.castId,second.id)
+ for(const invalid of [{...selected,stage:'prepare'},{...selected,castId:''},{...selected,castId:'bad id'},{...selected,castId:'x'.repeat(161)}])assert(!isDeclaredAction(invalid))
+ const form=emptyRuleForm({key:'new:a:0',actorId:'a',action:selected});assert.equal(form.charge,'cast:'+second.id);assert(isRuleForm(form))
+ const c=collection([selected],'selected-release'),p=params([1000],[rule('new:a:0','cast:'+first.id)]),before=structuredClone(w)
+ assert.throws(()=>calculateRound(w,c,p,'wrong-paid-cast'),/выбором игрока/);assert.deepEqual(w,before)
+ p.rules[0].charge='cast:'+second.id;const result=calculateRound(w,c,p,'chosen-paid-cast');assert.deepEqual(result.summary.rules[0].targets.map(t=>t.actorId),['b']);assert.equal(result.world.characters[0].rpg.casts[0].status,'ready');assert.equal(result.world.characters[0].rpg.casts[1].status,'ended');assert.equal(result.world.characters[0].resources.mana.current,'43')
+})
+
+test('Окружение: один выпуск применяет эффект к существам и подтверждённое состояние объекта, без повторной оплаты',()=>{
+ const w=envWorld(),before=structuredClone(w),result=release(w,point(),{environment:[extinguish()]}),a=result.world.characters[0]
+ assert.equal(result.world.campaign.scenes.scenes[0].objects[0].active,false);assert.equal(result.world.characters[1].rpg.effects.length,1);assert.equal(result.world.characters[2].rpg.effects.length,1)
+ assert.equal(a.resources.mana.current,'43');assert.equal(a.rpg.casts[0].status,'ended');assert.equal(result.summary.rules[0].environment[0].objectId,'lamp');assert.match(a.rpg.logs.find(l=>l.id.endsWith('-release')).details,/Фонарь.*Погасить/);assert.deepEqual(w,before)
+ assert.throws(()=>release(result.world,point(),{environment:[extinguish()]}),/готовый/)
+})
+
+test('Окружение: визуальная стихия не меняет состояние без явного решения мастера',()=>{
+ const w=envWorld();w.characters[0].rpg.casts[0].ability.visualEffect={familyId:'water'}
+ const result=release(w);assert.equal(result.world.campaign.scenes.scenes[0].objects[0].active,true);assert.equal(result.summary.rules[0].environment,undefined)
+})
+
+test('Окружение: неверное основание, дубликаты, чужой объект и неподходящая операция отклоняют весь выпуск',()=>{
+ const w=envWorld(),before=structuredClone(w)
+ for(const effects of [[{...extinguish(),reason:' '}],[extinguish(),extinguish()],[{...extinguish(),operation:'destroy'}],[{...extinguish(),damage:999}],Array(21).fill(extinguish())]){
+  assert(!isAbilityObjectEffects(effects));assert(!isRuleDecision({...rule('new:a:0','cast:cast'),environment:effects}));assert.throws(()=>release(w,point(),{environment:effects}));assert.deepEqual(w,before)
+ }
+ for(const effects of [[extinguish('missing')],[extinguish('outside')],[{...extinguish(),operation:'open'}],[extinguish(),extinguish('outside')]]){assert.throws(()=>release(w,point(),{environment:effects}));assert.deepEqual(w,before)}
+})
+
+test('Окружение: подготовка и выпуск на существо не принимают пространственные последствия',()=>{
+ const w=world(),p=params([1000],[{...rule(),environment:[extinguish()]}]);assert.throws(()=>calculateRound(w,collection([action('prepare')]),p,'invalid-env-prepare'),/пространственного/);assert.equal(w.characters[0].resources.mana.current,'50')
+ const ready=prepare().world,c=collection([action('release',{kind:'self'})]);assert.throws(()=>calculateRound(ready,c,params([1000],[{...rule('new:a:0','cast:'+ready.characters[0].rpg.casts[0].id),environment:[extinguish()]}]),'invalid-env-self'),/пространственного/)
+ const form=emptyRuleForm({key:'new:a:0',actorId:'a',action:action('release',point())});form.binding='unbound';form.environment=[{objectId:'lamp',operation:'extinguish',reason:''}];assert(isRuleForm(form));assert.equal(ruleFormDecision(form),null);form.environment[0].reason='Подтверждено';assert(ruleFormDecision(form).environment)
+})
+
+test('Окружение: центр объекта проверяется после предшествующего перемещения, отказ откатывает и перемещение, и выпуск',()=>{
+ const w=envWorld(),scene=w.campaign.scenes.scenes[0];scene.objects=[{...sceneObject('crate','chest',{x:8,y:2,z:0}),height:1}]
+ const c=collection([], 'relocated-object',[entry('a',[action('release',point())]),entry('b',[{kind:'interact',operation:'relocate',target:{kind:'object',id:'chest'},destination:{x:18,y:2,z:0},note:''}])]);c.entries[1].resolved=[{index:0,objectId:'chest'}]
+ const p=params([2000],[{...rule('new:a:0','cast:'+w.characters[0].rpg.casts[0].id),environment:[{objectId:'chest',operation:'open',reason:'Разрешено'}]}]);p.timings.push({actorId:'b',entryRevision:1,budgetMs:5000,costs:[{index:0,personalMs:1000}]});p.missingDecisions=p.missingDecisions.filter(d=>d.actorId!=='b');p.interactionsConfirmed=true
+ const before=structuredClone(w);assert.throws(()=>calculateRound(w,c,p,'relocated-env'),/вне формы/);assert.deepEqual(w,before)
+})
+
+test('Окружение: точка, луч и конус используют геометрию оплаченного снимка объекта по XYZ',()=>{
+ for(const spatial of [{shape:'point',includeCaster:false},{shape:'beam',includeCaster:false,lengthM:7,radiusM:1},{shape:'cone',includeCaster:false,lengthM:8,angleDeg:60}]){
+  const w=prepare(world(spatial)).world,scene=w.campaign.scenes.scenes[0];scene.objects=[{...sceneObject('lamp','lamp',{x:8,y:2,z:0}),height:1,active:true}]
+  const target=point(spatial.shape==='point'?'point':'direction',8,2,.5),result=release(w,target,{environment:[extinguish()]});assert.equal(result.world.campaign.scenes.scenes[0].objects[0].active,false,spatial.shape)
+ }
+})
+
+
+const {SceneAbilityPlayback}=await module('sceneAbilityPlayback')
+const {sceneAbilityVisualId,sceneAbilityVisuals}=await module('sceneAbilityVisuals')
+const vfx=(id,patch={})=>({id,spec:{familyId:'fire',durationMs:1000},start:{x:2,y:2,z:0},end:{x:8,y:2,z:0},phase:'sequence',shape:'sphere',radius:1,coneAngleDeg:45,...patch})
+
+test('Эффекты: новый выпуск не перезапускает исторические или уже летящие выпуски других игроков',()=>{
+ const old=vfx('old'),a=vfx('player-a'),b=vfx('player-b'),clock=new SceneAbilityPlayback('scene',[old]);assert(!clock.active);assert(!clock.sample(old).visible)
+ clock.sync('scene',[old,a]);clock.advance(400);assert.equal(clock.elapsed('player-a'),400);assert.equal(clock.sample(a).phase,'travel');assert(!clock.sample(old).visible)
+ clock.sync('scene',[old,a,b]);assert.equal(clock.elapsed('player-a'),400);assert.equal(clock.elapsed('player-b'),0);assert.equal(clock.sample(b).phase,'preparation');clock.advance(300);assert.equal(clock.sample(a).phase,'impact');assert.equal(clock.sample(b).phase,'travel')
+ clock.advance(300);assert(!clock.sample(a).visible);assert(clock.sample(b).visible)
+})
+
+test('Эффекты: перестановка, повторный сетевой ответ и временная потеря раскрытия не повторяют применение',()=>{
+ const a=vfx('a'),b=vfx('b'),clock=new SceneAbilityPlayback('scene',[]);clock.sync('scene',[a,b]);clock.advance(700);clock.sync('scene',[b,a]);assert.equal(clock.elapsed('a'),700)
+ clock.sync('scene',structuredClone([b,a]));assert.equal(clock.elapsed('a'),700);clock.sync('scene',[b]);clock.sync('scene',[a,b]);assert(!clock.sample(a).visible);assert.equal(clock.elapsed('b'),700)
+ clock.sync('different-scene',[a,b]);assert(!clock.active);assert(!clock.sample(a).visible)
+})
+
+test('Эффекты: явный повтор, персональная длительность, сокращённое движение и постоянный остаток',()=>{
+ const a=vfx('a'),b=vfx('b',{spec:{familyId:'healing',durationMs:2000},persistent:true}),clock=new SceneAbilityPlayback('scene',[a,b]);assert(clock.sample(b).visible);assert.equal(clock.sample(b).phase,'residue')
+ clock.sync('scene',[a,b],true);clock.advance(1000);assert(!clock.sample(a).visible);assert(clock.sample(b).visible);assert.equal(clock.sample(b).phase,'travel');assert.equal(clock.sample(b,true).phase,'impact')
+ clock.advance(1000);assert(!clock.active);assert(clock.sample(b).visible);assert.equal(clock.sample(b,true).phase,'residue')
+ clock.sync('scene',[a,b],true);assert.equal(clock.elapsed('a'),0);assert.equal(clock.sample(a,true).phase,'impact');clock.advance(1000);assert(!clock.sample(a,true).visible)
+})
+
+test('Эффекты: управляемый кадр не меняет часы и завершает сокращённый эффект',()=>{
+ const a=vfx('a'),clock=new SceneAbilityPlayback('scene',[]);clock.sync('scene',[a]);clock.advance(200)
+ assert.equal(clock.sample(a,false,700).phase,'impact');assert.equal(clock.elapsed('a'),200);assert(!clock.sample(a,true,1000).visible)
+ for(const invalid of [NaN,Infinity,-100,0])clock.advance(invalid);assert.equal(clock.elapsed('a'),200)
+})
+
+test('Эффекты: ключи устойчивы к перестановке персонажей и зарядов и не передают внутренние ID',()=>{
+ const w=prepare().world,a=w.characters[0],cast=a.rpg.casts[0],scene=w.campaign.scenes.scenes[0];cast.ability.visualEffect={familyId:'fire'};cast.id='PRIVATE-CAST-ID'
+ const before=sceneAbilityVisuals(scene,w.characters),key=before[0].id
+ a.rpg.casts.unshift({...structuredClone(cast),id:'another-paid-cast'});w.characters.reverse();const after=sceneAbilityVisuals(scene,w.characters)
+ assert(after.some(v=>v.id===key));assert(!JSON.stringify(after).includes('PRIVATE-CAST-ID'));assert.equal(sceneAbilityVisualId('hero-1',a.id,cast),sceneAbilityVisualId('hero-1',a.id,cast));assert.notEqual(sceneAbilityVisualId('hero-1',a.id,cast),sceneAbilityVisualId('hero-2',a.id,cast))
+})
+
+
+test('Эффекты: длительный пространственный след сохраняет исходную ось после перемещения применяющего',()=>{
+ const w=world({shape:'beam',includeCaster:false,lengthM:7,radiusM:1});w.characters[0].rpg.abilities[0].visualEffect={familyId:'fire'}
+ const ready=prepare(w).world,result=release(ready,point('direction')),after=result.world,scene=after.campaign.scenes.scenes[0],original=sceneAbilityVisuals(scene,after.characters,after.campaign.seconds)[0]
+ scene.tokens.find(t=>t.actorId==='a').x=5;scene.tokens.find(t=>t.actorId==='a').y=5
+ const moved=sceneAbilityVisuals(scene,after.characters,after.campaign.seconds)[0];assert(moved.persistent);assert.deepEqual(moved.start,original.start);assert.deepEqual(moved.end,original.end);assert.equal(moved.id,original.id)
+})

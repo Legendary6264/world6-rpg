@@ -407,7 +407,7 @@ export function releaseSpatialRoundPlan(world:World,ownerId:string,castId:string
     cast!.spatialRelease={sceneId,kind:target.kind as 'point'|'area'|'direction',point:{...aim},actorIds:[...selected.actorIds],inputs}
     recordVisualRelease(w,owner!,cast!,aim,sceneId)
     const text=owner!.name+': пространственный выпуск «'+cast!.ability.name+'»',description=spatialLabel(cast!.ability.spatial!)+'; координаты ('+aim.x+'; '+aim.y+'; '+aim.z+').\n'+
-      (details.length?details.join('\n\n'):'В области нет отметок существ. Заряд выпущен; постоянная зона и повреждение окружения не создавались.')
+      (details.length?details.join('\n\n'):'В области нет отметок существ. Заряд выпущен.')
     logWorld(w,eventId,text,description,[ownerId,...selected.actorIds]);w.campaign.revision++
     if(!w.characters.every(isCharacterDraft)||!isCampaign(w.campaign))fail('Результат вышел за допустимые пределы. Ничего не изменено.')
     return {ok:true,plan:{fingerprint:worldFingerprint(world),world:w,text,details:description.slice(0,12000),eventId,targets}}

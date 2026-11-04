@@ -6,11 +6,19 @@ import type { AbilityVisualSpec, AbilityVisualPhase } from './abilityVisuals'
 export type SceneAbilityVisual = {
   id: string; spec: AbilityVisualSpec; start: ScenePosition; end: ScenePosition
   phase: AbilityVisualPhase | 'sequence'; shape: 'point' | 'sphere' | 'beam' | 'cone'
-  radius: number; coneAngleDeg: number
+  radius: number; coneAngleDeg: number; persistent?:boolean
 }
 export type VisualActor = SceneActor & { rpg?: { casts: Cast[] } }
 export type VisualFrame = Pick<Scene,'id'|'view'|'width'|'depth'|'minZ'|'maxZ'>
 export const visualPoint = (point: ScenePosition, frame: VisualFrame) => ({ x: point.x, y: frame.view === 'side' ? frame.maxZ - point.z : point.y })
+
+// Stable presentation key, independent of array positions. A scoped digest
+// avoids serializing internal actor/cast identifiers in perceived maps. This
+// key is only for rendering, never authorization or a gameplay command.
+export function sceneAbilityVisualId(scope:string,actorId:string,cast:Cast):string {
+  const input=JSON.stringify([scope,actorId,cast.id,cast.visualRelease?.releasedAt??null])
+  return 'fx-'+[2166136261,2246822507,3266489909,668265263].map(seed=>{let hash=seed;for(let i=0;i<input.length;i++)hash=Math.imul(hash^input.charCodeAt(i),16777619)>>>0;return hash.toString(16).padStart(8,'0')}).join('')
+}
 
 // Presentation only. No resources, rules, clock or campaign state are changed.
 export function castSceneVisual(cast: Cast, start: ScenePosition, end: ScenePosition, id: string, phase: SceneAbilityVisual['phase']): SceneAbilityVisual | null {
@@ -38,11 +46,11 @@ export function sceneAbilityVisuals(scene: Scene, actors: VisualActor[], seconds
       const prepared=cast.status==='preparing'||cast.status==='ready',persistent=cast.status==='maintaining'||cast.status==='ended'&&cast.endsAt!==null&&cast.endsAt>seconds
       if(!prepared&&!persistent&&(cast!==last||!cast.visualRelease))continue
       if(cast.visualRelease&&cast.visualRelease.sceneId!==scene.id)continue
-      const origin=!prepared&&!persistent?cast.visualRelease?.start??start:start
+      const origin=!prepared&&(!persistent||!!cast.spatialRelease)?cast.visualRelease?.start??start:start
       const end=prepared?start:!persistent?cast.visualRelease?.end:cast.spatialRelease?.point??scene.tokens.find(t=>t.actorId===cast.targetId)
       if(!end)continue
-      const effect=castSceneVisual(cast,origin,end,'visual-'+actorIndex+'-'+index+'-'+(cast.visualRelease?.releasedAt??0),prepared?'preparation':persistent?'residue':'sequence')
-      if(effect)result.push(effect)
+      const effect=castSceneVisual(cast,origin,end,sceneAbilityVisualId(scene.id,actor.id,cast),prepared?'preparation':'sequence')
+      if(effect)result.push({...effect,...(persistent?{persistent:true}:{})})
     }
   }
   return result.slice(-40)

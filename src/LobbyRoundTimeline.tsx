@@ -1,4 +1,4 @@
-import type { RuleActor } from './roundRuleForms'
+import type { RuleActor, RuleSceneObject } from './roundRuleForms'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useOnline } from './onlineContext'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
@@ -27,7 +27,7 @@ const format = (value: number) => value > 0 && value < 0.001 ? '<0,001' : value.
 
 export default function LobbyRoundTimeline({ accountId, lobbyId, collection, revision, checkingAccess, roundWork, executed, actors, objects, movementBodies }: {
   accountId: string; lobbyId: string; collection: DeclarationCollection; revision: number; checkingAccess: boolean;
-  roundWork: RoundWork; executed: boolean; actors: RuleActor[]; objects: {sceneId:string;id:string;name:string}[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]
+  roundWork: RoundWork; executed: boolean; actors: RuleActor[]; objects: (RuleSceneObject & {sceneId:string})[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]
 }) {
   const { request } = useOnline(), key = lobbyFormKey('round-timeline', accountId, lobbyId, collection.id)
   const source: Source = { revision, collectionId: collection.id, epoch: collection.epoch }, sourceKey = JSON.stringify(source)

@@ -1,7 +1,7 @@
 import SceneCharacterPreview from './SceneCharacterPreview'
 import type {CharacterPreviewFrame} from './SceneCharacterPreview'
 import {createSceneAbilityEffect} from './scene3dAbilityEffects'
-import {sampleAbilityVisual} from './abilityVisualTimeline'
+import {SceneAbilityPlayback} from './sceneAbilityPlayback'
 import {sceneAbilityAimLines} from './sceneAbilityAim'
 import type {SceneAbilityAim} from './sceneAbilityAim'
 import type {SceneAbilityVisual} from './sceneAbilityVisuals'
@@ -73,7 +73,7 @@ export default function Scene3D(props: Props) {
   const structuralJSON=useMemo(()=>JSON.stringify({...model,visuals:[],entities:model.entities.map(e=>model.restricted?e:{...e,...(e.geometry.kind==='actor'?{geometry:{...e.geometry,facing:0,characterAnimation:'idle'}}:{}),transform:{position:{x:0,y:0,z:0}}})}),[model])
   const constructionModel=useMemo(()=>JSON.parse(structuralJSON) as SceneRenderModel,[structuralJSON])
   const applyPositions=useRef<((next:SceneRenderModel)=>void)|null>(null),applyPlacement=useRef<((next:Props['placement'])=>void)|null>(null)
-  const seenEffects=useRef({frame:model.frame.id,ids:new Set(model.visuals.map(v=>v.id))})
+  const [effectPlayback]=useState(()=>new SceneAbilityPlayback(model.frame.id,model.visuals))
   const [effectsEnabled,setEffectsEnabled]=useState(true),[effectsPaused,setEffectsPaused]=useState(false),[effectReplay,setEffectReplay]=useState(0)
   const effectSettings=useRef({enabled:effectsEnabled,paused:effectsPaused,replay:effectReplay}),applyEffects=useRef<((visuals:SceneAbilityVisual[],replay?:boolean)=>void)|null>(null),applyAim=useRef<((aim:SceneAbilityAim|null)=>void)|null>(null)
   const [measurement,setMeasurement]=useState(''),[animated,setAnimated]=useState(readMotionPreference)
@@ -299,13 +299,15 @@ export default function Scene3D(props: Props) {
       resources.delete(routeLine.geometry);routeLine.geometry.dispose();routeLine.geometry=keep(new THREE.BufferGeometry().setFromPoints(points.map(p=>vector({...p,z:p.z+.06}))));routeLine.visible=points.length>1;requestDraw(false)
     }
     const reducedMotion=typeof window.matchMedia==='function'&&window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    let vfx:ReturnType<typeof createSceneAbilityEffect>[]=[],vfxVisuals:SceneAbilityVisual[]=[],vfxElapsed=0,vfxLast:number|undefined,vfxPlaying=false
-    const vfxDuration=()=>Math.max(0,...vfxVisuals.filter(v=>v.phase==='sequence').map(v=>Math.max(500,Math.min(10000,v.spec.durationMs??1800))))
+    let vfx:ReturnType<typeof createSceneAbilityEffect>[]=[],vfxVisuals:SceneAbilityVisual[]=[],vfxLast:number|undefined,vfxSignature=''
     const controlledVfx=()=>latest.current.effectTimeMs!==undefined&&Number.isFinite(latest.current.effectTimeMs)
-    const vfxNeedsMotion=()=>!controlledVfx()&&effectSettings.current.enabled&&!effectSettings.current.paused&&!reducedMotion&&vfxPlaying&&vfxElapsed<vfxDuration()
+    const vfxNeedsMotion=()=>!controlledVfx()&&effectSettings.current.enabled&&!effectSettings.current.paused&&effectPlayback.active
     const visibleAreas=model.areas.filter(a=>a.visible)
     function setEffects(visuals:SceneAbilityVisual[],replay=false){
-      const previous=seenEffects.current,fresh=previous.frame===f.id&&visuals.some(v=>v.phase==='sequence'&&!previous.ids.has(v.id));seenEffects.current={frame:f.id,ids:new Set(visuals.map(v=>v.id))}
+      effectPlayback.sync(f.id,visuals,replay)
+      const signature=JSON.stringify(visuals)
+      if(signature===vfxSignature){if(replay){vfxLast=undefined;applyMotion.current?.();requestDraw(false)}return}
+      vfxSignature=signature
       vfx.forEach(e=>e.dispose());vfx=[];vfxVisuals=[]
       let budget=quality==='low'?8:24,lightBudget=quality==='low'||model.restricted?0:2
       for(const effect of visuals.slice(-(quality==='low'?4:8))){
@@ -317,7 +319,6 @@ export default function Scene3D(props: Props) {
           const entry=createSceneAbilityEffect(effect,{low:quality==='low',clippingPlanes:planes,groundZ:f.groundZ,light:lightBudget>0});if(entry.group.getObjectByName('ability-flash'))lightBudget--;entry.group.userData.editorOverlay=true;scene.add(entry.group);vfx.push(entry);vfxVisuals.push(effect)
         }
       }
-      if(fresh||replay){vfxElapsed=0;vfxPlaying=true}
       vfxLast=undefined;applyMotion.current?.();requestDraw(false)
     }
     applyEffects.current=setEffects
@@ -348,9 +349,8 @@ export default function Scene3D(props: Props) {
       }
       updateAxes()
       const vfxNow=performance.now()
-      if(vfxNeedsMotion()&&document.visibilityState==='visible'){if(vfxLast!==undefined)vfxElapsed+=Math.min(100,Math.max(0,vfxNow-vfxLast));vfxLast=vfxNow;if(vfxElapsed>=vfxDuration())vfxPlaying=false}else vfxLast=undefined
-      const elapsed=controlledVfx()?Math.max(0,latest.current.effectTimeMs!):vfxElapsed
-      vfx.forEach((entry,i)=>{const sample=sampleAbilityVisual(vfxVisuals[i],elapsed,controlledVfx()||vfxPlaying,reducedMotion);entry.update({...sample,visible:sample.visible&&effectSettings.current.enabled},elapsed/1000)})
+      if(vfxNeedsMotion()&&document.visibilityState==='visible'){if(vfxLast!==undefined)effectPlayback.advance(Math.min(100,Math.max(0,vfxNow-vfxLast)));vfxLast=vfxNow}else vfxLast=undefined
+      vfx.forEach((entry,i)=>{const visual=vfxVisuals[i],elapsed=controlledVfx()?Math.max(0,latest.current.effectTimeMs!):effectPlayback.elapsed(visual.id),sample=effectPlayback.sample(visual,reducedMotion,controlledVfx()?elapsed:undefined);entry.update({...sample,visible:sample.visible&&effectSettings.current.enabled},reducedMotion?0:elapsed/1000)})
       backdrop.update(camera)
       lighting.update(camera,controls.target)
       const moving=animationValue.current&&document.visibilityState==='visible',visualTime=performance.now()/1000
@@ -743,7 +743,7 @@ export default function Scene3D(props: Props) {
       characters.forEach(c=>c.rig.dispose());passes.forEach(pass=>pass.dispose());composer?.dispose();lighting.dispose();backdrop.dispose();assetLibrary.dispose();surfaceLibrary.dispose();environment?.dispose();generator?.dispose();resources.forEach(v => v.dispose());renderer.dispose();canvas.remove();labelElements.forEach(v => v.node.remove())
     }
     // Changing a callback alone must not rebuild GPU resources or reset the camera.
-  }, [constructionModel, quality, grid, labels,clay,orthographic,tabletop,videoReference,environmentKind])
+  }, [constructionModel, quality, grid, labels,clay,orthographic,tabletop,videoReference,environmentKind,effectPlayback])
   useEffect(()=>{applyGuides.current?.(marker??null,route??[])},[guidesJSON])
   useEffect(()=>{applyEffects.current?.(model.visuals)},[model.visuals])
   useEffect(()=>{applyAim.current?.(props.abilityAim??null)},[props.abilityAim])

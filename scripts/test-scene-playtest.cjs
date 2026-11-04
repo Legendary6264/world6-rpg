@@ -25,7 +25,7 @@ test('Прицел: реальные радиусы, 3D направление, 
 test('Временная шкала: пять фаз, локальная доля стадии, завершение, пауза и reduced motion',()=>{
  const v={phase:'sequence',spec:{durationMs:1000}}
  for(const [ms,phase] of [[0,'preparation'],[200,'release'],[400,'travel'],[700,'impact'],[900,'residue']]){const s=sampleAbilityVisual(v,ms);assert.equal(s.phase,phase);assert(s.visible);assert(s.progress>=0&&s.progress<=1)}
- assert(!sampleAbilityVisual(v,1000).visible);assert(!sampleAbilityVisual(v,10,false).visible);assert.equal(sampleAbilityVisual(v,99999,true,true).phase,'impact');assert(sampleAbilityVisual({...v,phase:'preparation'},99999,false).visible)
+ assert(!sampleAbilityVisual(v,1000).visible);assert(!sampleAbilityVisual(v,10,false).visible);assert.equal(sampleAbilityVisual(v,10,true,true).phase,'impact');assert(!sampleAbilityVisual(v,99999,true,true).visible);assert(sampleAbilityVisual({...v,phase:'preparation'},99999,false).visible)
 })
 test('Предметы: подтверждение открывает дверь и гасит свет; исходная сцена остаётся неизменной',()=>{
  const {scene}=fixture(),before=structuredClone(scene),result=applyPlaytestActions(scene,actors,'hero',[action('door','open'),action('lamp','extinguish')],'r1')

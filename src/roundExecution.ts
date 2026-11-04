@@ -234,6 +234,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       const key=workKeys.get(work.id)!,decision=ruleDecisions.get(key)!
       const replay=input.replay?.selections.find(s=>s.key===key)
       const result=stage==='start'?beginRoundAbility(candidate,work,key,decision):finishRoundRule(candidate,work,key,decision,works,replay,replay?seed+':'+key:undefined)
+      if(hasMovement)for(const effect of result.outcome.environment??[])if(effect.operation==='close')checkClosingDoor(result.world.campaign.scenes!.scenes.find(s=>s.id===work.sceneId)!,effect.objectId,bodies,movementCheck)
       candidate=result.world;ruleOutcomes.push({...result.outcome,atMs:at})
       events.push({actorId:work.actorId,actionIndex:work.origin.actionIndex,workId:work.id,atMs:at,kind:result.outcome.kind,...(result.outcome.castId?{castId:result.outcome.castId}:{})})
       continue
@@ -282,5 +283,5 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     ...(changes.length ? { movements: changes } : {}), ...(movementApprovals.size ? {movementApprovals:[...movementApprovals].map(([actorId,reason])=>({actorId,reason}))} : {}), ...(ruleOutcomes.length?{rules:ruleOutcomes}:{}), missingDecisions: structuredClone(input.missingDecisions),
     warnings: [...(speechDecisions.size?['Слышимость, преграды и разборчивость подтвердил мастер. Фиксированные радиусы и автоматическое подслушивание не вводились; каждый герой получает только свою запись.']:[]), 'Доступность, расстояние и запирание объектов проверяет мастер. Правила взаимодействия ещё расширяются.',
       ...(hasMovement ? ['Высоту тела и бюджет подтверждает мастер. Полёт без работающих крыльев требует основания мастера; его условия и ресурсные расходы проверяются отдельно. Столкновения проверены для прямых отрезков и вертикальных объёмов; прыжки, падение и толкание ещё не рассчитываются.'] : []),
-      ...(ruleDecisions.size?['Подготовка оплачивается один раз в начале по прежним правилам. Точную личную стоимость, привязку и условия удержания подтверждает мастер. Предметы: снаряжение и активация одного собственного артефакта; расходники, точки/области/направления и новые правила прерывания ещё не подключены.']:[])] } }
+      ...(ruleDecisions.size?['Подготовка оплачивается один раз в начале по прежним правилам. Точную личную стоимость, привязку и условия удержания подтверждает мастер. Расходники и пространственные выпуски используют подтверждённые параметры. Изменения объектов применяются только по явному решению мастера внутри формы выпуска; автоматическое разрушение и поддерживаемые области не назначаются.']:[])] } }
 }

@@ -1,5 +1,5 @@
 import { listeningFocusLabel } from './roundListening'
-import type { RuleActor } from './roundRuleForms'
+import type { RuleActor, RuleSceneObject } from './roundRuleForms'
 import { useEffect, useRef, useState } from 'react'
 import { useOnline } from './onlineContext'
 import { useRemote } from './onlineHooks'
@@ -8,7 +8,7 @@ import { actionSummary } from './actionDeclarations'
 import type { ActionDeclarations, DeclarationEntry } from './actionDeclarations'
 import LobbyRoundTimeline from './LobbyRoundTimeline'
 import type { RoundWork } from './roundWork'
-type MasterView = { revision: number; paused?: boolean; roundWork?: RoundWork; executed?: boolean; movementBodies?: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]; declarations: ActionDeclarations; scenes: { id: string; name: string; objects: {id:string;name:string}[] }[]; actors: (RuleActor & {approved:boolean;items:{id:string;name:string}[];abilities:{id:string;name:string}[]})[] }
+type MasterView = { revision: number; paused?: boolean; roundWork?: RoundWork; executed?: boolean; movementBodies?: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]; declarations: ActionDeclarations; scenes: { id: string; name: string; objects: RuleSceneObject[] }[]; actors: (RuleActor & {approved:boolean;items:{id:string;name:string}[];abilities:{id:string;name:string}[]})[] }
 type Draft = { sceneId: string; duration: string; allowReplace: boolean; participantIds: string[]; revision?: number;
   returns: Record<string, { text: string; collectionId: string; epoch: number; baseVersion: number }> }
 const valid = (v: unknown): v is Draft => !!v && typeof v === 'object' && (() => { const d = v as Draft; return typeof d.sceneId === 'string' && typeof d.duration === 'string' && d.duration.length <= 40 &&

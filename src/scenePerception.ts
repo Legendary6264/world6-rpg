@@ -1,5 +1,5 @@
 import {characterModelFor} from './characterAppearance'
-import { castSceneVisual } from './sceneAbilityVisuals'
+import { castSceneVisual,sceneAbilityVisualId } from './sceneAbilityVisuals'
 import type { SceneAbilityVisual, VisualActor } from './sceneAbilityVisuals'
 import type { Scene, SceneObject, ScenePosition, SceneState } from './sceneTypes'
 import { isArtwork, isTiledArtwork } from './visualMedia'
@@ -137,12 +137,12 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
       const cast=casts[index],prepared=cast.status==='preparing'||cast.status==='ready',persistent=cast.status==='maintaining'||cast.status==='ended'&&cast.endsAt!==null&&cast.endsAt>seconds
       if(cast.status==='interrupted'||cast.spatialRelease&&cast.spatialRelease.sceneId!==live.id||cast.visualRelease&&cast.visualRelease.sceneId!==live.id||!prepared&&!persistent&&(cast!==last||!cast.visualRelease))continue
       const target=live.tokens.find(t=>t.actorId===cast.targetId),targetKnown=cast.targetId===value.actorId||knowledge.contacts.some(c=>c.actorId===cast.targetId&&c.kind==='identified'&&c.showHeight)
-      const origin=!prepared&&!persistent?cast.visualRelease?.start??start:start
+      const origin=!prepared&&(!persistent||!!cast.spatialRelease)?cast.visualRelease?.start??start:start
       const end=prepared?start:!persistent?cast.visualRelease?.end:cast.spatialRelease?.point??(targetKnown?target:undefined)
       if(!prepared&&!cast.spatialRelease&&!targetKnown)continue
       if(!end||!inArea(end,true)||!inArea(origin,true))continue
-      const effect=castSceneVisual(cast,origin,end,'observed-'+actorIndex+'-'+index+'-'+(cast.visualRelease?.releasedAt??0),prepared?'preparation':persistent?'residue':'sequence')
-      if(effect&&inArea(effect.end,true))visuals.push(effect)
+      const effect=castSceneVisual(cast,origin,end,sceneAbilityVisualId(value.actorId+':'+live.id,source.id,cast),prepared?'preparation':'sequence')
+      if(effect&&inArea(effect.end,true))visuals.push({...effect,...(persistent?{persistent:true}:{})})
     }
   }
   return { title: knowledge.title, description: knowledge.description, frame: mapFrame(knowledge.frame), areas: knowledge.areas.map(copyArea), objects, contacts, ...(visuals.length?{visuals:visuals.slice(-40)}:{}) }

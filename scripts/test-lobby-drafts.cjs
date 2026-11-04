@@ -141,7 +141,7 @@ async function fixture() {
     const declarationMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/declarations$/)
     if(declarationMatch) return structuredClone(declarations[declarationMatch[1]])
     const masterMatch=url.match(/^\/lobbies\/([ab])\/declarations$/)
-    if(masterMatch) { const w=worlds[masterMatch[1]]; return {revision:w.revision,executed:!!w.executed,roundWork:structuredClone(w.campaign.roundWork??{version:1,entries:[]}),movementBodies:(w.campaign.scenes?.scenes??[]).flatMap(s=>s.tokens.map(t=>({sceneId:s.id,actorId:t.actorId,diameter:t.diameter}))),declarations:structuredClone(w.campaign.declarations??{version:1,active:null,archive:[]}),scenes:(w.campaign.scenes?.scenes??[]).map(s=>({id:s.id,name:s.name,objects:s.objects.map(o=>({id:o.id,name:o.name}))})),actors:w.characters.map(c=>({id:c.id,name:c.name,approved:true,regions:load('characterBody').bodyRegionDefs(c.body).map(r=>({key:r.key,label:r.label})),casts:c.rpg.casts.filter(x=>['preparing','ready'].includes(x.status)).map(x=>({id:x.id,abilityId:x.ability.id,name:x.ability.name,status:x.status,binding:x.roundPreparation?.binding??'bound',roundPreparation:!!x.roundPreparation,chargePolicy:x.ability.chargePolicy,spatial:x.ability.spatial})),items:c.rpg.inventory.map(i=>({id:i.id,name:i.name,quantity:i.quantity,consumable:i.consumable})),abilities:c.rpg.abilities.map(b=>({id:b.id,name:b.name,spatial:b.spatial}))}))} }
+    if(masterMatch) { const w=worlds[masterMatch[1]]; return {revision:w.revision,executed:!!w.executed,roundWork:structuredClone(w.campaign.roundWork??{version:1,entries:[]}),movementBodies:(w.campaign.scenes?.scenes??[]).flatMap(s=>s.tokens.map(t=>({sceneId:s.id,actorId:t.actorId,diameter:t.diameter}))),declarations:structuredClone(w.campaign.declarations??{version:1,active:null,archive:[]}),scenes:(w.campaign.scenes?.scenes??[]).map(s=>({id:s.id,name:s.name,objects:s.objects.map(o=>({id:o.id,name:o.name,operations:load('tabletopInteractions').objectOperations.filter(operation=>load('tabletopInteractions').supportsObjectOperation(o,operation))}))})),actors:w.characters.map(c=>({id:c.id,name:c.name,approved:true,regions:load('characterBody').bodyRegionDefs(c.body).map(r=>({key:r.key,label:r.label})),casts:c.rpg.casts.filter(x=>['preparing','ready'].includes(x.status)).map(x=>({id:x.id,abilityId:x.ability.id,name:x.ability.name,status:x.status,binding:x.roundPreparation?.binding??'bound',roundPreparation:!!x.roundPreparation,chargePolicy:x.ability.chargePolicy,spatial:x.ability.spatial})),items:c.rpg.inventory.map(i=>({id:i.id,name:i.name,quantity:i.quantity,consumable:i.consumable})),abilities:c.rpg.abilities.map(b=>({id:b.id,name:b.name,spatial:b.spatial}))}))} }
     const perceptionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/perception$/)
     if(perceptionMatch){const room=perceptionMatch[1],world=worlds[room];return {revision:world.revision,hero:world.characters[0],map:perceptions[room]??null,knowledge:{journal:structuredClone(knowledge[room]),knownEffects:[]},inventory:[],canWriteNotes:world.characters[0].ownerId===context.user.id}}
     const disclosureMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/disclosure$/)
@@ -3063,5 +3063,66 @@ test('R08 listening UI: мастер видит план и интервал в�
   await flush(()=>document.querySelector('[data-speech-key="new:hero-a:0"] input[type="checkbox"]').click());await click('Рассчитать последствия раунда')
   const time=document.querySelector('[aria-label="Время внимания слушателей"]');assert(time);assert(time.textContent.includes('следующем раунде'));assert.equal(f.executions[0].input.timings.length,2)
   await f.role('ASSISTANT');await f.permissions(['rounds']);assert(!document.querySelector('[aria-label="Намерения слушателей"]'));assert(!document.body.textContent.includes('LISTENING-SECRET'));assert(!document.body.textContent.includes('13.25'))
+ }finally{await f.close()}
+})
+
+
+test('Способности UI: прицел и оформление используют конкретный оплаченный заряд, недоступный заряд не заменяется',async()=>{
+ const tree=createRoot(document.getElementById('root')),Bar=load('GameActionBar').default,actions=[],aims=[]
+ const ability={id:'spell',name:'Новый шаблон',canPrepare:true,rangeM:1,spatial:{shape:'sphere',radiusM:8,includeCaster:false},visualEffect:{familyId:'water'}}
+ const charge={id:'paid-1',abilityId:'spell',name:'Оплаченная сфера',status:'ready',binding:'unbound',rangeM:10,spatial:{shape:'sphere',radiusM:1,includeCaster:false},visualEffect:{familyId:'fire'},readyAt:0,holdUntil:10,holdCost:{mana:1,shadow:0,stamina:0}}
+ const map={title:'Площадка',description:'',frame:{id:'scene',width:20,depth:20,groundZ:0,minZ:-2,maxZ:10,view:'top',palette:'stone'},areas:[],objects:[],contacts:[{id:'self',kind:'self',label:'Герой',signs:'',x:2,y:2,z:0}]}
+ let changeOptions;const aim=a=>aims.push(a)
+ function Harness(){const [draft,setDraft]=React.useState({...load('gameControls').emptyQuickAction(),mode:'ability',ability:'spell',aim:'point'}),[options,setOptions]=React.useState({frame:null,targets:[],items:[],abilities:[ability],casts:[charge]});React.useEffect(()=>{changeOptions=setOptions},[]);return React.createElement(Bar,{map,point:{x:8,y:2,z:0},contactId:'',objectId:'',options,disabled:false,draft,onChange:setDraft,onAimChange:aim,onAdd:a=>{actions.push(a);return true}})}
+ const button=label=>[...document.querySelectorAll('button')].find(b=>b.textContent===label)
+ try{
+  await flush(()=>tree.render(React.createElement(Harness)));assert(button('Применить способность').disabled)
+  await selectValue('[aria-label="Собственный заряд"]','paid-1');const preview=aims.findLast(Boolean);assert(preview.valid);assert.equal(preview.visual.radius,1);assert.equal(preview.visual.spec.familyId,'fire');assert.equal(preview.rangeM,10);assert(button('Подготовить способность').disabled)
+  await click('Применить способность');assert.equal(actions[0].castId,'paid-1');assert.equal(actions[0].target.kind,'area')
+  await flush(()=>changeOptions({frame:null,targets:[],items:[],abilities:[ability],casts:[]}));assert(button('Применить способность').disabled);assert(document.body.textContent.includes('автоматической замены нет'));assert.equal(document.querySelector('[aria-label="Собственный заряд"]').value,'paid-1')
+ }finally{await flush(()=>tree.unmount());localStorage.clear()}
+})
+
+test('Способности UI: выбор собственного заряда сохраняется после перезагрузки и отправляется в очереди',async()=>{
+ const f=await fixture()
+ try{
+  await ownActions(f,'a');f.declarations.a.options.abilities=[{id:'spell',name:'Прежняя способность',canPrepare:false}];f.declarations.a.options.casts=[{id:'paid-hero-a',abilityId:'spell',name:'Прежняя способность',status:'ready',binding:'unbound',readyAt:0,holdUntil:null,holdCost:{mana:0,shadow:0,stamina:0}}];f.context.events++;await f.render();await flush()
+  await click('Способности');await selectValue('[aria-label="Быстрая способность"]','spell');await selectValue('[aria-label="Собственный заряд"]','paid-hero-a')
+  await f.mount(false);await f.mount(true);await flush();await f.open('a');await click('Открыть экран героя');assert.equal(document.querySelector('[aria-label="Собственный заряд"]').value,'paid-hero-a')
+  await click('Применить способность');await click('Применить способность');assert(document.body.textContent.includes('Этот заряд уже запланирован'));await click('Отправить заявление');assert.equal(f.writes.at(-1).actions.length,1);assert.equal(f.writes.at(-1).actions[0].castId,'paid-hero-a');assert.equal(f.writes.at(-1).actions[0].stage,'release')
+ }finally{await f.close()}
+})
+
+test('Способности UI: точная форма сохраняет выбранный заряд и использует его пространственный снимок',async()=>{
+ const f=await fixture()
+ try{
+  await ownActions(f,'a');f.declarations.a.options.abilities=[{id:'spell',name:'Новое',spatial:{shape:'sphere',radiusM:8,includeCaster:false}}];f.declarations.a.options.casts=[{id:'paid-old',abilityId:'spell',name:'Прежнее',spatial:{shape:'beam',lengthM:6,radiusM:1,includeCaster:false},status:'ready',binding:'unbound',readyAt:0,holdUntil:null,holdCost:{mana:0,shadow:0,stamina:0}}];f.context.events++;await f.render();await flush()
+  await selectValue('[aria-label="Категория действия"]','ability');await selectValue('[aria-label="Способность для действия"]','spell');await selectValue('[aria-label="Этап способности"]','release');await selectValue('[aria-label="Заряд для точного действия"]','paid-old');assert(document.body.textContent.includes('Луч · длина 6 м'))
+  await selectValue('[aria-label="Вид цели"]','direction');for(const [k,n] of [['X','8'],['Y','2'],['Z','0']])await input('[aria-label="Действие '+k+'"]',n)
+  await f.mount(false);await f.mount(true);await flush();await f.open('a');await click('Открыть экран героя');assert.equal(document.querySelector('[aria-label="Заряд для точного действия"]').value,'paid-old')
+  await click('Добавить действие в последовательность');await click('Отправить заявление');assert.equal(f.writes.at(-1).actions[0].castId,'paid-old');assert.equal(f.writes.at(-1).actions[0].target.kind,'direction')
+ }finally{await f.close()}
+})
+
+test('Способности UI: мастер получает выбранный заряд и не может незаметно изменить его',async()=>{
+ const f=await fixture()
+ try{
+  executableSpatial(f,'a');const w=f.worlds.a,cast=w.characters[0].rpg.casts[0];w.campaign.declarations.active.entries[0].actions[0].castId=cast.id;w.characters[0].rpg.abilities[0].spatial.radiusM=8
+  await spatialFields(f,'a');const select=document.querySelector('[aria-label="Заряд Hero a · 1"]');assert(select.disabled);assert.equal(select.value,'cast:'+cast.id);assert(document.body.textContent.includes('Сфера · радиус 1 м'));await click('Рассчитать последствия раунда');assert.equal(f.executions.at(-1).input.rules[0].charge,'cast:'+cast.id)
+ }finally{await f.close()}
+})
+
+test('Способности UI: последствия окружения сохраняются, сбрасывают подтверждения и входят в общий предпросмотр',async()=>{
+ const f=await fixture()
+ try{
+  executableSpatial(f,'a');const scene=f.worlds.a.campaign.scenes.scenes[0];scene.objects=[{...load('scenes').sceneObject('lamp','lamp-effect',{x:8,y:2,z:0}),height:1,name:'Фонарь эффекта',active:true}]
+  await spatialFields(f,'a');await click('Добавить последствие для окружения');assert.equal(document.querySelector('[aria-label="Правила подтверждены Hero a · 1"]').checked,false)
+  await selectValue('[aria-label="Объект эффекта Hero a · 1 · 1"]','lamp-effect');await selectValue('[aria-label="Изменение объекта Hero a · 1 · 1"]','extinguish')
+  await f.mount(false);await f.mount(true);await flush();await f.open('a');await click('Открыть инструменты заявлений');assert.equal(document.querySelector('[aria-label="Изменение объекта Hero a · 1 · 1"]').value,'extinguish')
+  assert([...document.querySelectorAll('button')].find(b=>b.textContent==='Рассчитать последствия раунда').disabled)
+  await input('[aria-label="Основание объекта Hero a · 1 · 1"]','Разрешённый способностью порыв гасит пламя')
+  await flush(()=>document.querySelector('[aria-label="Пространство подтверждено Hero a · 1"]').click());await flush(()=>document.querySelector('[aria-label="Правила подтверждены Hero a · 1"]').click())
+  await click('Рассчитать последствия раунда');assert(document.querySelector('[aria-label="Последствия предметов и способностей"]').textContent.includes('Фонарь эффекта · Погасить'));assert.equal(scene.objects[0].active,true)
+  await click('Применить рассчитанный раунд');assert.equal(f.worlds.a.campaign.scenes.scenes[0].objects[0].active,false);assert.equal(f.worlds.a.characters[1].rpg.effects.length,1);assert.equal(f.worlds.a.characters[0].resources.mana.current,'43')
  }finally{await f.close()}
 })

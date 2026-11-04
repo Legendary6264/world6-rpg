@@ -1,7 +1,7 @@
 import type {AbilityVisualSpec} from './abilityVisuals'
 import {operationLabels} from './tabletopInteractions'
 import type {ObjectOperation} from './tabletopInteractions'
-import type { AbilitySpatial } from './rpgTypes'
+import type { AbilitySpatial, Cost } from './rpgTypes'
 import type { ScenePosition, SceneState } from './sceneTypes'
 
 export const actionKinds = [{ key: 'move', label: 'Идти' }, { key: 'wait', label: 'Ждать' }, { key: 'interact', label: 'Взаимодействовать' },
@@ -15,16 +15,18 @@ export type DeclaredAction = { note: string } & (
   { kind: 'interact'; target: DeclarationTarget; operation: 'inspect' | 'take' | 'relocate' | ObjectOperation; destination?:ScenePosition } |
   { kind: 'speak'; target: DeclarationTarget; volume: 'whisper' | 'normal' | 'shout'; text: string } |
   { kind: 'item'; itemId: string; target: DeclarationTarget; quantity: number; operation?: 'equip' | 'unequip' | 'activate' | 'consume' } |
-  { kind: 'ability'; abilityId: string; stage: 'prepare' | 'release'; target: DeclarationTarget })
+  { kind: 'ability'; abilityId: string; stage: 'prepare' | 'release'; target: DeclarationTarget; castId?:string })
 export type DeclarationEntry = { actorId: string; actorName: string; revision: number; status: 'submitted' | 'withdrawn' | 'returned';
   actions: DeclaredAction[]; resolved: { index: number; actorId?: string; objectId?: string }[]; submittedBy: string; submittedAt: string; note: string }
 export type DeclarationEvent = { id: string; kind: 'open' | 'close' | 'reopen' | 'submit' | 'withdraw' | 'return'; actorId: string; authorId: string; at: string; entry?: DeclarationEntry }
 export type DeclarationCollection = { id: string; sceneId: string; sceneName: string; durationSeconds: number; allowReplace: boolean;
   phase: 'open' | 'closed' | 'cancelled'; epoch: number; participantIds: string[]; entries: DeclarationEntry[]; history: DeclarationEvent[] }
 export type ActionDeclarations = { version: 1; active: DeclarationCollection | null; archive: DeclarationCollection[] }
+export type DeclarationAbility = { id:string; name:string; spatial?:AbilitySpatial; rangeM?:number; visualEffect?:AbilityVisualSpec; canPrepare?:boolean; cost?:Cost }
+export type DeclarationCharge = Omit<DeclarationAbility,'id'|'canPrepare'> & { id:string; abilityId:string; status:'preparing'|'ready'; binding:'bound'|'unbound'; readyAt:number; holdUntil:number|null; holdCost:Cost }
 export type DeclarationOptions = { frame: { width: number; depth: number; minZ: number; maxZ: number } | null;
   targets: { id: string; kind: 'contact' | 'object'; label: string }[];
-  items: { id: string; name: string; quantity: number }[]; abilities: { id: string; name: string; spatial?:AbilitySpatial;rangeM?:number;visualEffect?:AbilityVisualSpec }[] }
+  items: { id: string; name: string; quantity: number }[]; abilities: DeclarationAbility[]; casts?:DeclarationCharge[] }
 export type HeroDeclarations = { collection: { id: string; epoch: number; phase: DeclarationCollection['phase']; durationSeconds: number; allowReplace: boolean } | null;
   paused?: boolean; executed?: boolean; participating: boolean; canSubmit: boolean; controlStamp: string; entry: Pick<DeclarationEntry, 'revision' | 'status' | 'actions' | 'submittedAt' | 'submittedBy' | 'note'> | null;
   options: DeclarationOptions | null; readiness: { userId: string; ready: boolean }[] }
@@ -49,7 +51,8 @@ export function isDeclaredAction(v: unknown): v is DeclaredAction {
   if (v.kind === 'interact') return choice(v.operation, ['inspect', 'open', 'close', 'take', 'activate', 'deactivate', 'lock', 'unlock', 'ignite', 'extinguish', 'relocate']) && v.target.kind !== 'none' && (v.operation==='relocate'?v.target.kind==='object'&&point(v.destination):v.destination===undefined)
   if (v.kind === 'speak') return choice(v.volume, ['whisper', 'normal', 'shout']) && text(v.text, 4000) && !!v.text.trim()
   if (v.kind === 'item') return id(v.itemId) && integer(v.quantity, 100000) && v.quantity > 0 && (v.operation === undefined || choice(v.operation,['equip','unequip','activate','consume']))
-  return v.kind === 'ability' && id(v.abilityId) && choice(v.stage, ['prepare', 'release'])
+  return v.kind === 'ability' && id(v.abilityId) && choice(v.stage, ['prepare', 'release']) &&
+    (v.castId===undefined||v.stage==='release'&&id(v.castId))
 }
 export const isActionSequence = (v: unknown): v is DeclaredAction[] => Array.isArray(v) && v.length > 0 && v.length <= 20 && v.every(isDeclaredAction)
 const copyPoint = (p: ScenePosition): ScenePosition => ({ x: p.x, y: p.y, z: p.z })
@@ -64,7 +67,7 @@ export function copyDeclaredAction(a: DeclaredAction): DeclaredAction {
   if (a.kind === 'interact') return { kind: a.kind, note, target, operation: a.operation, ...(a.operation==='relocate'&&a.destination?{destination:copyPoint(a.destination)}:{}) }
   if (a.kind === 'speak') return { kind: a.kind, note, target, volume: a.volume, text: a.text }
   if (a.kind === 'item') return { kind: a.kind, note, target, itemId: a.itemId, quantity: a.quantity, ...(a.operation ? {operation:a.operation} : {}) }
-  return { kind: a.kind, note, target, abilityId: a.abilityId, stage: a.stage }
+  return { kind: a.kind, note, target, abilityId: a.abilityId, stage: a.stage, ...(a.castId?{castId:a.castId}:{}) }
 }
 const isEntry = (v: unknown): v is DeclarationEntry => record(v) && id(v.actorId) && text(v.actorName, 120) && integer(v.revision) && v.revision > 0 &&
   choice(v.status, ['submitted', 'withdrawn', 'returned']) && Array.isArray(v.actions) && v.actions.length <= 20 && v.actions.every(isDeclaredAction) &&

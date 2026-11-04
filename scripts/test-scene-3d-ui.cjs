@@ -862,3 +862,35 @@ test('Свет способностей: не более двух вспышек
  await flush(()=>{const select=document.querySelector('[aria-label="Качество 3D"]');select.value='low';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}))});r=instances.at(-1);assert(!r.scene.getObjectByProperty('isPointLight',true))
  await mount({model:{...model,restricted:true}});r=instances.at(-1);assert(!r.scene.getObjectByProperty('isPointLight',true))
 })
+
+
+test('Способности 3D: новый выпуск не повторяет исторический, повторный ответ не пересоздаёт геометрию',async()=>{
+ await flush(()=>root.render(null));props={}
+ const {createScene,emptyScenes}=load('scenes'),scene=createScene(emptyScenes(),'independent-vfx','Несколько игроков','top').scenes[0]
+ const v={id:'old-player-release',spec:{familyId:'fire',durationMs:1000},start:{x:4,y:4,z:0},end:{x:8,y:8,z:0},phase:'sequence',shape:'sphere',radius:2,coneAngleDeg:45},next={...v,id:'new-player-release',spec:{familyId:'water',durationMs:1000}},model=masterRenderModel(scene,[],[v])
+ const visibility=document.visibilityState;Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
+ try{
+  await mount({model});const r=instances.at(-1);assert(!r.scene.getObjectByName('ability-effect:'+v.id).visible)
+  await mount({model:{...model,visuals:[v,next]}});assert.equal(instances.at(-1),r);assert(!r.scene.getObjectByName('ability-effect:'+v.id).visible);assert(r.scene.getObjectByName('ability-effect:'+next.id).visible)
+  const group=r.scene.getObjectByName('ability-effect:'+next.id),core=group.children[0],geometry=core.geometry
+  await mount({model:{...model,visuals:structuredClone([v,next])}});assert.equal(r.scene.getObjectByName('ability-effect:'+next.id),group);assert.equal(group.children[0].geometry,geometry)
+ }finally{Object.defineProperty(document,'visibilityState',{configurable:true,value:visibility})}
+})
+
+test('Способности SVG: отдельные часы игроков, пауза, скрытая вкладка и выключение не теряют фазу',async()=>{
+ await flush(()=>root.render(null));props={}
+ const Overlay=load('SceneAbilityOverlay').default,frame={id:'independent-svg',width:20,depth:20,minZ:-2,maxZ:10,view:'top'},old={id:'historical-fire',spec:{familyId:'fire',durationMs:1000},start:{x:2,y:2,z:0},end:{x:8,y:2,z:0},phase:'sequence',shape:'point',radius:1,coneAngleDeg:45},a={...old,id:'new-water',spec:{familyId:'water',durationMs:1000}},b={...old,id:'new-healing',spec:{familyId:'healing',durationMs:1000}}
+ const originalRAF=window.requestAnimationFrame,originalCancel=window.cancelAnimationFrame,visibility=document.visibilityState,callbacks=new Map();let serial=0
+ window.requestAnimationFrame=fn=>{const id=++serial;callbacks.set(id,fn);return id};window.cancelAnimationFrame=id=>callbacks.delete(id);Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
+ let visuals=[old],options={};const render=()=>root.render(React.createElement('svg',null,React.createElement(Overlay,{frame,visuals,...options}))),step=async time=>flush(()=>{const pending=[...callbacks.values()];callbacks.clear();pending.forEach(fn=>fn(time))})
+ const phase=id=>document.querySelector('[data-vfx-family="'+id+'"]')?.dataset.vfxPhase
+ try{
+  await flush(render);assert.equal(phase('fire'),undefined);visuals=[old,a];await flush(render);await step(0);for(const t of [100,200,300,400])await step(t);assert.equal(phase('water'),'travel')
+  visuals=[old,a,b];await flush(render);assert.equal(phase('water'),'travel');assert.equal(phase('healing'),'preparation');assert.equal(phase('fire'),undefined)
+  options={paused:true};await flush(render);assert.equal(callbacks.size,0);await step(5000);assert.equal(phase('water'),'travel')
+  options={};await flush(render);await step(5000);await step(5100);assert.equal(phase('water'),'travel');assert.equal(phase('healing'),'preparation')
+  await flush(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});document.dispatchEvent(new dom.window.Event('visibilitychange'))});assert.equal(callbacks.size,0)
+  await flush(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});document.dispatchEvent(new dom.window.Event('visibilitychange'))});await step(100000);assert.equal(phase('water'),'travel')
+  options={enabled:false};await flush(render);assert.equal(document.querySelector('[data-vfx-family]'),null);assert.equal(callbacks.size,0);options={};await flush(render);assert.equal(phase('water'),'travel');assert.equal(phase('fire'),undefined)
+ }finally{await flush(()=>root.render(null));window.requestAnimationFrame=originalRAF;window.cancelAnimationFrame=originalCancel;Object.defineProperty(document,'visibilityState',{configurable:true,value:visibility})}
+})
