@@ -12,7 +12,7 @@ import { JSDOM } from 'jsdom'
 // resolution on Windows without symlink privileges or reparse-point support.
 const directory = await mkdtemp(join(resolve('node_modules'), '.world6-visual-renderer-'))
 test.after(() => rm(directory, { recursive: true, force: true }))
-for (const file of ['abilityVisuals.ts', 'AbilityVisualEffect.tsx', 'AbilityVisualPicker.tsx', 'magicCatalog.ts']) {
+for (const file of ['abilityVisuals.ts', 'abilityVisualStyles.ts', 'AbilityVisualAura.tsx', 'AbilityVisualEffect.tsx', 'AbilityVisualPicker.tsx', 'magicCatalog.ts']) {
   const source = (await readFile('src/' + file, 'utf8')).replace("import './abilityVisuals.css'", '')
   const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText
     .replace(/(from\s+['"]\.\/[^'"]+)(['"])/g, (_, prefix, quote) => prefix.replace(/\.ts$/, '') + '.mjs' + quote)
@@ -131,4 +131,21 @@ test('Сгруппированный выбор показывает все 60 �
   assert.deepEqual(new Set(ids), new Set(abilityVisualFamilies.map(family => family.id)))
   assert.equal(select.querySelector('option[value=auto]').selected, true)
   assert.match(select.querySelector('option[value=auto]').textContent, /Магнитные полюса/)
+})
+
+
+test('VFX v2 SVG: twelve layered archetypes add distinct bounded auras and contained glow without replacing school glyphs',()=>{
+ const signatures=new Set()
+ for(const familyId of ['fire','water','electricity','wind','earth','frost','vegetation','healing','light','void','runes','resonance']){
+  const doc=documentOf(render({familyId,progress:.4})),aura=doc.querySelector('[data-vfx-layer="aura"]');assert(aura);assert(aura.querySelectorAll('*').length<70);signatures.add(aura.innerHTML)
+  const filter=doc.querySelector('filter');assert.equal(filter.getAttribute('width'),'200%');assert.equal(filter.querySelector('feGaussianBlur').getAttribute('stdDeviation'),'.045');assert(doc.querySelector('.w6-vfx-glyph'))
+  assert.equal(doc.querySelectorAll('[data-vfx-layer="trajectory"] path').length,6);assert(!/NaN|Infinity|https?:/.test(doc.querySelector('svg').innerHTML))
+ }
+ assert.equal(signatures.size,12)
+})
+
+test('VFX v2 SVG: large areas retain true contour radius and bound the central glyph independently',()=>{
+ const doc=documentOf(render({shape:'sphere',radius:1e6,scale:4,progress:.4}));assert.equal(doc.querySelector('.w6-vfx-area').getAttribute('r'),'1000000')
+ const scaled=doc.querySelector('.w6-vfx-glyph').parentElement;assert.equal(scaled.getAttribute('transform'),'scale(8.2)')
+ const preview=documentOf(render({glyphRadius:27}));assert(Math.abs(Number(preview.querySelector('.w6-vfx-glyph').parentElement.getAttribute('transform').slice(6,-1))-22.14)<1e-10)
 })

@@ -52,7 +52,7 @@ import {nearCutawayWall} from './scene3dCutaway'
 import {uniquePickTargets} from './sceneEditorPicking'
 import type {SceneContextClient} from './sceneEditorPicking'
 
-type Props = { effectTimeMs?:number;abilityAim?:SceneAbilityAim|null;focusRequest?:number;model: SceneRenderModel; selection?: RenderSelection | null; selecting?: boolean;
+type Props = { viewSettingsScope?:'ability-studio';effectTimeMs?:number;abilityAim?:SceneAbilityAim|null;focusRequest?:number;model: SceneRenderModel; selection?: RenderSelection | null; selecting?: boolean;
   onPoint?: (point: ScenePosition,options?:ScenePointOptions) => void; onSelect?: (selection: RenderSelection,options?:{extend?:boolean}) => void;
   selectionFilter?:SelectionFilter;selections?:RenderSelection[];onSelectMany?:(items:RenderSelection[])=>void;
   onMove?: (selection:RenderSelection,point:ScenePosition,options?:{surfaceId:string|null})=>boolean|void; snapStep?:number;moveSurfaces?:PlacementSurface[];
@@ -61,6 +61,7 @@ type Props = { effectTimeMs?:number;abilityAim?:SceneAbilityAim|null;focusReques
   onContext?:(selection:RenderSelection|null,point:ScenePosition|null,client:SceneContextClient)=>void;
   onRequestMove?:(selection:RenderSelection,point:ScenePosition)=>boolean|void;
   marker?: ScenePosition | null; route?: ScenePosition[]; onUnavailable?: () => void }
+const abilityStudioZoom=(aspect:number)=>Math.min(1.2,.65*aspect+Math.max(0,aspect-1)*.45)
 const vector = (p: ScenePosition) => new THREE.Vector3(p.x, p.z, p.y)
 const clipping = (a: KnownArea) => [new THREE.Plane(new THREE.Vector3(1, 0, 0), -a.x),
   new THREE.Plane(new THREE.Vector3(-1, 0, 0), a.x + a.width),
@@ -86,15 +87,17 @@ export default function Scene3D(props: Props) {
   const capture=useRef<(()=>void)|null>(null),[captureNotice,setCaptureNotice]=useState('')
   const updateSelection=useRef<((selection:RenderSelection|null)=>void)|null>(null)
   const environmentKind=sceneEnvironment(model.frame)
+  const abilityStudio=props.viewSettingsScope==='ability-studio'
   const previewEntity=!model.restricted&&selection?.kind==='token'?model.entities.find(e=>e.interaction.kind==='token'&&e.interaction.id===selection.id&&e.geometry.kind==='actor'&&e.appearance.heightKnown):undefined
   const tabletop=model.entities.some(e=>!!e.geometry.asset)
   const videoReference=isVideoTavern(model.frame.id)&&!model.restricted
-  const [quality, setQuality] = useState('balanced'), [grid, setGrid] = useState(!tabletop), [labels, setLabels] = useState(!tabletop)
+  const [quality, setQuality] = useState(abilityStudio?'high':'balanced'), [grid, setGrid] = useState(!abilityStudio&&!tabletop), [labels, setLabels] = useState(!tabletop)
   const [orthographic,setOrthographic]=useState(tabletop),[cutaway,setCutaway]=useState(true)
   const cutawayValue=useRef(cutaway),applyCutaway=useRef<(()=>void)|null>(null)
   const [failure, setFailure] = useState(''), [hover, setHover] = useState('')
   const [assetStatus,setAssetStatus]=useState('')
-  const [initialLight]=useState(()=>readViewLightSettings(environmentKind==='underground'?'night':model.title.startsWith('Полигон ·')?'day':tabletop?'tavern':'day'))
+  const lightStorageKey=props.viewSettingsScope==='ability-studio'?'grani-bytiya:vfx-studio-lighting:v1':undefined
+  const [initialLight]=useState(()=>readViewLightSettings(props.viewSettingsScope==='ability-studio'?'studio':environmentKind==='underground'?'night':model.title.startsWith('Полигон ·')?'day':tabletop?'tavern':'day',lightStorageKey))
   const [lightingMode,setLightingMode]=useState<LightingMode>(initialLight.mode),[tuning,setTuning]=useState(initialLight.tuning),[clay,setClay]=useState(false),[exposure,setExposure]=useState(initialLight.exposure)
   const exposureValue=useRef(exposure),applyExposure=useRef<((value:number)=>void)|null>(null)
   const lightingState=useRef({mode:lightingMode,tuning}),applyLighting=useRef<((mode:LightingMode,tuning:LightTuning)=>void)|null>(null)
@@ -136,7 +139,7 @@ export default function Scene3D(props: Props) {
       camera.position.copy(controls.target).add(new THREE.Vector3().fromArray(tavernReferenceShot.offset))
       camera.zoom=close?tavernReferenceShot.zoom:1;camera.updateProjectionMatrix();controls.update()
     }
-    const home = () => {if(videoReference){referenceView(false);return}controls.target.copy(center); camera.zoom=1;camera.updateProjectionMatrix();camera.position.set(center.x + span * .65, center.y + span * .62, center.z + span * .85); controls.update() }
+    const home = () => {if(videoReference){referenceView(false);return}if(abilityStudio){controls.target.set(6.5,f.groundZ+.7,5.5);camera.zoom=camera instanceof THREE.PerspectiveCamera?abilityStudioZoom(camera.aspect):1.2;camera.position.copy(controls.target).add(new THREE.Vector3(2.2,4.2,10.5));camera.updateProjectionMatrix();controls.update();return}controls.target.copy(center); camera.zoom=1;camera.updateProjectionMatrix();camera.position.set(center.x + span * .65, center.y + span * .62, center.z + span * .85); controls.update() }
     const saved = cameraState.current
     if (saved?.id === f.id) { camera.position.copy(saved.position);camera.zoom=saved.zoom;camera.updateProjectionMatrix(); controls.target.copy(saved.target); controls.update() } else if(videoReference)referenceView();else home()
     reset.current = home
@@ -167,8 +170,8 @@ export default function Scene3D(props: Props) {
     }
     const lighting=createSceneLighting(f,lightingState.current.mode,quality,model.restricted,lightingState.current.tuning,environmentKind)
     const backdrop=createSceneBackdrop(f,environmentKind,lightingState.current.mode,lightingState.current.tuning,model.restricted,quality)
-    scene.add(lighting.group,backdrop.group);renderer.setClearColor(backdrop.background)
-    if(!model.restricted&&!videoReference)scene.fog=new THREE.FogExp2(backdrop.fogColor,environmentKind==='underground'?.009:.005)
+    scene.add(lighting.group,backdrop.group);backdrop.group.visible=!abilityStudio;renderer.setClearColor(abilityStudio?'#101a28':backdrop.background)
+    if(!model.restricted&&!videoReference)scene.fog=new THREE.FogExp2(abilityStudio?'#101a28':backdrop.fogColor,environmentKind==='underground'?.009:.005)
     renderer.toneMappingExposure=lighting.exposure*exposureValue.current
     const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()
     const characters:{rig:ReturnType<typeof bindCharacterRig>;group:THREE.Group;animation:NonNullable<RenderEntity['geometry']['characterAnimation']>}[]=[]
@@ -198,21 +201,21 @@ export default function Scene3D(props: Props) {
       contactShadows.updateGtaoMaterial({radius:.28,thickness:.16,distanceExponent:1.5,distanceFallOff:1,samples:quality==='high'?12:6,screenSpaceRadius:false})
       contactShadows.updatePdMaterial({radius:quality==='high'?6:4,samples:quality==='high'?16:8,rings:2})
       contactShadows.blendIntensity=lightingState.current.tuning.contact;contactShadows.enabled=contactShadows.blendIntensity>0
-      const bloom=new UnrealBloomPass(new THREE.Vector2(512,512),.16,.32,1.05)
+      const bloom=new UnrealBloomPass(new THREE.Vector2(512,512),abilityStudio?.28:.16,.32,1.05)
       composer.addPass(beauty);composer.addPass(contactShadows);composer.addPass(bloom);composer.addPass(output);passes.push(beauty,contactShadows,bloom,output)
     }
     let assetsPending=0,assetsFailed=0,liveEmitters=0
     const assetNotice=()=>{if(!disposed)setAssetStatus(quality==='low'?'Упрощённые модели':assetsPending?'Загрузка детальной геометрии…':assetsFailed?'Часть моделей недоступна · показаны упрощённые':clay?'Геометрия без текстур':'Детальные модели')}
     const material = (color: string, opacity = 1, planes: THREE.Plane[] = []) => keep(new THREE.MeshStandardMaterial({ color,
       roughness: .85, metalness: .08, transparent: opacity < 1, opacity, clippingPlanes: planes, side: THREE.DoubleSide }))
-    const floorColor = videoReference?'#21192e':f.palette === 'forest' ? '#304f42' : f.palette === 'stone' ? '#454c5b' : '#2e3e55'
+    const floorColor = abilityStudio?'#1c2c41':videoReference?'#21192e':f.palette === 'forest' ? '#304f42' : f.palette === 'stone' ? '#454c5b' : '#2e3e55'
     const outlines:{helper:THREE.BoxHelper;target:THREE.Object3D}[]=[],anchors=new Map<string,THREE.Object3D>()
     const pickables: THREE.Object3D[] = [], groundMeshes: THREE.Mesh[] = [], labelElements: { node: HTMLSpanElement; position: THREE.Vector3; anchor?:THREE.Object3D; offset:number }[] = []
     function floor(a: KnownArea) {
       if (f.groundZ < a.z || f.groundZ > a.z + a.height) return
       const mesh = new THREE.Mesh(keep(new THREE.PlaneGeometry(a.width, a.depth)), material(a.visible ? floorColor : '#292e3d'))
       mesh.rotation.x = -Math.PI / 2; mesh.position.set(a.x + a.width / 2, f.groundZ, a.y + a.depth / 2)
-      if(quality!=='low'&&!clay&&!videoReference){
+      if(quality!=='low'&&!clay&&!videoReference&&!abilityStudio){
         const uv=mesh.geometry.getAttribute('uv'),p=mesh.geometry.getAttribute('position')
         for(let i=0;i<p.count;i++)uv.setXY(i,(p.getX(i)+mesh.position.x)/3,(-p.getY(i)+mesh.position.z)/3)
         surfaceLibrary.apply(mesh.material as THREE.MeshStandardMaterial,f.palette==='forest'?'forest':'paving')
@@ -301,7 +304,7 @@ export default function Scene3D(props: Props) {
     const reducedMotion=typeof window.matchMedia==='function'&&window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let vfx:ReturnType<typeof createSceneAbilityEffect>[]=[],vfxVisuals:SceneAbilityVisual[]=[],vfxLast:number|undefined,vfxSignature=''
     const controlledVfx=()=>latest.current.effectTimeMs!==undefined&&Number.isFinite(latest.current.effectTimeMs)
-    const vfxNeedsMotion=()=>!controlledVfx()&&effectSettings.current.enabled&&!effectSettings.current.paused&&effectPlayback.active
+    const vfxNeedsMotion=()=>vfx.length>0&&!controlledVfx()&&effectSettings.current.enabled&&!effectSettings.current.paused&&(effectPlayback.active||!reducedMotion&&effectPlayback.hasAmbient)
     const visibleAreas=model.areas.filter(a=>a.visible)
     function setEffects(visuals:SceneAbilityVisual[],replay=false){
       effectPlayback.sync(f.id,visuals,replay)
@@ -350,7 +353,7 @@ export default function Scene3D(props: Props) {
       updateAxes()
       const vfxNow=performance.now()
       if(vfxNeedsMotion()&&document.visibilityState==='visible'){if(vfxLast!==undefined)effectPlayback.advance(Math.min(100,Math.max(0,vfxNow-vfxLast)));vfxLast=vfxNow}else vfxLast=undefined
-      vfx.forEach((entry,i)=>{const visual=vfxVisuals[i],elapsed=controlledVfx()?Math.max(0,latest.current.effectTimeMs!):effectPlayback.elapsed(visual.id),sample=effectPlayback.sample(visual,reducedMotion,controlledVfx()?elapsed:undefined);entry.update({...sample,visible:sample.visible&&effectSettings.current.enabled},reducedMotion?0:elapsed/1000)})
+      vfx.forEach((entry,i)=>{const visual=vfxVisuals[i],elapsed=controlledVfx()?Math.max(0,latest.current.effectTimeMs!):effectPlayback.elapsed(visual.id),sample=effectPlayback.sample(visual,reducedMotion,controlledVfx()?elapsed:undefined),time=controlledVfx()?elapsed:effectPlayback.presentationMs(visual.id);entry.update({...sample,visible:sample.visible&&effectSettings.current.enabled},reducedMotion?0:time/1000)})
       backdrop.update(camera)
       lighting.update(camera,controls.target)
       const moving=animationValue.current&&document.visibilityState==='visible',visualTime=performance.now()/1000
@@ -398,7 +401,7 @@ export default function Scene3D(props: Props) {
     }
     applyExposure.current=value=>{renderer.toneMappingExposure=value*lighting.exposure;requestDraw()}
     applyLighting.current=(mode,t)=>{
-      lighting.configure(mode,t);backdrop.configure(mode,t);renderer.setClearColor(backdrop.background);if(scene.fog)scene.fog.color.set(backdrop.fogColor)
+      lighting.configure(mode,t);backdrop.configure(mode,t);renderer.setClearColor(abilityStudio?'#101a28':backdrop.background);if(scene.fog)scene.fog.color.set(abilityStudio?'#101a28':backdrop.fogColor)
       renderer.toneMappingExposure=exposureValue.current*lighting.exposure;scene.environmentIntensity=lighting.environmentIntensity
       if(contactShadows){contactShadows.blendIntensity=t.contact;contactShadows.enabled=t.contact>0}
       resources.forEach(resource=>{if(resource instanceof THREE.MeshStandardMaterial&&resource.userData.lightEmitter)setEmitterIntensity(resource,(mode==='night'?3:1.3)*t.lamps)})
@@ -423,7 +426,7 @@ export default function Scene3D(props: Props) {
     }
     updateSelection.current(latest.current.selection??null)
     controls.addEventListener('change', requestDraw)
-    const resize = () => { const width = element.clientWidth, height = element.clientHeight; if (!width || !height){applyMotion.current?.();return;} if(camera instanceof THREE.OrthographicCamera){camera.left=-span*.58*width/height;camera.right=-camera.left;camera.top=span*.58;camera.bottom=-camera.top}else camera.aspect=width/height; camera.updateProjectionMatrix(); renderer.setSize(width, height);composer?.setSize(width,height);const scale=quality==='high'?.5:.35;contactShadows?.setSize(Math.max(1,Math.round(renderer.domElement.width*scale)),Math.max(1,Math.round(renderer.domElement.height*scale)));requestDraw();applyMotion.current?.() }
+    const resize = () => { const width = element.clientWidth, height = element.clientHeight; if (!width || !height){applyMotion.current?.();return;} if(camera instanceof THREE.OrthographicCamera){camera.left=-span*.58*width/height;camera.right=-camera.left;camera.top=span*.58;camera.bottom=-camera.top}else {camera.aspect=width/height;if(abilityStudio)camera.zoom=abilityStudioZoom(camera.aspect)} camera.updateProjectionMatrix(); renderer.setSize(width, height);composer?.setSize(width,height);const scale=quality==='high'?.5:.35;contactShadows?.setSize(Math.max(1,Math.round(renderer.domElement.width*scale)),Math.max(1,Math.round(renderer.domElement.height*scale)));requestDraw();applyMotion.current?.() }
     const observer = new ResizeObserver(resize); observer.observe(element); resize()
     const raycaster = new THREE.Raycaster(), cursor = new THREE.Vector2()
     function hits(event: Pick<PointerEvent,'clientX'|'clientY'>) {
@@ -743,7 +746,7 @@ export default function Scene3D(props: Props) {
       characters.forEach(c=>c.rig.dispose());passes.forEach(pass=>pass.dispose());composer?.dispose();lighting.dispose();backdrop.dispose();assetLibrary.dispose();surfaceLibrary.dispose();environment?.dispose();generator?.dispose();resources.forEach(v => v.dispose());renderer.dispose();canvas.remove();labelElements.forEach(v => v.node.remove())
     }
     // Changing a callback alone must not rebuild GPU resources or reset the camera.
-  }, [constructionModel, quality, grid, labels,clay,orthographic,tabletop,videoReference,environmentKind,effectPlayback])
+  }, [constructionModel, quality, grid, labels,clay,orthographic,tabletop,videoReference,environmentKind,effectPlayback,abilityStudio])
   useEffect(()=>{applyGuides.current?.(marker??null,route??[])},[guidesJSON])
   useEffect(()=>{applyEffects.current?.(model.visuals)},[model.visuals])
   useEffect(()=>{applyAim.current?.(props.abilityAim??null)},[props.abilityAim])
@@ -756,7 +759,7 @@ export default function Scene3D(props: Props) {
   useEffect(()=>{cutawayValue.current=cutaway;applyCutaway.current?.()},[cutaway])
   useEffect(()=>{exposureValue.current=exposure;applyExposure.current?.(exposure)},[exposure])
   useEffect(()=>{lightingState.current={mode:lightingMode,tuning};applyLighting.current?.(lightingMode,tuning)},[lightingMode,tuning])
-  useEffect(()=>{saveViewLightSettings({version:1,mode:lightingMode,tuning,exposure})},[lightingMode,tuning,exposure])
+  useEffect(()=>{saveViewLightSettings({version:1,mode:lightingMode,tuning,exposure},lightStorageKey)},[lightingMode,tuning,exposure,lightStorageKey])
   useEffect(()=>{updateSelection.current?.(selection??null);applyCutaway.current?.()},[selection,props.selections,props.gizmo,props.editorHidden,props.editorProtected])
   useEffect(()=>{applyMotion.current?.()},[props.editorHidden])
   useEffect(()=>{if(props.focusRequest)cameraAction.current?.('focus')},[props.focusRequest])
@@ -796,7 +799,7 @@ export default function Scene3D(props: Props) {
       <button className="w6-button" type="button" onClick={()=>{setTuning(defaultLightTuning(lightingMode));setExposure(1)}}>Сбросить свет</button>
     </div><p>Настройки сохраняются в этом браузере и меняют только вид сцены.</p></details>
     {previewEntity&&<SceneCharacterPreview key={JSON.stringify([model.frame.id,previewEntity.interaction.kind,previewEntity.interaction.id,previewEntity.geometry.characterAnimation??'idle'])} frameId={model.frame.id} target={'token:'+previewEntity.interaction.id} label={previewEntity.identity.label} animation={previewEntity.geometry.characterAnimation??'idle'} onFrame={previewFrame}/>}
-    <div className="gb-3d-canvas" data-environment={environmentKind} ref={host}><SceneAtmosphere environment={environmentKind} night={lightingMode==='night'}/></div>{measurement&&<output className="gb-ruler-readout">↔ {measurement}</output>}
+    <div className="gb-3d-canvas" data-environment={environmentKind} ref={host}>{!abilityStudio&&<SceneAtmosphere environment={environmentKind} night={lightingMode==='night'}/>}</div>{measurement&&<output className="gb-ruler-readout">↔ {measurement}</output>}
     {failure && <p role="alert" className="gb-scene-state">{failure}</p>}
     <p className="gb-map-caption">{props.brush?`${props.brush.mode==='measure'?'ЛКМ и тяни — измерить расстояние':props.brush.mode==='wall'?'ЛКМ и тяни — построить стену':props.brush.mode==='room'?'ЛКМ и тяни — построить комнату':props.brush.mode==='rectangle'?'ЛКМ и тяни — заполнить прямоугольник':'Зажми ЛКМ — рисовать пол'} · Esc — отмена · Alt+ЛКМ — камера`:props.onMove?'ЛКМ — перенос · Shift во время переноса — точно, без сетки · Esc — отмена · Alt+ЛКМ — камера':'ЛКМ — выбор · перетаскивание — поворот'} · ПКМ/СКМ — сдвиг · колесо — масштаб · F — к выбранному · 1/2/3 — виды. XYZ в метрах. {hover}</p>
   </div>

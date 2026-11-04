@@ -1,9 +1,10 @@
-import { useEffect, useId, useState } from 'react'
+import { lazy,Suspense,useEffect, useId, useState } from 'react'
 import AbilityVisualEffect from './AbilityVisualEffect'
 import { abilityVisualDefaults, abilityVisualFamilies, abilityVisualFamilyById, abilityVisualPhases, resolveAbilityVisual } from './abilityVisuals'
 import type { AbilityVisualPhase, AbilityVisualShape, AbilityVisualSource, AbilityVisualSpec } from './abilityVisuals'
 import { magicGroups, magicSchools } from './magicCatalog'
 import './abilityVisuals.css'
+const AbilityVisualStudio=lazy(()=>import('./AbilityVisualStudio'))
 
 const visualFamilyGroups = magicGroups.map(group => ({ ...group, families: abilityVisualFamilies.filter(family =>
   magicSchools.some(school => school.group === group.id && school.name === family.schoolLabel.split(' · ')[0])) }))
@@ -15,13 +16,15 @@ export type AbilityVisualPickerProps = {
   basisSchoolId?: string
   mechanism?: string
   shape?: AbilityVisualShape
+  previewMode?:'2d'|'3d'
 }
-export default function AbilityVisualPicker({ value, onChange, schoolId, basisSchoolId, mechanism, shape = 'point' }: AbilityVisualPickerProps) {
+export default function AbilityVisualPicker({ value, onChange, schoolId, basisSchoolId, mechanism, shape = 'point',previewMode='2d' }: AbilityVisualPickerProps) {
   const fieldId = 'visual-' + useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const [phase, setPhase] = useState<AbilityVisualPhase>('impact')
   const [paused, setPaused] = useState(false)
   const [autoPlay, setAutoPlay] = useState(false)
   const [replay, setReplay] = useState(0)
+  const [mode,setMode]=useState(previewMode)
   const source: AbilityVisualSource = { schoolId, basisSchoolId, mechanism }
   const inferred = resolveAbilityVisual(source)
   const selected = value ?? inferred
@@ -30,20 +33,20 @@ export default function AbilityVisualPicker({ value, onChange, schoolId, basisSc
   const intensity = selected.intensity ?? abilityVisualDefaults.intensity
   const durationMs = selected.durationMs ?? abilityVisualDefaults.durationMs
   useEffect(() => {
-    if (!autoPlay || paused || !family) return
+    if (mode==='3d'||!autoPlay || paused || !family) return
     const timer = setTimeout(() => setPhase(current => {
       const index = abilityVisualPhases.findIndex(item => item.id === current)
       return abilityVisualPhases[(index + 1) % abilityVisualPhases.length].id
     }), durationMs)
     return () => clearTimeout(timer)
-  }, [autoPlay, paused, family, phase, durationMs, replay])
+  }, [autoPlay, paused, family, phase, durationMs, replay,mode])
   function configure(patch: Partial<AbilityVisualSpec>) { onChange({ ...selected, ...patch }) }
   function replayPreview() {
     setPaused(false)
     setReplay(current => current + 1)
     if (autoPlay) setPhase('preparation')
   }
-  return <fieldset className="w6-visual-picker"><legend>Визуальный эффект способности</legend>
+  return <fieldset className="w6-visual-picker" data-preview={mode}><legend>Визуальный эффект способности</legend>
     <div className="w6-visual-picker-layout">
       <div className="w6-visual-picker-settings">
         <label htmlFor={fieldId + '-family'}>Оформление эффекта
@@ -72,6 +75,8 @@ export default function AbilityVisualPicker({ value, onChange, schoolId, basisSc
         </>}
       </div>
       <figure className="w6-visual-preview">
+        {family&&<div className="w6-vfx-view-switch" aria-label="Вид предпросмотра"><button type="button" aria-pressed={mode==='2d'} onClick={()=>setMode('2d')}>Схема</button><button type="button" aria-pressed={mode==='3d'} onClick={()=>setMode('3d')}>3D-эффект</button></div>}
+        {family&&mode==='3d'?<Suspense fallback={<p role="status">Загружаем 3D-мастерскую…</p>}><AbilityVisualStudio spec={selected} shape={shape}/></Suspense>:<>
         {family && <div className="w6-visual-phase-list" aria-label="Стадии эффекта">{abilityVisualPhases.map(item =>
           <button key={item.id} type="button" aria-pressed={phase === item.id} onClick={() => { setAutoPlay(false); setPhase(item.id); setReplay(current => current + 1) }}>{item.label}</button>)}</div>}
         <svg viewBox="0 0 300 200" role="img" aria-label={family ? `Предпросмотр: ${family.name}, ${abilityVisualPhases.find(item => item.id === phase)?.label}` : 'Предпросмотр: без анимации'}>
@@ -84,7 +89,7 @@ export default function AbilityVisualPicker({ value, onChange, schoolId, basisSc
             <path d="M-5 5Q0-2 5 5" fill={index ? '#ba9db3' : '#d7bf99'}/>
           </g>)}
           {family && <AbilityVisualEffect key={replay + '-' + selected.familyId + '-' + phase} familyId={selected.familyId}
-            start={{ x: 80, y: 100 }} end={{ x: 220, y: 100 }} phase={phase} shape={shape} radius={13}
+            start={{ x: 80, y: 100 }} end={{ x: 220, y: 100 }} phase={phase} shape={shape} radius={24} glyphRadius={27}
             coneAngleDeg={50} scale={scale} intensity={intensity} durationMs={durationMs} paused={paused}/>}
           <text x="80" y="180" textAnchor="middle" fill="#b7a992" fontSize="10">Источник</text>
           <text x="220" y="180" textAnchor="middle" fill="#b7a0b4" fontSize="10">Цель</text>
@@ -93,7 +98,7 @@ export default function AbilityVisualPicker({ value, onChange, schoolId, basisSc
           <button type="button" onClick={() => setPaused(current => !current)}>{paused ? 'Продолжить' : 'Пауза'}</button>
           <button type="button" onClick={replayPreview}>Повторить</button>
           <button type="button" aria-pressed={autoPlay} onClick={() => { setAutoPlay(current => !current); setPaused(false); setPhase('preparation') }}>{autoPlay ? 'Остановить смену стадий' : 'Показать все стадии'}</button>
-        </div>}
+        </div>}</>}
         <figcaption>Предпросмотр оформления. Радиус, дальность и момент применения задаются параметрами способности и событиями сцены.</figcaption>
       </figure>
     </div>

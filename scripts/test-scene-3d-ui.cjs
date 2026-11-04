@@ -1,10 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript')
 const {pathToFileURL}=require('node:url')
 const {JSDOM}=require('jsdom'),React=require('react'),{act}=React
-const dom=new JSDOM('<div id="root"></div>',{url:'https://world6.example.test/'})
+const dom=new JSDOM('<div id="root"></div>',{url:'https://world6.example.test/'}),resizeCallbacks=new Set()
 Object.assign(global,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true,
  requestAnimationFrame:fn=>setTimeout(fn,0),cancelAnimationFrame:clearTimeout,
- ResizeObserver:class{observe(){}disconnect(){}}})
+ ResizeObserver:class{constructor(callback){this.callback=callback;resizeCallbacks.add(callback)}observe(){}disconnect(){resizeCallbacks.delete(this.callback)}}})
 Object.defineProperty(dom.window.HTMLElement.prototype,'clientWidth',{configurable:true,get:()=>900})
 Object.defineProperty(dom.window.HTMLElement.prototype,'clientHeight',{get:()=>600})
 dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({x:0,y:0,left:0,top:0,width:900,height:600,right:900,bottom:600})
@@ -893,4 +893,62 @@ test('Способности SVG: отдельные часы игроков, п
   await flush(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});document.dispatchEvent(new dom.window.Event('visibilitychange'))});await step(100000);assert.equal(phase('water'),'travel')
   options={enabled:false};await flush(render);assert.equal(document.querySelector('[data-vfx-family]'),null);assert.equal(callbacks.size,0);options={};await flush(render);assert.equal(phase('water'),'travel');assert.equal(phase('fire'),undefined)
  }finally{await flush(()=>root.render(null));window.requestAnimationFrame=originalRAF;window.cancelAnimationFrame=originalCancel;Object.defineProperty(document,'visibilityState',{configurable:true,value:visibility})}
+})
+
+
+test('Мастерская VFX: отдельный свет, реальные персонажи, стадии и кадр сохраняют renderer и камеру',async()=>{
+ await flush(()=>root.render(null));props={};const Studio=load('AbilityVisualStudio').default,spec={familyId:'fire',scale:1,intensity:1,durationMs:2000},saved=JSON.stringify({version:1,mode:'night',tuning:load('scene3dViewSettings').defaultLightTuning('night'),exposure:1.2});window.localStorage.setItem('grani-bytiya:3d-lighting:v1',saved);window.localStorage.removeItem('grani-bytiya:vfx-studio-lighting:v1')
+ const render=spec=>root.render(React.createElement(Studio,{spec,shape:'point'}))
+ try{
+  await flush(()=>render(spec));await flush();const r=instances.at(-1),camera=r.camera.position.clone(),effect=r.scene.getObjectByName('ability-effect:studio-fire-point');assert(effect?.visible);assert.equal(document.querySelector('[aria-label="Качество 3D"]').value,'high');assert.equal(r.scene.getObjectByName('scene-backdrop').visible,false)
+  assert.equal(window.localStorage.getItem('grani-bytiya:3d-lighting:v1'),saved);assert.equal(JSON.parse(window.localStorage.getItem('grani-bytiya:vfx-studio-lighting:v1')).mode,'studio')
+  const characters=[];r.scene.traverse(o=>{if(o.userData.selection?.kind==='token')characters.push(o)});assert(characters.length>=2)
+  await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Распространение').click());assert.equal(instances.at(-1),r);assert.equal(r.scene.getObjectByName('ability-effect:studio-fire-point'),effect);assert(r.camera.position.equals(camera));assert(effect.position.distanceTo(new THREE.Vector3(6.5,0,5.5))<1e-6)
+  await flush(()=>render({...spec,familyId:'water'}));assert.equal(instances.at(-1),r);assert(r.scene.getObjectByName('ability-effect:studio-water-point'));assert(!r.scene.getObjectByName('ability-effect:studio-fire-point'));assert.equal(document.querySelector('[aria-label="Кадр 3D-эффекта"]').value,'475')
+  const host=document.querySelector('.gb-3d-canvas');Object.defineProperty(host,'clientWidth',{configurable:true,value:240});Object.defineProperty(host,'clientHeight',{configurable:true,value:384});await flush(()=>resizeCallbacks.forEach(callback=>callback()));await flush();assert.equal(instances.at(-1),r);for(const x of [3,10,12.6]){const projected=new THREE.Vector3(x,.9,5.5).project(r.camera);assert(Math.abs(projected.x)<.95,'both figures and the impact halo fit a narrow preview')}
+ }finally{await flush(()=>root.render(null));window.localStorage.clear()}
+})
+
+test('Мастерская VFX: воспроизведение, пауза, скрытая вкладка и завершение сохраняют один процесс',async()=>{
+ await flush(()=>root.render(null));props={};const Studio=load('AbilityVisualStudio').default,spec={familyId:'healing',durationMs:1000},raf=window.requestAnimationFrame,cancel=window.cancelAnimationFrame,visibility=document.visibilityState,callbacks=new Map();let serial=0
+ window.requestAnimationFrame=fn=>{const id=++serial;callbacks.set(id,fn);return id};window.cancelAnimationFrame=id=>callbacks.delete(id);Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
+ const button=label=>[...document.querySelectorAll('button')].find(b=>b.textContent===label),step=async now=>flush(()=>{const batch=[...callbacks.values()];callbacks.clear();batch.forEach(fn=>fn(now))}),slider=()=>document.querySelector('[aria-label="Кадр 3D-эффекта"]')
+ try{
+  await flush(()=>root.render(React.createElement(Studio,{spec,shape:'sphere'})));await flush();const r=instances.at(-1)
+  await flush(()=>button('С начала').click());await step(0);await step(100);await step(200);assert.equal(slider().value,'200')
+  await flush(()=>button('Пауза просмотра').click());assert.equal(callbacks.size,0);await step(5000);assert.equal(slider().value,'200')
+  await flush(()=>button('Воспроизвести эффект').click());await step(5000);await step(5100);assert.equal(slider().value,'300')
+  await flush(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});document.dispatchEvent(new dom.window.Event('visibilitychange'))});assert.equal(callbacks.size,0)
+  await flush(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});document.dispatchEvent(new dom.window.Event('visibilitychange'))});await step(100000);assert.equal(slider().value,'300')
+  for(let i=1;i<=7;i++)await step(100000+i*100);await flush();assert.equal(slider().value,'1000');assert.equal(callbacks.size,0);assert(button('Воспроизвести эффект'));assert(!r.scene.getObjectByName('ability-effect:studio-healing-sphere').visible);assert.equal(instances.at(-1),r)
+  await flush(()=>[...document.querySelectorAll('label')].find(l=>l.textContent==='Повторять цикл').querySelector('input').click());await flush(()=>button('С начала').click());await step(200000);for(let i=1;i<=11;i++)await step(200000+i*100);assert.equal(slider().value,'100');assert(button('Пауза просмотра'));assert.equal(instances.at(-1),r)
+ }finally{await flush(()=>root.render(null));window.requestAnimationFrame=raf;window.cancelAnimationFrame=cancel;Object.defineProperty(document,'visibilityState',{configurable:true,value:visibility});window.localStorage.clear()}
+})
+
+test('Мастерская VFX: потеря WebGL показывает управляемую схему и освобождает renderer',async()=>{
+ await flush(()=>root.render(null));props={};const Studio=load('AbilityVisualStudio').default
+ try{
+  await flush(()=>root.render(React.createElement(Studio,{spec:{familyId:'frost',durationMs:2000},shape:'cone'})));await flush();const r=instances.at(-1)
+  await flush(()=>r.domElement.dispatchEvent(new dom.window.Event('webglcontextlost',{cancelable:true})));assert(document.body.textContent.includes('Кадр эффекта показан на схеме'));assert(document.querySelector('[aria-label="Резервный просмотр эффекта"]'));assert(r.disposed)
+  await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Подготовка').click());assert(document.querySelector('[data-vfx-family="frost"]'));assert.equal(document.querySelector('[data-vfx-family="frost"]').dataset.vfxPhase,'preparation')
+ }finally{await flush(()=>root.render(null));window.localStorage.clear()}
+})
+
+test('VFX в сцене: подготовка и длительное воздействие движутся, пауза останавливает фоновые кадры',async()=>{
+ await flush(()=>root.render(null));props={};const {createScene,emptyScenes}=load('scenes'),scene=createScene(emptyScenes(),'ambient-ability','Живой заряд','top').scenes[0],visual={id:'held-water',spec:{familyId:'water',durationMs:1000},start:{x:4,y:4,z:0},end:{x:8,y:8,z:0},phase:'preparation',shape:'point',radius:1,coneAngleDeg:45},model=masterRenderModel(scene,[],[visual]),visibility=document.visibilityState
+ Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
+ try{
+  await mount({model});const r=instances.at(-1),before=r.frames;await act(async()=>{await new Promise(resolve=>setTimeout(resolve,180))});assert(r.frames>before)
+  await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Пауза эффектов').click());await flush();const stopped=r.frames;await act(async()=>{await new Promise(resolve=>setTimeout(resolve,120))});assert.equal(r.frames,stopped)
+ }finally{await flush(()=>root.render(null));Object.defineProperty(document,'visibilityState',{configurable:true,value:visibility})}
+})
+
+
+test('VFX в сцене: уменьшенное движение оставляет подготовку неподвижной и не запускает скрытый цикл кадров',async()=>{
+ await flush(()=>root.render(null));props={};const {createScene,emptyScenes}=load('scenes'),scene=createScene(emptyScenes(),'reduced-ambient','Тихий эффект','top').scenes[0],visual={id:'reduced-fire',spec:{familyId:'fire'},start:{x:4,y:4,z:0},end:{x:8,y:8,z:0},phase:'preparation',shape:'point',radius:1,coneAngleDeg:45},visibility=document.visibilityState,matchMedia=window.matchMedia
+ Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});window.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}})
+ try{
+  await mount({model:masterRenderModel(scene,[],[visual])});const r=instances.at(-1),before=r.frames;assert(r.scene.getObjectByName('ability-effect:reduced-fire').visible)
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,130))});assert.equal(r.frames,before)
+ }finally{await flush(()=>root.render(null));window.matchMedia=matchMedia;Object.defineProperty(document,'visibilityState',{configurable:true,value:visibility})}
 })

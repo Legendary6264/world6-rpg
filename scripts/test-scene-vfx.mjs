@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import {createSceneAbilityEffect} from '../src/scene3dAbilityEffects.ts'
+import {abilityVisualStyle} from '../src/abilityVisualStyles.ts'
 import {abilityVisualFamilies,abilityVisualPhases} from '../src/abilityVisuals.ts'
 
 const example={id:'mesh-effect',spec:{familyId:'fire',scale:1,intensity:1},start:{x:1,y:2,z:3},end:{x:9,y:2,z:3},phase:'sequence',shape:'point',radius:2,coneAngleDeg:60}
@@ -23,7 +24,7 @@ test('Ability VFX: every family has finite actual geometry, bounded instancing a
     assert(o.material.opacity>=0&&o.material.opacity<=1)
     if(o.isMesh)triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3*(o.isInstancedMesh?o.count:1)
    })
-   assert(drawObjects<10&&triangles<2500,family.id+' bounded render cost')
+   assert(drawObjects<=(low?7:12)&&triangles<(low?1000:4000),family.id+' bounded render cost')
    assert.equal(new THREE.Raycaster(group.position.clone().add(new THREE.Vector3(0,10,0)),new THREE.Vector3(0,-1,0)).intersectObject(group,true).length,0,family.id+' never steals a click')
   }
   assert(group.getObjectByName('ability-particles:'+group.children[0].name.split(':')[1]))
@@ -123,14 +124,61 @@ test('Ability VFX: impact contact stays on the specified floor, fades, clips and
  }
 })
 
-test('Ability VFX: opt-in light/contact resources detach and dispose once without increasing low quality draw cost',()=>{
+test('Ability VFX: opt-in light/contact resources detach and dispose once stay within both quality budgets',()=>{
  for(const low of [false,true]){
   const effect=createSceneAbilityEffect(example,{low,light:true,groundZ:3}),scene=new THREE.Scene();scene.add(effect.group);sample(effect,'impact',.4)
   let drawObjects=0;effect.group.traverse(o=>{if(o.isMesh||o.isLine)drawObjects++})
-  assert.equal(drawObjects,low?5:7)
+  assert.equal(drawObjects,low?7:11)
   const objects=resources(effect.group),released=new Map(),flash=effect.group.getObjectByName('ability-flash')
   objects.forEach(o=>o.addEventListener('dispose',()=>released.set(o,(released.get(o)??0)+1)))
   effect.dispose();effect.dispose();assert.equal(effect.group.parent,null);assert.equal(released.size,objects.size);assert([...released.values()].every(n=>n===1))
   if(flash){assert.equal(flash.parent,null);assert(!flash.visible);assert.equal(flash.intensity,0)}
+ }
+})
+
+
+test('Ability VFX v2: sixty profiles cover twelve distinct silhouettes and never return mutable shared presets',()=>{
+ const styles=abilityVisualFamilies.map(f=>abilityVisualStyle(f.id));assert.equal(new Set(styles.map(s=>s.archetype)).size,12)
+ for(const style of styles){assert(Object.values(style).every(v=>typeof v!=='number'||Number.isFinite(v)));assert(style.ribbons>=2&&style.ribbons<=4);assert(style.turns>0&&style.spread>0)}
+ const fresh=abilityVisualStyle('fire');fresh.turns=999;assert.notEqual(abilityVisualStyle('fire').turns,999)
+ assert.notDeepEqual(abilityVisualStyle('fire'),abilityVisualStyle('embers'));assert.notDeepEqual(abilityVisualStyle('water'),abilityVisualStyle('mist'));assert.notDeepEqual(abilityVisualStyle('wind'),abilityVisualStyle('cyclone'))
+ for(const id of ['__proto__','constructor','unknown'])assert.equal(abilityVisualStyle(id).archetype,'sigil')
+})
+
+test('Ability VFX v2: maximum density, spatial shells and ground contact stay under explicit geometry budgets',()=>{
+ for(const family of abilityVisualFamilies)for(const low of [false,true])for(const shape of ['point','sphere','beam','cone']){
+  const effect=createSceneAbilityEffect({...example,spec:{familyId:family.id,intensity:2,scale:4},shape,end:{x:9,y:2,z:0}},{low,groundZ:0});sample(effect,'impact',.4)
+  let draws=0,triangles=0;effect.group.traverse(o=>{if(o.isMesh||o.isLine)draws++;if(o.isMesh)triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3*(o.isInstancedMesh?o.count:1)})
+  assert(draws<=(low?7:12),family.id+' '+shape+' bounded draws');assert(triangles<(low?1000:4000),family.id+' '+shape+' bounded triangles')
+  assert.equal(!!effect.group.getObjectByName('ability-field:'+shape),!low&&shape!=='point');effect.dispose()
+ }
+})
+
+test('Ability VFX v2: surfaces retain Three clipping/instancing/color-space chunks and receive deterministic uniforms',()=>{
+ const plane=new THREE.Plane(new THREE.Vector3(1,0,0),-5)
+ for(const familyId of ['fire','water','electricity','wind','earth','frost','vegetation','healing','light','void','runes','resonance']){
+  const effect=createSceneAbilityEffect({...example,spec:{familyId},shape:'sphere'},{low:false,clippingPlanes:[plane]}),shaders=[]
+  effect.group.traverse(o=>{if(o.material?.userData.proceduralSurface){const shader={vertexShader:THREE.ShaderLib.basic.vertexShader,fragmentShader:THREE.ShaderLib.basic.fragmentShader,uniforms:{}};o.material.onBeforeCompile(shader,{});shaders.push(shader);assert(o.material.toneMapped);assert.deepEqual(o.material.clippingPlanes,[plane]);assert(shader.vertexShader.includes('#include <clipping_planes_vertex>'));assert(shader.fragmentShader.includes('#include <clipping_planes_fragment>'));assert(shader.fragmentShader.includes('#include <colorspace_fragment>'));assert(shader.vertexShader.includes('USE_INSTANCING'));assert(!/https?:|sampler2D/.test(shader.fragmentShader.replaceAll('#include <common>','')))}})
+  assert(shaders.length>=4);sample(effect,'impact',.3,12.5)
+  for(const shader of shaders){assert.equal(shader.uniforms.fxTime.value,12.5);assert(Number.isFinite(shader.uniforms.fxStyle.value));assert(shader.uniforms.fxPower.value<=2)}
+  sample(effect,'impact',.3,12.5);effect.dispose()
+ }
+})
+
+test('Ability VFX v2: ribbons have nonzero surface width, animate without reallocating buffers and respect pause samples',()=>{
+ for(const familyId of ['fire','water','electricity','wind','healing','void']){
+  const effect=build({spec:{familyId}});sample(effect,'travel',.45,1)
+  const ribbon=effect.group.getObjectByName('ability-ribbons:'+abilityVisualStyle(familyId).archetype),geometry=ribbon.geometry,buffer=geometry.attributes.position.array,first=Array.from(buffer)
+  assert(geometry.index.count>0);assert(first.every(Number.isFinite));assert(first.some((n,i)=>i>=3&&n!==first[i-3]))
+  sample(effect,'travel',.45,1);assert.deepEqual(Array.from(buffer),first,'paused frame is deterministic');sample(effect,'travel',.45,2);assert.notDeepEqual(Array.from(buffer),first,'flow changes over presentation time');assert.equal(ribbon.geometry,geometry);assert.equal(geometry.attributes.position.array,buffer)
+  effect.dispose()
+ }
+})
+
+test('Ability VFX v2: filled sphere/beam/cone surfaces match authoritative bounds at all visual scales',()=>{
+ for(const shape of ['sphere','beam','cone'])for(const scale of [.25,4]){
+  const effect=build({shape,spec:{familyId:'water',scale}});sample(effect,'impact')
+  const field=effect.group.getObjectByName('ability-field:'+shape),wire=effect.group.getObjectByName('ability-volume:'+shape),a=new THREE.Box3().setFromObject(field,true),b=new THREE.Box3().setFromObject(wire,true)
+  assert(field.visible);assert(a.min.distanceTo(b.min)<1e-5,shape+' field min');assert(a.max.distanceTo(b.max)<1e-5,shape+' field max');assert(field.material.opacity<=.16);effect.dispose()
  }
 })

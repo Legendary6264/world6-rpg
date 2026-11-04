@@ -1,4 +1,6 @@
 import { useId } from 'react'
+import AbilityVisualAura from './AbilityVisualAura'
+import {abilityVisualStyle} from './abilityVisualStyles'
 import type { CSSProperties, ReactNode } from 'react'
 import { abilityVisualAnchor, abilityVisualDefaults, abilityVisualFamilyById } from './abilityVisuals'
 import type { AbilityVisualFamilyId, AbilityVisualParticle, AbilityVisualPhase, AbilityVisualPoint, AbilityVisualShape } from './abilityVisuals'
@@ -11,6 +13,7 @@ export type AbilityVisualEffectProps = {
   phase?: AbilityVisualPhase
   shape?: AbilityVisualShape
   radius?: number
+  glyphRadius?: number
   coneAngleDeg?: number
   scale?: number
   intensity?: number
@@ -342,14 +345,15 @@ function Particle({ kind }: { kind: AbilityVisualParticle }): ReactNode {
 }
 
 /** Render inside an existing SVG. The caller owns playback events and visible-area clipping. */
-export default function AbilityVisualEffect({ familyId, start, end, phase = 'impact', shape = 'point', radius,
+export default function AbilityVisualEffect({ familyId, start, end, phase = 'impact', shape = 'point', radius, glyphRadius,
   coneAngleDeg, scale, intensity, durationMs, paused = false, reducedMotion = false, progress }: AbilityVisualEffectProps) {
   const gradientId = 'w6-vfx-' + useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const family = abilityVisualFamilyById(familyId)
   if (!family || ![start.x, start.y, end.x, end.y].every(Number.isFinite)) return null
   const duration = limit(durationMs, abilityVisualDefaults.durationMs, 500, 10000)
   const areaRadius = limit(radius, 1, .001, 1e6)
-  const size = areaRadius * limit(scale, 1, .25, 4)
+  const size = limit(glyphRadius,Math.min(areaRadius,2.5),.001,100) * limit(scale, 1, .25, 4)
+  const visualStyle=abilityVisualStyle(familyId)
   const power = limit(intensity, 1, .25, 2)
   const dx = end.x - start.x, dy = end.y - start.y, length = Math.hypot(dx, dy), angle = Math.atan2(dy, dx) * 180 / Math.PI
   const moving = phase === 'travel' && progress === undefined
@@ -362,9 +366,14 @@ export default function AbilityVisualEffect({ familyId, start, end, phase = 'imp
     '--vfx-duration': duration + 'ms', '--vfx-dx': dx + 'px', '--vfx-dy': dy + 'px',
     '--vfx-mid-x': dx / 2 + 'px', '--vfx-mid-y': dy / 2 + 'px',
   } as CSSProperties
-  return <g className={`w6-vfx w6-vfx-${phase}${paused ? ' w6-vfx-paused' : ''}${reducedMotion ? ' w6-vfx-reduced' : ''}`}
+  return <g className={`w6-vfx w6-vfx-${phase}${progress!==undefined?' w6-vfx-timed':''}${paused ? ' w6-vfx-paused' : ''}${reducedMotion ? ' w6-vfx-reduced' : ''}`}
     style={style} aria-hidden="true" pointerEvents="none" data-vfx-family={familyId} data-vfx-phase={phase}>
-    <defs><radialGradient id={gradientId}><stop offset="0" stopColor={family.primary} stopOpacity=".22"/><stop offset="1" stopColor={family.primary} stopOpacity="0"/></radialGradient></defs>
+    <defs><radialGradient id={gradientId}><stop offset="0" stopColor={family.highlight} stopOpacity=".7"/><stop offset=".3" stopColor={family.primary} stopOpacity=".38"/><stop offset="1" stopColor={family.primary} stopOpacity="0"/></radialGradient>
+      <filter id={gradientId+'-glow'} x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB"><feGaussianBlur stdDeviation=".045"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+    {(phase==='travel'||phase==='release'||phase==='impact')&&length>0&&<g data-vfx-layer="trajectory" opacity={phase==='impact'?.24:phase==='release'?.25:.8}>
+      {[0,1,2].map(i=>{const t=phase==='travel'&&progress!==undefined?limit(progress,0,0,1):1,reach=length*t,offset=(i-1)*size*.18,curve=Math.min(length*.16,size*.55)*(i%2?1:-1),path=visualStyle.archetype==='storm'?`M0 0L${reach*.16} ${offset+size*.13} ${reach*.31} ${offset-size*.18} ${reach*.48} ${offset+size*.1} ${reach*.67} ${offset-size*.12} ${reach*.85} ${offset+size*.1} ${reach} 0`:`M0 0C${reach*.32} ${curve+offset} ${reach*.68} ${-curve+offset} ${reach} 0`;return <g key={i} transform={`translate(${start.x} ${start.y}) rotate(${angle})`}><path d={path} fill="none" stroke={family.primary} strokeWidth={size*.1} strokeLinecap="round" opacity=".22"/><path d={path} className="w6-vfx-ribbon-line" strokeWidth={size*.025}/></g>})}
+    </g>}
     {broad && shape === 'sphere' && <g transform={`translate(${end.x} ${end.y})`}>
       <circle r={areaRadius} fill={`url(#${gradientId})`}/><circle r={areaRadius} className="w6-vfx-area" strokeWidth={areaRadius * .035} strokeDasharray={`${areaRadius * .16} ${areaRadius * .11}`}/>
       <circle r={areaRadius * .78} className="w6-vfx-area w6-vfx-breathe" strokeWidth={areaRadius * .025}/>
@@ -383,10 +392,11 @@ export default function AbilityVisualEffect({ familyId, start, end, phase = 'imp
     </g>}
     <g transform={`translate(${anchor.x} ${anchor.y})`}><g className={moving ? 'w6-vfx-traveller' : ''}>
       <g transform={`scale(${size * (phase === 'preparation' ? .68 : .82)})`}>
+        <AbilityVisualAura style={visualStyle} phase={phase} progress={progress} gradientId={gradientId}/>
         <circle r="1.45" fill={`url(#${gradientId})`}/>
         {phase === 'preparation' && <circle r="1.05" className="w6-vfx-outline w6-vfx-turn" strokeDasharray=".22 .11 .06 .11"/>}
         {(phase === 'release' || phase === 'impact') && <circle r=".94" className="w6-vfx-outline w6-vfx-shockwave"/>}
-        <g className="w6-vfx-glyph"><FamilyGlyph familyId={familyId}/></g>
+        <g className="w6-vfx-glyph" filter={`url(#${gradientId}-glow)`}><FamilyGlyph familyId={familyId}/></g>
         <g className={'w6-vfx-particles' + (['hunger', 'void', 'absorption', 'magnetism'].includes(familyId) ? ' w6-vfx-inward' : '')}>
           {Array.from({ length: count }, (_, i) => {
             const turn = i * 360 / count + 17, distance = .88 + (i % 3) * .18

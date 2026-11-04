@@ -277,3 +277,17 @@ test('Эффекты: длительный пространственный сл
  scene.tokens.find(t=>t.actorId==='a').x=5;scene.tokens.find(t=>t.actorId==='a').y=5
  const moved=sceneAbilityVisuals(scene,after.characters,after.campaign.seconds)[0];assert(moved.persistent);assert.deepEqual(moved.start,original.start);assert.deepEqual(moved.end,original.end);assert.equal(moved.id,original.id)
 })
+
+
+test('Эффекты: подготовка и длительный остаток имеют часы движения без нового выпуска или изменения игровых часов',()=>{
+ const prepared=vfx('prepared',{phase:'preparation'}),persistent=vfx('persistent',{persistent:true}),clock=new SceneAbilityPlayback('scene',[prepared,persistent]);assert(!clock.active);assert(clock.hasAmbient)
+ clock.advance(400);assert.equal(clock.presentationMs('prepared'),400);assert.equal(clock.sample(prepared).phase,'preparation');assert.equal(clock.sample(persistent).phase,'residue')
+ clock.sync('scene',structuredClone([persistent,prepared]));clock.advance(100);assert.equal(clock.presentationMs('prepared'),500);assert(!clock.active)
+ clock.sync('other-scene',[prepared]);assert.equal(clock.presentationMs('prepared'),0)
+})
+
+test('Эффекты: длительное движение продолжается после завершения применения, без перезапуска его фаз',()=>{
+ const v=vfx('held',{persistent:true}),clock=new SceneAbilityPlayback('scene',[]);clock.sync('scene',[v]);clock.advance(1000);assert(!clock.active);assert(clock.hasAmbient);assert.equal(clock.sample(v).phase,'residue')
+ clock.advance(500);assert.equal(clock.elapsed('held'),1000);assert.equal(clock.presentationMs('held'),1500);assert.equal(clock.sample(v).phase,'residue')
+ clock.sync('scene',[]);assert(!clock.hasAmbient)
+})

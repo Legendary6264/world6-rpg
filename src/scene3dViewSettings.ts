@@ -9,14 +9,14 @@ export function normalizeLightTuning(value:unknown,mode:LightPreset):LightTuning
  return {azimuth:clamp('azimuth',0,360),elevation:clamp('elevation',5,85),sun:clamp('sun',0,2),ambient:clamp('ambient',0,2),lamps:clamp('lamps',0,3),softness:clamp('softness',.25,3),contact:clamp('contact',0,1)}
 }
 export function lightDirection(tuning:LightTuning){const a=tuning.azimuth*Math.PI/180,e=tuning.elevation*Math.PI/180;return {x:Math.sin(a)*Math.cos(e),y:Math.sin(e),z:Math.cos(a)*Math.cos(e)}}
-export function readViewLightSettings(preferred:LightPreset='day'):ViewLightSettings{
+export function readViewLightSettings(preferred:LightPreset='day',key=storageKey):ViewLightSettings{
  const fallback:ViewLightSettings={version:1,mode:preferred,tuning:defaultLightTuning(preferred),exposure:1}
  try{
   if(typeof window==='undefined')return fallback
-  const raw=window.localStorage.getItem(storageKey);if(!raw||raw.length>4096)return fallback
+  const raw=window.localStorage.getItem(key);if(!raw||raw.length>4096)return fallback
   const value=JSON.parse(raw),mode:LightPreset=['studio','day','night','tavern'].includes(value?.mode)?value.mode:'day'
   if(value?.version!==1)return fallback
   return {version:1,mode,tuning:normalizeLightTuning(value.tuning,mode),exposure:typeof value.exposure==='number'&&Number.isFinite(value.exposure)?Math.max(.5,Math.min(1.6,value.exposure)):1}
  }catch{return fallback}
 }
-export function saveViewLightSettings(settings:ViewLightSettings){try{if(typeof window!=='undefined')window.localStorage.setItem(storageKey,JSON.stringify(settings))}catch{/* Scene editing continues when browser storage is unavailable. */}}
+export function saveViewLightSettings(settings:ViewLightSettings,key=storageKey){try{if(typeof window!=='undefined')window.localStorage.setItem(key,JSON.stringify(settings))}catch{/* Scene editing continues when browser storage is unavailable. */}}
