@@ -2,6 +2,7 @@ import { lazy,Suspense,useEffect, useId, useState } from 'react'
 import AbilityVisualEffect from './AbilityVisualEffect'
 import { abilityVisualDefaults, abilityVisualFamilies, abilityVisualFamilyById, abilityVisualPhases, resolveAbilityVisual } from './abilityVisuals'
 import type { AbilityVisualPhase, AbilityVisualShape, AbilityVisualSource, AbilityVisualSpec } from './abilityVisuals'
+import type {AbilitySpatial} from './rpgTypes'
 import { magicGroups, magicSchools } from './magicCatalog'
 import './abilityVisuals.css'
 const AbilityVisualStudio=lazy(()=>import('./AbilityVisualStudio'))
@@ -16,9 +17,12 @@ export type AbilityVisualPickerProps = {
   basisSchoolId?: string
   mechanism?: string
   shape?: AbilityVisualShape
+  spatial?:AbilitySpatial
+  rangeM?:number
   previewMode?:'2d'|'3d'
 }
-export default function AbilityVisualPicker({ value, onChange, schoolId, basisSchoolId, mechanism, shape = 'point',previewMode='2d' }: AbilityVisualPickerProps) {
+export default function AbilityVisualPicker({ value, onChange, schoolId, basisSchoolId, mechanism, shape:shapeProp = 'point',spatial,rangeM,previewMode='2d' }: AbilityVisualPickerProps) {
+  const shape=spatial?.shape??shapeProp
   const fieldId = 'visual-' + useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const [phase, setPhase] = useState<AbilityVisualPhase>('impact')
   const [paused, setPaused] = useState(false)
@@ -76,7 +80,7 @@ export default function AbilityVisualPicker({ value, onChange, schoolId, basisSc
       </div>
       <figure className="w6-visual-preview">
         {family&&<div className="w6-vfx-view-switch" aria-label="Вид предпросмотра"><button type="button" aria-pressed={mode==='2d'} onClick={()=>setMode('2d')}>Схема</button><button type="button" aria-pressed={mode==='3d'} onClick={()=>setMode('3d')}>3D-эффект</button></div>}
-        {family&&mode==='3d'?<Suspense fallback={<p role="status">Загружаем 3D-мастерскую…</p>}><AbilityVisualStudio spec={selected} shape={shape}/></Suspense>:<>
+        {family&&mode==='3d'?<Suspense fallback={<p role="status">Загружаем 3D-мастерскую…</p>}><AbilityVisualStudio spec={selected} shape={shape} spatial={spatial} rangeM={rangeM}/></Suspense>:<>
         {family && <div className="w6-visual-phase-list" aria-label="Стадии эффекта">{abilityVisualPhases.map(item =>
           <button key={item.id} type="button" aria-pressed={phase === item.id} onClick={() => { setAutoPlay(false); setPhase(item.id); setReplay(current => current + 1) }}>{item.label}</button>)}</div>}
         <svg viewBox="0 0 300 200" role="img" aria-label={family ? `Предпросмотр: ${family.name}, ${abilityVisualPhases.find(item => item.id === phase)?.label}` : 'Предпросмотр: без анимации'}>
@@ -99,7 +103,7 @@ export default function AbilityVisualPicker({ value, onChange, schoolId, basisSc
           <button type="button" onClick={replayPreview}>Повторить</button>
           <button type="button" aria-pressed={autoPlay} onClick={() => { setAutoPlay(current => !current); setPaused(false); setPhase('preparation') }}>{autoPlay ? 'Остановить смену стадий' : 'Показать все стадии'}</button>
         </div>}</>}
-        <figcaption>Предпросмотр оформления. Радиус, дальность и момент применения задаются параметрами способности и событиями сцены.</figcaption>
+        <figcaption>{mode==='3d'&&spatial?'3D-область показана по размерам способности; масштаб изображения меняет только оформление.':'Предпросмотр оформления. Радиус, дальность и момент применения задаются параметрами способности и событиями сцены.'}</figcaption>
       </figure>
     </div>
   </fieldset>

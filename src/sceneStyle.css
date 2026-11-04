@@ -71,3 +71,16 @@
 .gb-playtest-view:has(.gb-playtest-replay){display:flex;flex-direction:column;gap:10px;overflow:hidden}.gb-playtest-view:has(.gb-playtest-replay)>div{flex:1;min-height:0;overflow:auto;scrollbar-width:thin}.gb-playtest .gb-playtest-replay{flex:none;max-height:48%;overflow:auto;margin:0;padding:10px 12px}.gb-playtest .gb-playtest-replay .w6-button{font-size:10px;padding:6px 9px}.gb-playtest-replay-footer{display:flex;align-items:center;gap:10px;justify-content:space-between}.gb-playtest-replay-footer p{flex:1;margin-bottom:0}.gb-playtest .gb-playtest-replay nav .w6-button[aria-current=step]{box-shadow:inset 0 -3px 0 #d6d69b}.gb-playtest-replay h3{font-size:16px}.gb-playtest-replay-scrub{margin-top:8px}@media(max-width:1050px){.gb-playtest-view:has(.gb-playtest-replay){overflow:visible}.gb-playtest .gb-playtest-replay{max-height:none}}
 
 .gb-contents-actions{padding:10px;border:1px solid #4f6953;border-radius:6px;background:#23372c;margin:0 0 12px}.gb-inspector-scroll .gb-contents-actions h4{font:14px Georgia,serif;color:#dfe4bf;margin:0 0 6px}.gb-inspector-scroll .gb-contents-actions p{font-size:10px;line-height:1.6;margin:7px 0;color:#b0bea1}.gb-contents-actions>div{display:grid;grid-template-columns:1fr 1fr;gap:6px}.gb-inspector-scroll .gb-contents-actions .w6-button{padding:7px!important;min-height:40px}.gb-contents-actions [role=status]{color:#e2c69a!important}
+
+/* Ability aiming: passive geometry; marker colours distinguish disclosed centres. */
+.gb-ability-aim .gb-aim-surface{fill:currentColor;fill-opacity:.075;stroke:none;color:#a9e7bf}
+.gb-ability-aim[data-valid=false] .gb-aim-surface{color:#ed936f}
+.gb-ability-aim[data-obstructed=true] .gb-aim-surface{color:#edbd79}
+.gb-ability-aim .gb-aim-target{stroke-dasharray:none;stroke-width:2.5;fill:none;opacity:1}
+.gb-aim-summary{min-width:0;overflow-wrap:anywhere}
+.gb-aim-dimensions{font-size:11px;line-height:1.6;color:#b5ccbf;margin:8px 0}
+.gb-aim-counts{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0}
+.gb-aim-counts>span{padding:4px 8px;border:1px solid #456256;border-radius:5px;background:#1b3027;font-size:11px;color:#c2dfce}
+.gb-aim-counts strong{font-variant-numeric:tabular-nums;margin-left:5px}
+.gb-aim-counts .gb-aim-caster{color:#f4cc80;border-color:#7b6842;background:#342f23}
+.gb-aim-contents li[data-kind=object]{color:#a4d5ee}

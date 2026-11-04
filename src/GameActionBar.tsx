@@ -1,4 +1,5 @@
 import {knownAimTargets} from './sceneAimTargets'
+import SceneAbilityAimSummary from './SceneAbilityAimSummary'
 import {useEffect,useMemo,useRef} from 'react'
 import {buildSceneAbilityAim} from './sceneAbilityAim'
 import type {SceneAbilityAim} from './sceneAbilityAim'
@@ -55,8 +56,7 @@ export default function GameActionBar({ map, point, contactId, objectId, options
         <label className="w6-field"><span>Цель применения</span><select aria-label="Цель быстрой способности" value={aim} onChange={e=>field('aim',e.currentTarget.value as typeof aim)}><option value="self" disabled={!!selectedAbility?.spatial}>На себя</option><option value="point" disabled={!selectedAbility?.spatial||!point}>Отмеченная точка</option><option value="selected" disabled={selectedAbility?.spatial?!selectedPoint:!(selected?.kind==='contact'||selected?.kind==='self')}>{selectedAbility?.spatial?'Выбранный предмет или существо':'Выбранное существо'}</option></select></label>
         {selectedAbility&&!selectedAbility.spatial&&aim!=='self'&&!releaseTarget&&<p className="gb-game-help">Для этой способности выбери себя или доступное существо.</p>}{selectedAbility?.spatial&&<p className="gb-game-help">{aim==='selected'?'Прицел следует за выбранным предметом или существом. Чтобы навести вручную, нажми на землю или укажи координаты.':<>Отметь {selectedAbility.spatial.shape==='point'?'точку':selectedAbility.spatial.shape==='sphere'?'центр области':'направление от героя'} на карте или укажи координаты. Можно также выбрать предмет или существо.</>}</p>}
         {aim==='selected'&&selectedLabel&&<p className="gb-game-help">{selectedLabel}{object&&!object.visible?' · последняя известная отметка':''}{selectedAbility?.spatial?' · наведение по центру':''}</p>}
-        {aimPreview&&<p className="gb-aim-readout" role="status" data-valid={aimPreview.valid}>{aimPreview.name} · {aimPreview.distanceM.toFixed(2)} м{aimPreview.rangeM!==undefined?' / '+aimPreview.rangeM+' м':''} · {aimPreview.message}</p>}
-        {aimPreview?.valid&&<details className="gb-aim-contents"><summary>Отметки внутри контура: {contents.length}</summary><p>Центры видимых предметов и раскрытые отметки существ. Попадание и препятствия проверяет мастер.</p>{contents.length>0&&<ul>{contents.map(t=><li key={t.kind+':'+t.id}>{t.label}{t.kind==='object'?' · центр предмета':''}</li>)}</ul>}</details>}
+        {aimPreview&&<SceneAbilityAimSummary aim={aimPreview} targets={contents}/>}
         <div className="w6-buttons"><button className="w6-button" disabled={!!draft.castId||!template||template.canPrepare===false} onClick={()=>onAdd({kind:'ability',abilityId:ability,stage:'prepare',target:{kind:'none'},note:''})}>Подготовить способность</button><button className="w6-button" disabled={!selectedAbility||!releaseTarget||aimPreview?.valid===false} onClick={()=>{if(releaseTarget)onAdd({kind:'ability',abilityId:ability,stage:'release',target:releaseTarget,note:'',...(draft.castId?{castId:draft.castId}:{})})}}>Применить способность</button></div></>}
     </fieldset>
     <p className="gb-game-help">Кнопки добавляют действия в твой ход. Когда план готов — отправь его мастеру.</p>

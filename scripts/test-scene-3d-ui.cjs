@@ -807,8 +807,8 @@ test('Способности 3D: выпуск, прицел и отметка н
  const visibility=Object.getOwnPropertyDescriptor(document,'visibilityState');Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
  try{
   await mount({abilityAim:aim,marker:{x:12,y:8,z:0},route:[{x:4,y:4,z:0},{x:12,y:8,z:0}]});assert.equal(instances.at(-1),r);assert(r.scene.getObjectByName('ability-aim').children.length>0);assert(r.camera.position.equals(position))
-  const beforeLines=r.scene.getObjectByName('ability-aim').children.length,impact={x:8,y:6,z:0},blocked={...aim,visual:{...aim.visual,end:impact},obstruction:{kind:'object',objectId:'wall',name:'Стена',point:impact,distanceM:Math.hypot(4,2)}}
-  await mount({abilityAim:blocked});const warning=r.scene.getObjectByName('ability-aim');assert.equal(instances.at(-1),r);assert.equal(warning.children.length,beforeLines+3);assert(warning.children.every(line=>line.material.color.equals(new THREE.Color('#edbd79'))));assert.deepEqual(Array.from(warning.children[0].geometry.attributes.position.array).slice(3),[8,0,6])
+  const beforeLines=r.scene.getObjectByName('ability-aim-layer').children.filter(p=>p.name==='ability-aim-outline').length,impact={x:8,y:6,z:0},blocked={...aim,visual:{...aim.visual,end:impact},obstruction:{kind:'object',objectId:'wall',name:'Стена',point:impact,distanceM:Math.hypot(4,2)}}
+  await mount({abilityAim:blocked});const warning=r.scene.getObjectByName('ability-aim-layer'),lines=warning.children.filter(p=>p.name==='ability-aim-outline');assert.equal(instances.at(-1),r);assert.equal(lines.length,beforeLines+3);assert(lines.every(line=>line.material.color.equals(new THREE.Color('#edbd79'))));assert.deepEqual(Array.from(lines[0].geometry.attributes.position.array).slice(3),[8,0,6])
   const visual={...aim.visual,id:'release-live',phase:'sequence',spec:{familyId:'fire',durationMs:1000}}
   await mount({model:{...model,visuals:[visual]}});assert.equal(instances.at(-1),r);const effect=r.scene.getObjectByName('ability-effect:release-live');assert(effect?.visible);assert.equal(effect.userData.familyId,'fire')
   await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Пауза эффектов').click());await flush();const frames=r.frames
@@ -895,6 +895,42 @@ test('Способности SVG: отдельные часы игроков, п
  }finally{await flush(()=>root.render(null));window.requestAnimationFrame=originalRAF;window.cancelAnimationFrame=originalCancel;Object.defineProperty(document,'visibilityState',{configurable:true,value:visibility})}
 })
 
+
+test('Прицел 3D: подсветка использует раскрытую XYZ, отсечение и освобождает поверхность вместе с отметками',async()=>{
+ await flush(()=>root.render(null));props={}
+ const {buildSceneAbilityAim}=load('sceneAbilityAim'),frame={id:'aim-disclosure',width:20,depth:20,groundZ:0,minZ:-2,maxZ:10,view:'top',palette:'stone'},map={frame,title:'Прицел',description:'',areas:[{id:'visible',x:0,y:0,z:-2,width:10,depth:10,height:12,visible:true}],objects:[{id:'old',name:'Память',kind:'crate',x:5,y:5,z:0,width:1,depth:1,height:1,visible:false}],contacts:[{id:'self',kind:'self',label:'Источник',x:3,y:5,z:0,signs:''},{id:'known',kind:'identified',label:'Игрок',x:5,y:5,z:0,signs:''},{id:'flat',kind:'silhouette',label:'Без высоты',x:5,y:5,signs:''},{id:'noise',kind:'sound',label:'Звук',x:5,y:5,z:0,signs:''},{id:'dark',kind:'identified',label:'В темноте',x:15,y:5,z:0,signs:''}]}
+ const aim=buildSceneAbilityAim(map,{id:'spell',name:'Сфера',rangeM:20,spatial:{shape:'sphere',radiusM:20,includeCaster:false}},{kind:'area',point:{x:5,y:5,z:0}})
+ await mount({model:perceivedRenderModel(map),abilityAim:aim});const r=instances.at(-1),rootAim=r.scene.getObjectByName('ability-aim'),surface=r.scene.getObjectByName('ability-aim-surface:sphere'),resources=new Map()
+ assert(surface&&surface.material.clippingPlanes.length===6);assert(r.scene.getObjectByName('ability-aim-target:contact:known'))
+ for(const id of ['self','flat','noise','dark'])assert(!r.scene.getObjectByName('ability-aim-target:contact:'+id));assert(!r.scene.getObjectByName('ability-aim-target:object:old'))
+ rootAim.traverse(o=>{for(const resource of [o.geometry,o.material].filter(Boolean)){resources.set(resource,0);resource.addEventListener('dispose',()=>resources.set(resource,resources.get(resource)+1))}})
+ await mount({abilityAim:null});assert.equal(instances.at(-1),r);assert.equal(rootAim.children.length,0);assert([...resources.values()].every(n=>n===1))
+})
+
+test('Прицел 3D: перемещение другого игрока обновляет отметку при том же прицеле и renderer',async()=>{
+ await flush(()=>root.render(null));props={}
+ const {abilityVisualPreviewModel,abilityPreviewAim}=load('abilityVisualPreview'),spatial={shape:'sphere',radiusM:2,includeCaster:false},model=abilityVisualPreviewModel({familyId:'none'},'sphere',spatial),aim=abilityPreviewAim(model,spatial)
+ await mount({model,abilityAim:aim});const r=instances.at(-1);assert(r.scene.getObjectByName('ability-aim-target:contact:preview-target'))
+ const next=structuredClone(model);next.entities[1].transform.position.y+=4;await mount({model:next})
+ assert.equal(instances.at(-1),r);assert(!r.scene.getObjectByName('ability-aim-target:contact:preview-target'));assert(r.scene.getObjectByName('ability-aim-surface:sphere'))
+})
+
+test('Мастерская VFX: размеры способности, подсветка источника и запасной просмотр сохраняют точную область',async()=>{
+ await flush(()=>root.render(null));props={};const Studio=load('AbilityVisualStudio').default,spec={familyId:'frost',scale:4},spatial={shape:'sphere',radiusM:9,includeCaster:true}
+ await flush(()=>root.render(React.createElement(Studio,{spec,shape:'point',spatial,rangeM:20})));await flush();const r=instances.at(-1),field=r.scene.getObjectByName('ability-field:sphere')
+ assert(field);assert.equal(field.geometry.parameters.radius,9);await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Контур и отметки').click())
+ assert.equal(instances.at(-1),r);assert(r.scene.getObjectByName('ability-aim-target:contact:preview-source'));assert(r.scene.getObjectByName('ability-aim-target:contact:preview-target'));assert(document.querySelector('.gb-aim-caster'));assert(document.querySelector('.gb-aim-dimensions').textContent.includes('радиус 9 м'))
+ const camera=r.camera.position.clone();await flush(()=>root.render(React.createElement(Studio,{spec:{familyId:'water',scale:.25},shape:'point',spatial,rangeM:20})));await flush();assert.equal(instances.at(-1),r);assert(r.camera.position.equals(camera));assert.equal(r.scene.getObjectByName('ability-field:sphere').geometry.parameters.radius,9)
+ await flush(()=>r.domElement.dispatchEvent(new dom.window.Event('webglcontextlost',{cancelable:true})));await flush()
+ assert(r.disposed);const fallback=document.querySelector('[aria-label="Резервный просмотр эффекта"]');assert(fallback);assert.equal(fallback.querySelectorAll('[data-aim-target]').length,2);assert(fallback.querySelector('.gb-aim-surface'))
+})
+
+test('Мастерская VFX: незаполненные размеры и длина за дальностью не подменяются красивой демонстрацией',async()=>{
+ await flush(()=>root.render(null));props={};const Studio=load('AbilityVisualStudio').default
+ for(const spatial of [{shape:'sphere',radiusM:0,includeCaster:false},{shape:'cone',lengthM:12,angleDeg:180,includeCaster:false},{shape:'beam',lengthM:12,radiusM:1,includeCaster:false}]){
+  const count=instances.length;await flush(()=>root.render(React.createElement(Studio,{spec:{familyId:'fire'},shape:'sphere',spatial,rangeM:5})));assert.equal(instances.length,count);assert(!document.querySelector('canvas'));assert(document.querySelector('[role="status"]').textContent.includes('положительные размеры'))
+ }
+})
 
 test('Мастерская VFX: отдельный свет, реальные персонажи, стадии и кадр сохраняют renderer и камеру',async()=>{
  await flush(()=>root.render(null));props={};const Studio=load('AbilityVisualStudio').default,spec={familyId:'fire',scale:1,intensity:1,durationMs:2000},saved=JSON.stringify({version:1,mode:'night',tuning:load('scene3dViewSettings').defaultLightTuning('night'),exposure:1.2});window.localStorage.setItem('grani-bytiya:3d-lighting:v1',saved);window.localStorage.removeItem('grani-bytiya:vfx-studio-lighting:v1')

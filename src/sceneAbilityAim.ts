@@ -4,7 +4,7 @@ import type {PerceivedMap} from './scenePerception'
 import type {ScenePosition} from './sceneTypes'
 import type {SceneAbilityVisual} from './sceneAbilityVisuals'
 import type {SceneTrajectoryHit} from './sceneTrajectory'
-export type SceneAbilityAim={sceneId:string;name:string;visual:SceneAbilityVisual;valid:boolean;includeCaster?:boolean;message:string;distanceM:number;rangeM?:number;obstruction?:SceneTrajectoryHit}
+export type SceneAbilityAim={sceneId:string;name:string;visual:SceneAbilityVisual;valid:boolean;casterId?:string;includeCaster?:boolean;message:string;distanceM:number;rangeM?:number;obstruction?:SceneTrajectoryHit}
 type Ability=DeclarationOptions['abilities'][number]
 const finite=(p:ScenePosition)=>Object.values(p).every(Number.isFinite)
 export function buildSceneAbilityAim(map:PerceivedMap|null,ability:Ability|undefined,target:DeclarationTarget|null):SceneAbilityAim|null {
@@ -21,7 +21,7 @@ export function buildSceneAbilityAim(map:PerceivedMap|null,ability:Ability|undef
  else if(spatial&&(spatial.shape==='beam'||spatial.shape==='cone')&&(distanceM<=1e-8||rangeM!==undefined&&spatial.lengthM>rangeM)){valid=false;message=distanceM<=1e-8?'Выбери направление от героя.':'Длина области превышает дальность способности.'}
  const aim={...end}
  if(spatial&&'lengthM' in spatial&&distanceM>1e-8){for(const k of ['x','y','z'] as const)aim[k]=start[k]+(end[k]-start[k])*spatial.lengthM/distanceM}
- return {sceneId:f.id,name:ability.name,valid,includeCaster:spatial?.includeCaster??target.kind==='self',message,distanceM,...(rangeM===undefined?{}:{rangeM}),visual:{id:'aim-'+ability.id,spec:resolveAbilityVisual({visualEffect:ability.visualEffect}),start,end:aim,phase:'residue',shape:spatial?.shape??'point',radius:spatial&&'radiusM' in spatial?spatial.radiusM:.25,coneAngleDeg:spatial?.shape==='cone'?spatial.angleDeg:45}}
+ return {sceneId:f.id,name:ability.name,valid,casterId:self.id,includeCaster:spatial?.includeCaster??target.kind==='self',message,distanceM,...(rangeM===undefined?{}:{rangeM}),visual:{id:'aim-'+ability.id,spec:resolveAbilityVisual({visualEffect:ability.visualEffect}),start,end:aim,phase:'residue',shape:spatial?.shape??'point',radius:spatial&&'radiusM' in spatial?spatial.radiusM:.25,coneAngleDeg:spatial?.shape==='cone'?spatial.angleDeg:45}}
 }
 // World-space outlines shared by SVG and WebGL, including vertical aim. They
 // describe geometry only and never identify undisclosed occupants of an area.

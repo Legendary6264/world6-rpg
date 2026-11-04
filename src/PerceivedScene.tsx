@@ -1,4 +1,5 @@
 import SceneAbilityAimOverlay from './SceneAbilityAimOverlay'
+import {knownAimTargets} from './sceneAimTargets'
 import type {SceneAbilityAim} from './sceneAbilityAim'
 import SceneAbilityOverlay, { useVisualReplay } from './SceneAbilityOverlay'
 import { lazy, Suspense, useId, useMemo, useState } from 'react'
@@ -63,7 +64,7 @@ export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSel
         <text x={c.x} y={yOf(c) + size * 1.6} fontSize={size * .55} className="gb-token-label">{c.label}</text>
         {c.z !== undefined && <text x={c.x} y={yOf(c) - size * 1.3} fontSize={size * .5} className="gb-height-label">{c.flying ? '↑ ' : ''}Z {Number(c.z.toFixed(2))} м</text>}
       </g>)}
-      <g clipPath={'url(#' + visualClip + ')'}><SceneAbilityAimOverlay aim={abilityAim} frame={f}/><SceneAbilityOverlay frame={f} visuals={map.visuals??[]} replay={playback.replay} paused={playback.paused} enabled={playback.enabled} effectTimeMs={effectTimeMs}/></g>
+      <g clipPath={'url(#' + visualClip + ')'}><SceneAbilityAimOverlay aim={abilityAim} frame={f} targets={knownAimTargets(map,abilityAim??null)}/><SceneAbilityOverlay frame={f} visuals={map.visuals??[]} replay={playback.replay} paused={playback.paused} enabled={playback.enabled} effectTimeMs={effectTimeMs}/></g>
     </svg>{effectTimeMs===undefined&&!!map.visuals?.length&&playback.controls}<p className="gb-map-caption">{side ? 'X / Z' : 'X / Y'} · метры{onPoint ? ' · нажми на землю для маршрута; стрелки уточняют отметку, когда карта в фокусе' : ''} · тёмные области неизвестны; приглушённые объекты известны по прежнему наблюдению.</p></div>
     <div className="gb-scene-entities">{map.contacts.map(c => <button className={'w6-button' + (selected === c.id ? ' w6-active' : '')} type="button" key={c.id} onClick={e => { e.stopPropagation(); onSelect?.(c.id); if (c.kind === 'sound') onPoint?.({x:c.x,y:c.y,z:c.z??map.contacts.find(t=>t.kind==='self')?.z??f.groundZ}) }}>{c.label}<small>{c.kind === 'sound' ? 'Приблизительная отметка звука' : c.z === undefined ? 'Высота не раскрыта' : (c.flying ? 'В воздухе · ' : c.support === 'object' ? 'На опоре · ' : c.support === 'ground' ? 'На земле · ' : '') + 'Z ' + c.z + ' м'}{c.signs ? ' · ' + c.signs : ''}</small></button>)}</div>
     {side && map.contacts.some(c => c.z === undefined) && <p className="w6-copy">Отметки без известной высоты показаны условно в середине схемы.</p>}

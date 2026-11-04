@@ -2,7 +2,9 @@ import SceneCharacterPreview from './SceneCharacterPreview'
 import type {CharacterPreviewFrame} from './SceneCharacterPreview'
 import {createSceneAbilityEffect} from './scene3dAbilityEffects'
 import {SceneAbilityPlayback} from './sceneAbilityPlayback'
-import {sceneAbilityAimLines} from './sceneAbilityAim'
+import {createSceneAbilityAim} from './scene3dAbilityAim'
+import {renderAimTargets} from './sceneAimTargets'
+import {abilityPreviewFraming} from './abilityVisualPreview'
 import type {SceneAbilityAim} from './sceneAbilityAim'
 import type {SceneAbilityVisual} from './sceneAbilityVisuals'
 import {editorKey} from './sceneEditorKeyboard'
@@ -102,7 +104,7 @@ export default function Scene3D(props: Props) {
   const exposureValue=useRef(exposure),applyExposure=useRef<((value:number)=>void)|null>(null)
   const lightingState=useRef({mode:lightingMode,tuning}),applyLighting=useRef<((mode:LightingMode,tuning:LightTuning)=>void)|null>(null)
   const changeTuning=(key:keyof LightTuning,value:number)=>setTuning(t=>({...t,[key]:value}))
-  const cameraState = useRef<{ id: string; position: THREE.Vector3; target: THREE.Vector3;zoom:number } | null>(null)
+  const cameraState = useRef<{ id: string; position: THREE.Vector3; target: THREE.Vector3;zoom:number;stage?:string } | null>(null)
   useEffect(() => { latest.current = props })
   useEffect(() => {
     const element = host.current
@@ -139,9 +141,10 @@ export default function Scene3D(props: Props) {
       camera.position.copy(controls.target).add(new THREE.Vector3().fromArray(tavernReferenceShot.offset))
       camera.zoom=close?tavernReferenceShot.zoom:1;camera.updateProjectionMatrix();controls.update()
     }
-    const home = () => {if(videoReference){referenceView(false);return}if(abilityStudio){controls.target.set(6.5,f.groundZ+.7,5.5);camera.zoom=camera instanceof THREE.PerspectiveCamera?abilityStudioZoom(camera.aspect):1.2;camera.position.copy(controls.target).add(new THREE.Vector3(2.2,4.2,10.5));camera.updateProjectionMatrix();controls.update();return}controls.target.copy(center); camera.zoom=1;camera.updateProjectionMatrix();camera.position.set(center.x + span * .65, center.y + span * .62, center.z + span * .85); controls.update() }
+    const studioFrameKey=abilityStudio?JSON.stringify(abilityPreviewFraming(latest.current.model)):undefined
+    const home = () => {if(videoReference){referenceView(false);return}if(abilityStudio){const stage=abilityPreviewFraming(latest.current.model);controls.target.set(stage.x,stage.z,stage.y);camera.zoom=camera instanceof THREE.PerspectiveCamera?abilityStudioZoom(camera.aspect):1.2;camera.position.copy(controls.target).add(new THREE.Vector3(2.2,4.2,10.5).multiplyScalar(stage.scale));camera.updateProjectionMatrix();controls.update();return}controls.target.copy(center); camera.zoom=1;camera.updateProjectionMatrix();camera.position.set(center.x + span * .65, center.y + span * .62, center.z + span * .85); controls.update() }
     const saved = cameraState.current
-    if (saved?.id === f.id) { camera.position.copy(saved.position);camera.zoom=saved.zoom;camera.updateProjectionMatrix(); controls.target.copy(saved.target); controls.update() } else if(videoReference)referenceView();else home()
+    if (saved?.id === f.id&&saved.stage===studioFrameKey) { camera.position.copy(saved.position);camera.zoom=saved.zoom;camera.updateProjectionMatrix(); controls.target.copy(saved.target); controls.update() } else if(videoReference)referenceView();else home()
     reset.current = home
     cameraAction.current=action=>{
       if(action==='reference'){referenceView();return}
@@ -171,7 +174,7 @@ export default function Scene3D(props: Props) {
     const lighting=createSceneLighting(f,lightingState.current.mode,quality,model.restricted,lightingState.current.tuning,environmentKind)
     const backdrop=createSceneBackdrop(f,environmentKind,lightingState.current.mode,lightingState.current.tuning,model.restricted,quality)
     scene.add(lighting.group,backdrop.group);backdrop.group.visible=!abilityStudio;renderer.setClearColor(abilityStudio?'#101a28':backdrop.background)
-    if(!model.restricted&&!videoReference)scene.fog=new THREE.FogExp2(abilityStudio?'#101a28':backdrop.fogColor,environmentKind==='underground'?.009:.005)
+    if(!model.restricted&&!videoReference&&!abilityStudio)scene.fog=new THREE.FogExp2(backdrop.fogColor,environmentKind==='underground'?.009:.005)
     renderer.toneMappingExposure=lighting.exposure*exposureValue.current
     const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()
     const characters:{rig:ReturnType<typeof bindCharacterRig>;group:THREE.Group;animation:NonNullable<RenderEntity['geometry']['characterAnimation']>}[]=[]
@@ -326,12 +329,13 @@ export default function Scene3D(props: Props) {
     }
     applyEffects.current=setEffects
     const aimGroup=new THREE.Group();aimGroup.name='ability-aim';aimGroup.userData.editorOverlay=true;scene.add(aimGroup)
-    const clearAim=()=>{for(const child of [...aimGroup.children]){const line=child as THREE.Line;line.geometry.dispose();const materials=Array.isArray(line.material)?line.material:[line.material];materials.forEach(m=>m.dispose());aimGroup.remove(child)}}
+    const aimEntries:ReturnType<typeof createSceneAbilityAim>[]=[]
+    const clearAim=()=>{aimEntries.splice(0).forEach(e=>e.dispose());aimGroup.clear()}
     applyAim.current=aim=>{
       clearAim();if(!aim||aim.sceneId!==f.id){requestDraw(false);return}
-      for(const planes of model.restricted?visibleAreas.map(clipping):[[]])for(const points of sceneAbilityAimLines(aim)){
-        const geometry=new THREE.BufferGeometry().setFromPoints(points.map(vector)),material=new THREE.LineDashedMaterial({color:aim.valid?aim.obstruction?'#edbd79':'#a9e7bf':'#ed936f',transparent:true,opacity:.85,depthWrite:false,depthTest:false,dashSize:.18,gapSize:.12,clippingPlanes:planes}),line=new THREE.Line(geometry,material)
-        line.raycast=()=>{};line.renderOrder=60;line.computeLineDistances();aimGroup.add(line)
+      const targets=renderAimTargets(latest.current.model,aim)
+      for(const planes of model.restricted?visibleAreas.map(clipping):[[]]){
+        const entry=createSceneAbilityAim(aim,targets,planes);aimEntries.push(entry);aimGroup.add(entry.group)
       }
       requestDraw(false)
     }
@@ -737,7 +741,7 @@ export default function Scene3D(props: Props) {
     requestDraw()
     return () => {
       restoreFocus.current=document.activeElement===canvas
-      cameraState.current = { id: f.id, position: camera.position.clone(), target: controls.target.clone(),zoom:camera.zoom }
+      cameraState.current = { id: f.id, position: camera.position.clone(), target: controls.target.clone(),zoom:camera.zoom,stage:studioFrameKey }
       applyGuides.current=null;applyEffects.current=null;applyAim.current=null;vfx.forEach(e=>e.dispose());clearAim()
       reset.current = null;cameraAction.current=null;capture.current=null;updateSelection.current=null;applyExposure.current=null;applyLighting.current=null;applyCutaway.current=null;applyPositions.current=null;applyPlacement.current=null;applyMotion.current=null;applyCharacterPreview.current=null;disposed = true;clearTimeout(motionTimer);document.removeEventListener('visibilitychange',syncMotion);clearTimeout(environmentTimer);endMarquee(false);selectionBox.remove();endPaint(false);endDrag(false);transformReadout.remove();cancelAnimationFrame(pending);observer.disconnect();controls.dispose()
       canvas.removeEventListener('pointerdown',captureDown,true);canvas.removeEventListener('pointermove',captureMove,true);canvas.removeEventListener('pointerup',dragUp,true);canvas.removeEventListener('pointercancel',dragCancel);canvas.removeEventListener('lostpointercapture',dragCancel);canvas.removeEventListener('keydown',keyboard)
@@ -749,7 +753,7 @@ export default function Scene3D(props: Props) {
   }, [constructionModel, quality, grid, labels,clay,orthographic,tabletop,videoReference,environmentKind,effectPlayback,abilityStudio])
   useEffect(()=>{applyGuides.current?.(marker??null,route??[])},[guidesJSON])
   useEffect(()=>{applyEffects.current?.(model.visuals)},[model.visuals])
-  useEffect(()=>{applyAim.current?.(props.abilityAim??null)},[props.abilityAim])
+  useEffect(()=>{applyAim.current?.(props.abilityAim??null)},[props.abilityAim,model])
   useEffect(()=>{applyMotion.current?.()},[props.effectTimeMs])
   useEffect(()=>{const replay=effectSettings.current.replay!==effectReplay;effectSettings.current={enabled:effectsEnabled,paused:effectsPaused,replay:effectReplay};if(replay)applyEffects.current?.(model.visuals,true);applyMotion.current?.()},[effectsEnabled,effectsPaused,effectReplay,model.visuals])
   useEffect(()=>{animationValue.current=animated;saveMotionPreference(animated);applyMotion.current?.()},[animated])
