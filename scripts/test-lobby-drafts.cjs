@@ -90,7 +90,7 @@ async function fixture() {
   // still exercise the saved room; unrelated fixtures must not inherit its URL.
   window.history.replaceState(null,'','/')
   const tree = createRoot(document.getElementById('root'))
-  const accountId = crypto.randomUUID(), writes = [], previews = [], executions = [], applications = [], roundPreviews = new Map(), receipts = new Map(), cloud = [], perceptions = {}
+  const accountId = crypto.randomUUID(), writes = [], previews = [], executions = [], applications = [], roundPreviews = new Map(), receipts = new Map(), cloud = [], perceptions = {}, knowledge={a:[],b:[]}
   const members = [{ id: accountId, displayName: 'GM', lobbyRole: 'GM', permissions: [...lobbyPermissions] }, { id: 'friend-id', displayName: 'Friend', lobbyRole: 'ASSISTANT', permissions: [] }]
   const declarations = Object.fromEntries(['a','b'].map(id => [id, {collection:null,participating:false,canSubmit:false,entry:null,options:null,readiness:[],controlStamp:'0'}]))
   const worlds = Object.fromEntries(['a', 'b'].map(id => [id, {
@@ -143,7 +143,7 @@ async function fixture() {
     const masterMatch=url.match(/^\/lobbies\/([ab])\/declarations$/)
     if(masterMatch) { const w=worlds[masterMatch[1]]; return {revision:w.revision,executed:!!w.executed,roundWork:structuredClone(w.campaign.roundWork??{version:1,entries:[]}),movementBodies:(w.campaign.scenes?.scenes??[]).flatMap(s=>s.tokens.map(t=>({sceneId:s.id,actorId:t.actorId,diameter:t.diameter}))),declarations:structuredClone(w.campaign.declarations??{version:1,active:null,archive:[]}),scenes:(w.campaign.scenes?.scenes??[]).map(s=>({id:s.id,name:s.name,objects:s.objects.map(o=>({id:o.id,name:o.name}))})),actors:w.characters.map(c=>({id:c.id,name:c.name,approved:true,regions:load('characterBody').bodyRegionDefs(c.body).map(r=>({key:r.key,label:r.label})),casts:c.rpg.casts.filter(x=>['preparing','ready'].includes(x.status)).map(x=>({id:x.id,abilityId:x.ability.id,name:x.ability.name,status:x.status,binding:x.roundPreparation?.binding??'bound',roundPreparation:!!x.roundPreparation,chargePolicy:x.ability.chargePolicy,spatial:x.ability.spatial})),items:c.rpg.inventory.map(i=>({id:i.id,name:i.name,quantity:i.quantity,consumable:i.consumable})),abilities:c.rpg.abilities.map(b=>({id:b.id,name:b.name,spatial:b.spatial}))}))} }
     const perceptionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/perception$/)
-    if(perceptionMatch){const world=worlds[perceptionMatch[1]];return {revision:world.revision,hero:world.characters[0],map:perceptions[perceptionMatch[1]]??null,knowledge:{journal:[],knownEffects:[]},inventory:[],canWriteNotes:world.characters[0].ownerId===context.user.id}}
+    if(perceptionMatch){const room=perceptionMatch[1],world=worlds[room];return {revision:world.revision,hero:world.characters[0],map:perceptions[room]??null,knowledge:{journal:structuredClone(knowledge[room]),knownEffects:[]},inventory:[],canWriteNotes:world.characters[0].ownerId===context.user.id}}
     const disclosureMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/disclosure$/)
     if(disclosureMatch){const world=worlds[disclosureMatch[1]];return {revision:world.revision,draft:{activeSceneId:null,scenes:[]},scenes:world.campaign.scenes??load('scenes').emptyScenes(),actors:world.characters.map(c=>({id:c.id,name:c.name})),preview:perceptions[disclosureMatch[1]]??null}}
     const sceneMatch = url.match(/^\/lobbies\/([ab])\/scenes$/)
@@ -156,7 +156,7 @@ async function fixture() {
   const render = () => tree.render(React.createElement(OnlineContext.Provider, { value: { ...context } },
     mounted ? React.createElement(Panel, { onAccount: () => {} }) : null))
   await flush(render)
-  return { accountId, context, writes, previews, executions, applications, worlds, request, members, cloud, perceptions, declarations,
+  return { accountId, context, writes, previews, executions, applications, worlds, request, members, cloud, perceptions, declarations, knowledge,
     render: () => flush(render), notify:()=>{context.events++;render()},
     role: async value => { role = value; context.events++; await flush(render) },
     permissions: async value => { permissions = value; context.events++; await flush(render) },
@@ -1031,7 +1031,7 @@ test('Сведение мастера: текст переживает смен�
   await f.open('a');await input('[aria-label="Заголовок раскрываемого сведения"]','Известный путь');await input('[aria-label="Текст раскрываемого сведения"]','Только для первого героя.')
   await f.open('b');await f.open('a')
   assert.equal(document.querySelector('[aria-label="Текст раскрываемого сведения"]').value,'Только для первого героя.')
-  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve({revision:8})}})
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){f.writes.push({url,...JSON.parse(options.body)});return Promise.resolve(knowledgeAck(url,JSON.parse(options.body)))}})
   await click('Раскрыть сведение выбранному герою')
   assert.equal(f.writes[0].url,'/lobbies/a/characters/hero-a/knowledge');assert.equal(f.writes[0].disclosure,true);assert.equal(f.writes[0].revision,7)
  }finally{await f.close()}
@@ -1041,6 +1041,166 @@ function readyDeclarations(id) {
   return {collection:{id:'collection-'+id,epoch:1,phase:'open',durationSeconds:5,allowReplace:true},participating:true,canSubmit:true,entry:null,controlStamp:'0',readiness:[],
     options:{sceneId:'scene-'+id,width:20,depth:20,minZ:-5,maxZ:20,targets:[],items:[],abilities:[]}}
 }
+
+function knowledgeAck(url,body,duplicate=false){
+ const entryId=body.commandKey?.slice('knowledge:'.length)??'legacy-note-id'
+ return {revision:body.revision+1,entryId,receipt:{operation:body.disclosure?'disclose-knowledge':'hero-note',actorId:url.split('/')[4],entryId,revision:body.revision+1,generation:1,appliedAt:'2026-11-04T12:00:00.000Z'},duplicate}
+}
+async function personalNote(f){
+ f.worlds.a.characters[0].ownerId=f.accountId;await f.role('PLAYER');await f.permissions([]);await f.open('a');await click('Открыть экран героя')
+ await input('[aria-label="Заголовок заметки"]','Путь к воротам');await input('[aria-label="Текст личной заметки"]','Договориться со смотрителем.')
+}
+
+for(const response of [null,{}, {revision:8}])test('Note: неизвестный ответ сохраняет текст и одну команду · '+JSON.stringify(response),async()=>{
+ const f=await fixture(),attempts=[]
+ try{
+  await personalNote(f)
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){attempts.push(JSON.parse(options.body));return Promise.resolve(response)}})
+  await click('Записать личную заметку');assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'Договориться со смотрителем.')
+  await click('Проверить запись заметки');assert.equal(attempts.length,2);assert.deepEqual(attempts[0],attempts[1]);assert.match(attempts[0].commandKey,/^knowledge:/)
+ }finally{await f.close()}
+})
+
+test('Note: перезагрузка повторяет прежнюю запись, подтверждение очищает только её черновик',async()=>{
+ const f=await fixture(),attempts=[];let confirm=false
+ try{
+  await personalNote(f)
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){const body=JSON.parse(options.body);attempts.push(body);return Promise.resolve(confirm?knowledgeAck(url,body,true):{})}})
+  await click('Записать личную заметку');await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя')
+  confirm=true;await click('Проверить запись заметки');assert.deepEqual(attempts[1],attempts[0]);assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'')
+  assert(document.body.textContent.includes('подтверждена'))
+ }finally{await f.close()}
+})
+
+test('Note: два быстрых нажатия отправляют один запрос',async()=>{
+ const f=await fixture(),waiting=deferred(),attempts=[]
+ try{
+  await personalNote(f);f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){attempts.push({url,...JSON.parse(options.body)});return waiting.promise}})
+  const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Записать личную заметку'),handler=button[Object.keys(button).find(k=>k.startsWith('__reactProps'))].onClick
+  await flush(()=>{handler();handler()});assert.equal(attempts.length,1)
+ }finally{await f.close()}
+})
+
+test('Note: старый обработчик не пишет после потери управления героем',async()=>{
+ const f=await fixture(),attempts=[]
+ try{
+  await personalNote(f);f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){attempts.push(options);return Promise.resolve({})}})
+  const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Записать личную заметку'),handler=button[Object.keys(button).find(k=>k.startsWith('__reactProps'))].onClick
+  f.worlds.a.characters[0].ownerId='other';f.context.events++;await f.render();await flush();await flush(()=>handler());assert.equal(attempts.length,0)
+ }finally{await f.close()}
+})
+
+test('Note: сохранённая запись в журнале подтверждает ожидающий запрос и гасит поздний ответ',async()=>{
+ const f=await fixture(),waiting=deferred();let attempt
+ try{
+  await personalNote(f);f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){attempt={url,body:JSON.parse(options.body),signal:options.signal};return waiting.promise}})
+  await click('Записать личную заметку');assert.match(attempt.body.commandKey,/^knowledge:/)
+  f.knowledge.a.push({id:attempt.body.commandKey.slice(10),title:attempt.body.title,text:attempt.body.text,category:'other',certainty:'hypothesis',source:'Личная заметка',origin:'manual',annotation:'',gameTime:'0 с'})
+  f.worlds.a.revision++;f.context.events++;await f.render();await flush()
+  assert(attempt.signal.aborted);assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'')
+  await flush(()=>waiting.resolve({}));assert(document.body.textContent.includes('подтверждена'));assert(!document.body.textContent.includes('не подтвердил'))
+ }finally{await f.close()}
+})
+
+test('Note: недоступное хранилище блокирует отправку команды',async()=>{
+ const f=await fixture(),attempts=[],proto=Object.getPrototypeOf(localStorage),native=proto.setItem
+ try{
+  await personalNote(f);f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){attempts.push(options);return Promise.resolve({})}})
+  proto.setItem=()=>{throw Error('Storage unavailable')};await click('Записать личную заметку');assert.equal(attempts.length,0)
+ }finally{proto.setItem=native;await f.close()}
+})
+
+test('Note: одинаковый текст прежней записи не подтверждает новую команду',async()=>{
+ const f=await fixture(),waiting=deferred();let signal
+ try{
+  f.knowledge.a.push({id:'old-note',title:'Путь к воротам',text:'Договориться со смотрителем.',category:'other',certainty:'hypothesis',source:'Личная заметка',origin:'manual',annotation:'',gameTime:'0 с'})
+  await personalNote(f);f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){signal=options.signal;return waiting.promise}})
+  await click('Записать личную заметку');f.context.events++;await f.render();await flush()
+  assert.equal(signal.aborted,false);assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'Договориться со смотрителем.')
+  assert([...document.querySelectorAll('button')].some(b=>b.textContent==='Проверить запись заметки'))
+ }finally{await f.close()}
+})
+
+test('Knowledge: неизвестный ответ сохраняет точный факт и адресата после перезагрузки',async()=>{
+ const f=await fixture(),attempts=[];let confirm=false
+ try{
+  await f.open('a');await input('[aria-label="Заголовок раскрываемого сведения"]','Пароль у ворот');await input('[aria-label="Текст раскрываемого сведения"]','Известен одному герою.')
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){const body=JSON.parse(options.body);attempts.push({url,...body});return Promise.resolve(confirm?knowledgeAck(url,body,true):{})}})
+  await click('Раскрыть сведение выбранному герою');assert.equal(document.querySelector('[aria-label="Текст раскрываемого сведения"]').value,'Известен одному герою.')
+  await f.mount(false);await f.mount(true);await f.open('a');confirm=true;await click('Проверить раскрытие сведения')
+  assert.deepEqual(attempts[1],attempts[0]);assert.match(attempts[0].commandKey,/^knowledge:/);assert.equal(document.querySelector('[aria-label="Текст раскрываемого сведения"]').value,'')
+ }finally{await f.close()}
+})
+
+test('Knowledge: старый обработчик после отзыва права не отправляет факт',async()=>{
+ const f=await fixture(),attempts=[]
+ try{
+  await f.open('a');await input('[aria-label="Заголовок раскрываемого сведения"]','Факт');await input('[aria-label="Текст раскрываемого сведения"]','Только одному герою')
+  const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Раскрыть сведение выбранному герою'),handler=button[Object.keys(button).find(k=>k.startsWith('__reactProps'))].onClick
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){attempts.push(options);return Promise.resolve({})}})
+  await f.role('PLAYER');await flush(()=>handler());assert.equal(attempts.length,0)
+ }finally{await f.close()}
+})
+
+for(const master of [false,true])test((master?'Knowledge':'Note')+': старый обработчик не заменяет ключ неизвестной команды',async()=>{
+ const f=await fixture(),attempts=[]
+ try{
+  if(master){await f.open('a');await input('[aria-label="Заголовок раскрываемого сведения"]','Факт');await input('[aria-label="Текст раскрываемого сведения"]','Только одному герою')}
+  else await personalNote(f)
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){attempts.push(JSON.parse(options.body));return Promise.resolve({})}})
+  const label=master?'Раскрыть сведение выбранному герою':'Записать личную заметку',button=[...document.querySelectorAll('button')].find(b=>b.textContent===label),handler=button[Object.keys(button).find(k=>k.startsWith('__reactProps'))].onClick
+  await flush(()=>handler());await flush(()=>handler());assert.equal(attempts.length,1)
+ }finally{await f.close()}
+})
+
+for(const fault of ['actor','entry','operation','revision','timestamp','duplicate'])test('Note: чужое или неполное подтверждение сохраняет запись · '+fault,async()=>{
+ const f=await fixture()
+ try{
+  await personalNote(f);f.intercept((url,options)=>{
+   if(options?.method!=='POST'||!url.endsWith('/knowledge'))return
+   const ack=knowledgeAck(url,JSON.parse(options.body))
+   if(fault==='actor')ack.receipt.actorId='other-hero'
+   if(fault==='entry')ack.receipt.entryId='other-entry'
+   if(fault==='operation')ack.receipt.operation='disclose-knowledge'
+   if(fault==='revision')ack.receipt.revision++
+   if(fault==='timestamp')ack.receipt.appliedAt='invalid'
+   if(fault==='duplicate')delete ack.duplicate
+   return Promise.resolve(ack)
+  })
+  await click('Записать личную заметку');assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'Договориться со смотрителем.')
+  assert([...document.querySelectorAll('button')].some(b=>b.textContent==='Проверить запись заметки'))
+ }finally{await f.close()}
+})
+
+test('Note: конфликт сохраняет текст, требует сверки и создаёт новый ключ только для нового решения',async()=>{
+ const f=await fixture(),attempts=[]
+ try{
+  f.context.refresh=f.notify
+  await personalNote(f);f.intercept((url,options)=>{
+   if(options?.method!=='POST'||!url.endsWith('/knowledge'))return
+   const body=JSON.parse(options.body);attempts.push(body)
+   if(attempts.length===1){f.worlds.a.revision=9;throw new(load('onlineClient').NetworkError)(409,'Кампания изменилась')}
+   return Promise.resolve(knowledgeAck(url,body))
+  })
+  await click('Записать личную заметку');assert.equal(document.querySelector('[aria-label="Текст личной заметки"]').value,'Договориться со смотрителем.')
+  await click('Заметка проверена с текущей версией');await click('Записать личную заметку')
+  assert.notEqual(attempts[0].commandKey,attempts[1].commandKey);assert.equal(attempts[1].revision,9)
+ }finally{await f.close()}
+})
+
+for(const master of [false,true])test((master?'Knowledge':'Note')+': смена соединения отменяет старый запрос и разрешает точный повтор',async()=>{
+ const f=await fixture(),waiting=deferred(),attempts=[]
+ try{
+  if(master){await f.open('a');await input('[aria-label="Заголовок раскрываемого сведения"]','Факт');await input('[aria-label="Текст раскрываемого сведения"]','Только одному герою')}
+  else await personalNote(f)
+  f.intercept((url,options)=>{if(options?.method==='POST'&&url.endsWith('/knowledge')){const body=JSON.parse(options.body);attempts.push({body,signal:options.signal});return attempts.length===1?waiting.promise:Promise.resolve(knowledgeAck(url,body,true))}})
+  await click(master?'Раскрыть сведение выбранному герою':'Записать личную заметку')
+  f.context.request=(...args)=>f.request(...args);await f.render();await flush();assert(attempts[0].signal.aborted)
+  if(!master&&[...document.querySelectorAll('button')].some(b=>b.textContent==='Открыть экран героя'))await click('Открыть экран героя')
+  await click(master?'Проверить раскрытие сведения':'Проверить запись заметки');assert.deepEqual(attempts[1].body,attempts[0].body)
+  await flush(()=>waiting.resolve({}));assert(!document.body.textContent.includes('не подтвердил'))
+ }finally{await f.close()}
+})
 async function selectValue(selector,value) {
   const field=document.querySelector(selector);assert(field,'Missing select '+selector)
   await flush(()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype,'value').set.call(field,value);field.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})

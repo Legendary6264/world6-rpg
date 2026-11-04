@@ -66,7 +66,7 @@ export function lobbyRoutes(app,{db,auth,io}){
  npcRoutes(app,{db,auth,updated,lockedMembership,record})
  lobbyAccessRoutes(app,{db,auth,updated,lockedMembership,record})
  heroReviewRoutes(app,{db,auth,updated,lockedMembership,record})
- perceptionRoutes(app,{db,auth,updated,lockedMembership,record})
+ perceptionRoutes(app,{db,auth,updated,lockedMembership,record,...economicCommands})
  entityRoutes(app,{db,auth,lockedMembership})
  gameplayRoutes(app,{db,auth,updated,lockedMembership,record})
  gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembership,record})

@@ -1,4 +1,8 @@
 import {commitWorld} from './world-coordinator.mjs'
+import {createHash} from 'node:crypto'
+import {roundGeneration} from './rounds.mjs'
+import {rejectRetiredCommand} from './campaign-retention-state.mjs'
+import {isKnowledgeCommandKey,knowledgeEntryId} from './generated/knowledgeCommands.mjs'
 import { personalRoundWork } from './generated/roundWork.mjs'
 import { fail, integer, text, id, now, worldSize, playerWorld, character } from './validation.mjs'
 import { requireLobbyPermission } from './permissions.mjs'
@@ -30,7 +34,7 @@ async function writeWorld(tx, req, lobby, state, action, record) {
   await commitWorld(tx,lobby,state,{at:now()})
   await record(tx, req, action)
 }
-export function perceptionRoutes(app, { db, auth, updated, lockedMembership, record }) {
+export function perceptionRoutes(app, { db, auth, updated, lockedMembership, record,store,oldCommand }) {
   app.get('/api/lobbies/:id/characters/:characterId/perception', auth.middleware, async (req, res) => {
     const result = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req), context = await heroContext(tx, lobby, req.params.characterId)
@@ -61,21 +65,45 @@ export function perceptionRoutes(app, { db, auth, updated, lockedMembership, rec
     }); updated(req.params.id); res.json({ revision: revision + 1 })
   })
   app.post('/api/lobbies/:id/characters/:characterId/knowledge', auth.middleware, async (req, res) => {
+    if(!req.body||typeof req.body!=='object'||Array.isArray(req.body))fail(400,'Проверь запись сведения.')
+    const commandKey=req.body.commandKey
+    if(commandKey!==undefined&&!isKnowledgeCommandKey(commandKey))fail(400,'Проверь ключ записи сведения.')
     if (req.body.disclosure !== undefined && typeof req.body.disclosure !== 'boolean') fail(400, 'Проверь способ записи сведения.')
     const revision = integer(req.body.revision), disclosure = req.body.disclosure === true
     const content = { ...emptyJournalContent(), title: text(req.body.title, 120), text: text(req.body.text, 8000),
       category: req.body.category ?? 'other', certainty: disclosure ? req.body.certainty ?? 'reported' : 'hypothesis', source: disclosure ? 'Сведения мастера' : 'Личная заметка', gameTime: '' }
     if (!isJournalContent(content)) fail(400, 'Проверь категорию и достоверность сведения.')
-    await db.transaction(async tx => {
-      const { lobby, member } = await lockedMembership(tx, req); checkRevision(lobby, revision)
+    const result=await db.transaction(async tx => {
+      const { lobby, member } = await lockedMembership(tx, req)
       const { state, actor, binding } = await heroContext(tx, lobby, req.params.characterId)
       if (disclosure) requireDisclosure(member); else requireCharacterController(member, binding, req.user.id)
+      const generation=commandKey?await roundGeneration(tx,lobby.id):null
+      const requestHash=commandKey?createHash('sha256').update(JSON.stringify([req.params.characterId,revision,disclosure,content])).digest('hex'):null
+      // Authorization comes first. A saved receipt acknowledges the original
+      // command even after later world changes or closing the session.
+      if(commandKey){
+        await rejectRetiredCommand(tx,lobby.id,commandKey)
+        const previous=await oldCommand(tx,lobby,req.user,commandKey,requestHash)
+        if(previous){
+          if(previous.receipt.generation!==generation)fail(409,'Запись относится к прежнему продолжению кампании. Проверь журнал перед новой записью.')
+          return {...previous,revision:previous.receipt.revision,entryId:previous.receipt.entryId}
+        }
+      }
+      checkRevision(lobby, revision)
       if (actor.journal.length >= MAX_JOURNAL_ENTRIES) fail(409, 'Журнал героя заполнен.')
-      const at = now(), entryId = id()
+      const at = now(), entryId = commandKey?knowledgeEntryId(commandKey):id()
+      if(actor.journal.some(e=>e.id===entryId))fail(409,'Запись с таким идентификатором уже есть. Проверь журнал перед новой записью.')
       actor.journal.push({ ...content, gameTime: String(state.campaign.seconds) + ' с', id: entryId, origin: disclosure ? 'automatic' : 'manual',
         ...(disclosure ? { eventKey: 'disclosure:' + entryId } : {}), annotation: '', createdAt: at, updatedAt: at })
-      character(actor); await writeWorld(tx, req, lobby, state, disclosure ? 'disclose-knowledge' : 'hero-note', record)
-    }); updated(req.params.id); res.status(201).json({ revision: revision + 1 })
+      character(actor)
+      const operation=disclosure?'disclose-knowledge':'hero-note'
+      if(commandKey){
+        const saved=await store(tx,lobby,req.user,commandKey,requestHash,state,{operation,actorId:actor.id,entryId,revision:revision+1,generation,appliedAt:at},req)
+        return {...saved,revision:revision+1,entryId}
+      }
+      await writeWorld(tx,req,lobby,state,operation,record)
+      return {revision:revision+1}
+    }); if(!result.duplicate)updated(req.params.id); res.status(result.duplicate?200:201).json(result)
   })
   app.patch('/api/lobbies/:id/characters/:characterId/knowledge/:entryId', auth.middleware, async (req, res) => {
     const revision = integer(req.body.revision), annotation = text(req.body.annotation ?? '', 4000, 0)

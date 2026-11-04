@@ -22,10 +22,10 @@ async function availableActor(tx,lobby,state,actorId){
  if((await blockedActors(tx,lobby,state)).has(actorId))fail(409,'У участника есть текущий сбор или переносимая работа. Заверши, исполни или явно отмени их перед сделкой.')
 }
 export function campaignTradeRoutes(app,{db,auth,updated,lockedMembership,record}){
- const oldCommand=async(tx,lobby,user,key,requestHash)=>{const old=await tx.get('SELECT * FROM campaign_trade_commands WHERE lobby_id=? AND command_key=?',[lobby.id,key]);if(!old)return null;if(old.author_id!==user.id||old.request_hash!==requestHash)fail(409,'Ключ уже связан с другой командой имущества.');return {receipt:JSON.parse(old.receipt_json),duplicate:true}}
+ const oldCommand=async(tx,lobby,user,key,requestHash)=>{const old=await tx.get('SELECT * FROM campaign_trade_commands WHERE lobby_id=? AND command_key=?',[lobby.id,key]);if(!old)return null;if(old.author_id!==user.id||old.request_hash!==requestHash)fail(409,'Ключ уже связан с другой командой кампании.');return {receipt:JSON.parse(old.receipt_json),duplicate:true}}
  const store=async(tx,lobby,user,key,requestHash,state,receipt,req)=>{
   state=validateWorld(state);const json=JSON.stringify(receipt),bytes=Buffer.byteLength(json+requestHash+key),size=await tx.get('SELECT COUNT(*) AS n,COALESCE(SUM(payload_bytes),0) AS bytes FROM campaign_trade_commands WHERE lobby_id=?',[lobby.id])
-  if(Number(size.n)>=10000||Number(size.bytes)+bytes>4*1024*1024)fail(409,'Достигнут предел подтверждений имущества. Прежние команды не удалены.')
+  if(Number(size.n)>=10000||Number(size.bytes)+bytes>4*1024*1024)fail(409,'Достигнут предел подтверждений команд кампании. Прежние команды не удалены.')
   await commitWorld(tx,lobby,state,{at:receipt.appliedAt});await record(tx,req,receipt.operation)
   await tx.run('INSERT INTO campaign_trade_commands(lobby_id,command_key,author_id,request_hash,receipt_json,payload_bytes) VALUES(?,?,?,?,?,?)',[lobby.id,key,user.id,requestHash,json,bytes]);return {receipt,duplicate:false}
  }

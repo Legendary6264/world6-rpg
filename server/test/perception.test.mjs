@@ -5,6 +5,8 @@ import { createDefaultCharacter } from '../generated/characterModel.mjs'
 import { createScene, emptyScenes, sceneObject, placeSceneToken } from '../generated/scenes.mjs'
 import { emptyAbility } from '../generated/rpgSchema.mjs'
 import { parseLobbyBackup } from '../generated/lobbyBackup.mjs'
+import {isKnowledgeAck,knowledgeEntryId} from '../generated/knowledgeCommands.mjs'
+import {invalidateRoundGeneration} from '../rounds.mjs'
 
 async function setup(t, dialect) {
   const f = await fixture(t, dialect), { api } = f
@@ -185,3 +187,82 @@ for (const dialect of ['sqlite', 'postgres']) {
     })
   })
 }
+
+for(const dialect of ['sqlite','postgres'])test('Knowledge commands: заметки, адресные факты и надёжный повтор · '+dialect,async t=>{
+ const f=await setup(t,dialect),{api,gm,player,other,helper}=f,path=f.route(f.heroes[0])+'/knowledge'
+ const world=()=>api(f.root+'/world',gm.token)
+ const command=async title=>({revision:await f.revision(),title,text:'Запись для одного героя.',commandKey:'knowledge:'+crypto.randomUUID()})
+ let original,receipt
+ await t.test('Старый запрос совместим; неподходящий ключ не меняет мир',async()=>{
+  const revision=await f.revision(),result=await api(path,player.token,'POST',{revision,title:'Старая заметка',text:'Работает без ключа.',certainty:'confirmed',origin:'automatic',source:'Сведения мастера'},201)
+  assert.deepEqual(result,{revision:revision+1})
+  const entry=(await f.see()).knowledge.journal.at(-1);assert.equal(entry.origin,'manual');assert.equal(entry.certainty,'hypothesis')
+  const before=await world()
+  for(const key of ['other:invalid','knowledge:x','knowledge:'+'x'.repeat(141),null])await api(path,player.token,'POST',{revision:before.revision,title:'Не записывать',text:'Текст',commandKey:key},400)
+  assert.deepEqual(await world(),before)
+ })
+ await t.test('Параллельный повтор создаёт одну заметку, одну ревизию и одно подтверждение',async()=>{
+  const before=await world();original=await command('Путь к воротам')
+  const results=await Promise.all([f.request(path,player.token,'POST',original),f.request(path,player.token,'POST',original)])
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,201])
+  assert(results.every(r=>isKnowledgeAck(r.data,original,f.heroes[0])))
+  assert.equal(results.filter(r=>r.data.duplicate).length,1);receipt=results[0].data.receipt
+  const after=await world(),entries=after.characters.find(a=>a.id===f.heroes[0]).journal.filter(e=>e.id===knowledgeEntryId(original.commandKey))
+  assert.equal(entries.length,1);assert.equal(after.revision,before.revision+1);assert.deepEqual(after.campaign,before.campaign)
+  const previous=before.characters.find(a=>a.id===f.heroes[0]),{journal:_oldJournal,...oldActor}=previous,{journal:_newJournal,...newActor}=after.characters.find(a=>a.id===f.heroes[0])
+  assert.deepEqual(newActor,oldActor)
+ })
+ await t.test('Ключ связан с текстом, версией, героем и полномочиями автора',async()=>{
+  const before=await world()
+  for(const patch of [{title:'Другой текст'},{revision:original.revision+1},{category:'places'}])await api(path,player.token,'POST',{...original,...patch},409)
+  await api(path,other.token,'POST',original,403)
+  await api(f.route(f.heroes[1])+'/knowledge',player.token,'POST',original,403)
+  await api(path,gm.token,'POST',{...original,disclosure:true},409)
+  assert.deepEqual(await world(),before)
+ })
+ await t.test('После других записей и перезапуска возвращается прежний результат без дубликата',async()=>{
+  await api(path,gm.token,'POST',{revision:await f.revision(),disclosure:true,title:'Поздний факт',text:'Отдельная запись.'},201)
+  const before=await world();await f.restart()
+  const repeated=await api(path,player.token,'POST',original,200)
+  assert(isKnowledgeAck(repeated,original,f.heroes[0]));assert.equal(repeated.duplicate,true);assert.deepEqual(repeated.receipt,receipt)
+  assert.deepEqual(await world(),before)
+ })
+ await t.test('Факт мастера раскрывается адресно один раз и не подделывается игроком',async()=>{
+  const body={...await command('Пароль смотрителя'),disclosure:true,category:'places',certainty:'confirmed'}
+  const first=await api(path,gm.token,'POST',body,201),again=await api(path,gm.token,'POST',body,200)
+  assert(isKnowledgeAck(first,body,f.heroes[0]));assert(isKnowledgeAck(again,body,f.heroes[0]))
+  const entry=(await f.see()).knowledge.journal.find(e=>e.id===knowledgeEntryId(body.commandKey))
+  assert.equal(entry.origin,'automatic');assert.equal(entry.certainty,'confirmed');assert.equal(entry.source,'Сведения мастера')
+  assert(!(await f.see(other.token,f.heroes[1])).knowledge.journal.some(e=>e.title===body.title))
+  await api(path,player.token,'POST',body,403)
+ })
+ await t.test('Сбой аудита откатывает и заметку, и подтверждение; точный повтор затем успешен',async()=>{
+  const body=await command('Атомарная запись'),before=await world(),db=f.server.db,transaction=db.transaction,logger=console.error
+  db.transaction=fn=>transaction(tx=>fn({...tx,run:async(sql,args)=>{if(sql.startsWith('INSERT INTO audit'))throw Error('Injected knowledge command audit failure');return tx.run(sql,args)}}))
+  console.error=()=>{}
+  try{await api(path,player.token,'POST',body,500)}finally{db.transaction=transaction;console.error=logger}
+  assert.deepEqual(await world(),before);assert.equal(await db.get('SELECT command_key FROM campaign_trade_commands WHERE lobby_id=? AND command_key=?',[f.root.split('/').at(-1),body.commandKey]),undefined)
+  assert(isKnowledgeAck(await api(path,player.token,'POST',body,201),body,f.heroes[0]))
+  assert.equal((await api(path,player.token,'POST',body,200)).duplicate,true)
+ })
+ await t.test('Отзыв управления проверяется до чтения старого подтверждения',async()=>{
+  await f.grant(['controlDelegated'])
+  await api(f.route(f.heroes[0])+'/control',player.token,'POST',{delegated:true,revision:await f.revision()})
+  await api(f.route(f.heroes[0])+'/control-assignee',gm.token,'POST',{userId:helper.user.id,revision:await f.revision()})
+  await api(path,player.token,'POST',original,403)
+  await api(path,helper.token,'POST',original,409)
+  await api(f.route(f.heroes[0])+'/control',player.token,'POST',{delegated:false,revision:await f.revision()})
+ })
+ await t.test('Прежняя ветка не подтверждает команду в новом продолжении',async()=>{
+  const body=await command('До новой ветки');await api(path,player.token,'POST',body,201)
+  const before=await world();await f.server.db.transaction(tx=>invalidateRoundGeneration(tx,f.root.split('/').at(-1)))
+  await api(path,player.token,'POST',body,409);assert.deepEqual(await world(),before)
+ })
+ await t.test('После завершения можно подтвердить старую запись, но нельзя создать новую',async()=>{
+  const body=await command('Перед финалом');await api(path,player.token,'POST',body,201)
+  await api(f.root+'/play/session/finish',gm.token,'POST',{revision:await f.revision(),title:'Записи сохранены',summary:'Проверка завершена.',keepPending:false,commandKey:crypto.randomUUID()})
+  const before=await world(),again=await api(path,player.token,'POST',body,200)
+  assert(isKnowledgeAck(again,body,f.heroes[0]));assert.equal(again.duplicate,true)
+  await api(path,player.token,'POST',await command('Новая запись после финала'),409);assert.deepEqual(await world(),before)
+ })
+})

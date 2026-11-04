@@ -9,6 +9,7 @@ import {emptyAbility} from '../generated/rpgSchema.mjs'
 import {unpackArchive} from '../campaign-archive-format.mjs'
 import {isGameReadyAck,isGameStartAck,isGamePauseAck,isGameFinishAck,isGameSessionChangeAck} from '../generated/gameSession.mjs'
 import {isRoundApplyAck,isCampaignCheckpointAck} from '../generated/commandAcknowledgements.mjs'
+import {isKnowledgeAck,knowledgeEntryId} from '../generated/knowledgeCommands.mjs'
 
 const wait=()=>({kind:'wait',seconds:5,note:''})
 const speak=(text,target={kind:'none'})=>({kind:'speak',text,target,volume:'normal',note:''})
@@ -21,6 +22,7 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
  for(let i=0;i<4;i++)players.push(await f.register('party-player-'+i))
  const {id}=await api('/lobbies',gm.token,'POST',lobbyBody,201),root='/lobbies/'+id,session=root+'/play/session',heroes=[],sockets=[]
  const world=()=>api(root+'/world',gm.token),revision=async()=>(await world()).revision
+ let noteCommand
  const positions=[[3,3],[6,6],[3,5],[5,3]]
  for(const [i,p] of players.entries()){
   await api(root+'/join',p.token,'POST')
@@ -101,6 +103,9 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
   assert(JSON.stringify(journals[0].knowledge.journal).includes('Идите по тропе.'));assert(JSON.stringify(journals[2].knowledge.journal).includes('Северный проход'));assert(!JSON.stringify(journals[2].knowledge.journal).includes('Идите по тропе.'))
   for(const i of [1,3])assert(!JSON.stringify(journals[i].knowledge.journal).includes('Северный проход'))
   await api(root+'/characters/'+heroes[1]+'/perception',players[0].token,'GET',undefined,403)
+  noteCommand={revision:await revision(),title:'Личная запись после разговора',text:'PRIVATE-PARTY-NOTE: спросить о северном проходе.',commandKey:'knowledge:'+crypto.randomUUID()}
+  assert(isKnowledgeAck(await api(root+'/characters/'+heroes[0]+'/knowledge',players[0].token,'POST',noteCommand,201),noteCommand,heroes[0]))
+  for(const i of [1,2,3])assert(!JSON.stringify(await api(root+'/characters/'+heroes[i]+'/perception',players[i].token)).includes('PRIVATE-PARTY-NOTE'))
  })
  await t.test('Перерыв и контрольная точка сохраняют позиции; способности наносят урон и лечат товарища один раз',async()=>{
   const beforePause=await world()
@@ -131,6 +136,8 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
   assert(after.characters.find(a=>a.id===heroes[3]).body.parts.torso.current>before.characters.find(a=>a.id===heroes[3]).body.parts.torso.current)
   sockets.forEach(s=>s.close());await f.restart();assert.deepEqual(await world(),after)
   assert.equal((await api(root+'/rounds/apply',gm.token,'POST',command)).duplicate,true);assert.deepEqual(await world(),after)
+  const note=await api(root+'/characters/'+heroes[0]+'/knowledge',players[0].token,'POST',noteCommand,200)
+  assert(isKnowledgeAck(note,noteCommand,heroes[0]));assert(note.duplicate);assert.deepEqual(await world(),after)
   sockets.length=0;await Promise.all(players.map(connect))
  })
  await t.test('Общий финал атомарен и переживает перезапуск; все четыре читают итог, новые действия запрещены',async()=>{
@@ -150,6 +157,9 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
    await api(root+'/characters/'+heroes[i]+'/declarations',p.token,'PUT',{collectionId:d.collection.id,epoch:d.collection.epoch,baseVersion:d.entry.revision,controlStamp:d.controlStamp,actions:[wait()],commandKey:'declaration:'+crypto.randomUUID()},409)
   }
   assert.deepEqual(await world(),closed)
+  assert(isKnowledgeAck(await api(root+'/characters/'+heroes[0]+'/knowledge',players[0].token,'POST',noteCommand,200),noteCommand,heroes[0]))
+  const knowledge=(await api(root+'/characters/'+heroes[0]+'/perception',players[0].token)).knowledge
+  assert.equal(knowledge.journal.filter(e=>e.id===knowledgeEntryId(noteCommand.commandKey)).length,1)
   const count=await f.server.db.get("SELECT COUNT(*) AS n FROM campaign_checkpoints WHERE lobby_id=? AND name='Переправа пройдена'",[id]);assert.equal(Number(count.n),1)
  })
 })
