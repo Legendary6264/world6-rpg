@@ -15,7 +15,7 @@ export function isGameSessionView(v:unknown):v is GameSessionView{
  const s=v as GameSessionView,integer=(n:unknown)=>Number.isSafeInteger(n)&&Number(n)>=0
  if(!integer(s.revision)||!['open','playing','closed'].includes(s.status)||typeof s.paused!=='boolean'||!Number.isFinite(s.seconds)||s.seconds<0||!Object.hasOwn(gameSessionLabels,s.phase))return false
  if(s.round!==null&&(!s.round||typeof s.round.phase!=='string'||!integer(s.round.received)||!integer(s.round.total)))return false
- if(s.result!==null){const r=s.result;if(!r||typeof r.id!=='string'||typeof r.title!=='string'||r.title.length>80||typeof r.summary!=='string'||r.summary.length>MAX_GAME_SESSION_SUMMARY||!integer(r.sourceRevision)||typeof r.finishedAt!=='string'||!Number.isFinite(Date.parse(r.finishedAt)))return false}
+ if(s.result!==null&&!isGameSessionResult(s.result))return false
  return (s.ready===undefined||Array.isArray(s.ready)&&s.ready.every(r=>!!r&&typeof r.id==='string'&&typeof r.label==='string'&&typeof r.done==='boolean'&&typeof r.section==='string'))&&
   (s.canStart===undefined||typeof s.canStart==='boolean')&&(s.pendingWork===undefined||integer(s.pendingWork))&&(s.finishBlockers===undefined||Array.isArray(s.finishBlockers)&&s.finishBlockers.every(b=>typeof b==='string'))
 }
@@ -29,6 +29,26 @@ const obj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Ar
 const exact=(v:Record<string,unknown>,keys:string[])=>Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k))
 const id=(v:unknown):v is string=>typeof v==='string'&&!!v.trim()&&v.length<=160
 const stamp=(v:unknown)=>typeof v==='string'&&v.length<=40&&Number.isFinite(Date.parse(v))
+export function isGameSessionResult(v:unknown):v is GameSessionResult{
+ return obj(v)&&id(v.id)&&typeof v.title==='string'&&!!v.title.trim()&&v.title.length<=80&&typeof v.summary==='string'&&!!v.summary.trim()&&v.summary.length<=MAX_GAME_SESSION_SUMMARY&&Number.isSafeInteger(v.sourceRevision)&&Number(v.sourceRevision)>=0&&stamp(v.finishedAt)
+}
+export function isGameFinishAck(v:unknown,command:FinishGameCommand):boolean{
+ return obj(v)&&typeof v.duplicate==='boolean'&&isGameSessionResult(v.result)&&v.result.sourceRevision===command.revision&&v.result.title===command.title.trim()&&v.result.summary===command.summary.trim()
+}
+export function isGameReadyAck(v:unknown,minimumRevision:number):v is {revision:number;duplicate:boolean}{
+ return obj(v)&&Number.isSafeInteger(v.revision)&&Number(v.revision)>=minimumRevision&&typeof v.duplicate==='boolean'
+}
+export function isGameStartAck(v:unknown,revision:number):boolean{
+ return isGameReadyAck(v,revision)&&(v.duplicate||v.revision===revision+1)
+}
+export function isGamePauseAck(v:unknown,command:{revision:number;paused:boolean;reason:string}):boolean{
+ if(!obj(v)||typeof v.duplicate!=='boolean'||!obj(v.receipt))return false
+ const r=v.receipt,s=r.summary
+ return id(r.id)&&r.revision===command.revision+1&&Number.isSafeInteger(r.generation)&&Number(r.generation)>0&&stamp(r.appliedAt)&&obj(s)&&s.operation==='pause'&&s.paused===command.paused&&s.reason===command.reason.trim()
+}
+export function isGameSessionChangeAck(v:unknown,command:{revision:number;operation:string}):boolean{
+ return obj(v)&&typeof v.duplicate==='boolean'&&obj(v.receipt)&&v.receipt.revision===command.revision+1&&v.receipt.operation==='game-session-'+command.operation&&stamp(v.receipt.appliedAt)
+}
 export function isGameObjectives(v:unknown):v is GameObjective[]{return Array.isArray(v)&&v.length<=12&&v.every(o=>obj(o)&&exact(o,['id','title','done'])&&id(o.id)&&typeof o.title==='string'&&!!o.title.trim()&&o.title.length<=160&&typeof o.done==='boolean')&&new Set(v.map(o=>o.id)).size===v.length}
 export function isGameSession(v:unknown):v is GameSession{
  if(!obj(v)||!exact(v,['version','status','objectives','ready','startedAt','finishedAt','outcome','summary'])||v.version!==1||!['setup','playing','finished'].includes(v.status as string)||!isGameObjectives(v.objectives)||!Array.isArray(v.ready)||v.ready.length>20||!v.ready.every(r=>obj(r)&&exact(r,['userId','actorIds'])&&id(r.userId)&&Array.isArray(r.actorIds)&&r.actorIds.length<=200&&r.actorIds.every(id)&&new Set(r.actorIds).size===r.actorIds.length)||new Set(v.ready.map(r=>r.userId)).size!==v.ready.length||typeof v.summary!=='string'||v.summary.length>MAX_GAME_SESSION_SUMMARY)return false

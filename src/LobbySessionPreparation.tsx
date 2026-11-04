@@ -3,7 +3,7 @@ import {useOnline} from './onlineContext'
 import {useRemote} from './onlineHooks'
 import {NetworkError} from './onlineClient'
 import {lobbyFormKey,readLobbyForm,writeLobbyForm} from './lobbyFormDrafts'
-import {isLegacyGameSessionView} from './gameSession'
+import {isLegacyGameSessionView,isGameReadyAck,isGameSessionChangeAck} from './gameSession'
 import type {LegacyGameSessionView} from './gameSession'
 type Command={path:string;method:'POST'|'PUT';body:string}
 type Draft={goals:string;summary:string;outcome:'success'|'failure'|'stopped';revision?:number;command:Command|null}
@@ -24,9 +24,10 @@ export default function LobbySessionPreparation({accountId,lobbyId,disabled,onHe
   if(![path,path+'/ready'].includes(command.path)||!remember({...draft,command}))return
   const abort=new AbortController();pending.current=abort;setBusy(true)
   try{
-   await request(command.path,{method:command.method,body:command.body,signal:abort.signal});if(!active.current||abort.signal.aborted)return
+   const reply=await request<unknown>(command.path,{method:command.method,body:command.body,signal:abort.signal});if(!active.current||abort.signal.aborted)return
+   if(!(command.path.endsWith('/ready')?isGameReadyAck(reply,v.revision):isGameSessionChangeAck(reply,JSON.parse(command.body))))throw Error('Сервер не подтвердил сохранение сессии. Повтори ту же команду после проверки соединения.')
    remember({...draft,revision:undefined,command:null});setMessage('Изменение сессии сохранено. Все участники получат обновление.');refresh()
-  }catch(e){if(active.current&&!abort.signal.aborted){if(e instanceof NetworkError&&e.status>=400&&e.status<500)remember({...draft,command:null});setMessage((e as Error).message)}}
+  }catch(e){if(active.current&&!abort.signal.aborted){if(e instanceof NetworkError&&e.status>=400&&e.status<500)remember({...draft,command:null});setMessage((e as Error).message);refresh()}}
   finally{if(active.current&&!abort.signal.aborted){pending.current=null;setBusy(false)}}
  }
  function saveGoals(){if(!v||stale)return;const titles=draft.goals.split('\n').map(t=>t.trim()).filter(Boolean);if(titles.length>12||titles.some(t=>t.length>160)){setMessage('Не больше 12 целей, каждая до 160 символов.');return}const used=new Set<string>(),objectives=titles.map(title=>{const old=v.session.objectives.find(o=>o.title===title&&!used.has(o.id)),id=old?.id??crypto.randomUUID();used.add(id);return {id,title,done:old?.done??false}});void send('goals',{objectives})}

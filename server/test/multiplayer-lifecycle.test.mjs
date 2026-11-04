@@ -7,6 +7,8 @@ import {createDefaultCharacter} from '../generated/characterModel.mjs'
 import {createScene,emptyScenes,sceneObject} from '../generated/scenes.mjs'
 import {emptyAbility} from '../generated/rpgSchema.mjs'
 import {unpackArchive} from '../campaign-archive-format.mjs'
+import {isGameReadyAck,isGameStartAck,isGamePauseAck,isGameFinishAck,isGameSessionChangeAck} from '../generated/gameSession.mjs'
+import {isRoundApplyAck,isCampaignCheckpointAck} from '../generated/commandAcknowledgements.mjs'
 
 const wait=()=>({kind:'wait',seconds:5,note:''})
 const speak=(text,target={kind:'none'})=>({kind:'speak',text,target,volume:'normal',note:''})
@@ -39,6 +41,8 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
  scene.objects=[door];scene.tokens=[...heroes.map((actorId,i)=>({actorId,x:positions[i][0],y:positions[i][1],z:0})),{actorId:npcId,x:8,y:3,z:0}].map(p=>({...p,diameter:.8,support:{kind:'ground'}}))
  await api(root+'/world',gm.token,'PUT',{revision:initial.revision,world:initial})
  await api(root+'/play/setup',gm.token,'POST',{revision:await revision(),setup:{sceneId:scene.id,actorIds:heroes,contactIds:[...heroes,npcId],objectIds:[door.id],title:'У переправы',description:'Группа у ворот. Смотритель отвечает героям.',anchor:{x:3,y:3,z:0},revealTerrain:true}})
+ const goals={operation:'goals',revision:await revision(),commandKey:'session:'+crypto.randomUUID(),objectives:[{id:'party-goal',title:'Поговорить со смотрителем и пройти ворота',done:false}]}
+ assert(isGameSessionChangeAck(await api(session,gm.token,'POST',goals),goals))
  const connect=async player=>{
   const s=io(f.base,{auth:{token:player.token},forceNew:true,reconnection:false,transports:['websocket']});sockets.push(s);t.after(()=>s.close())
   await once(s,'connect',{signal:AbortSignal.timeout(5000)})
@@ -63,10 +67,12 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
   assert.equal((await api(session,gm.token)).canStart,false)
   for(const [i,p] of players.entries()){
    const personal=await api(root+'/world',p.token);assert(!JSON.stringify(personal).includes('PRIVATE-NPC-BIO'));assert(!JSON.stringify(personal).includes('PRIVATE-GM-RULE'))
-   await api(session+'/ready',p.token,'PUT',{ready:true})
+   const beforeReady=await revision()
+   assert(isGameReadyAck(await api(session+'/ready',p.token,'PUT',{ready:true}),beforeReady))
    if(i<3)assert.equal((await api(session,gm.token)).canStart,false)
   }
-  await api(session+'/start',gm.token,'POST',{revision:await revision()});assert.equal((await api(root,gm.token)).status,'playing')
+  const beforeStart=await revision()
+  assert(isGameStartAck(await api(session+'/start',gm.token,'POST',{revision:beforeStart}),beforeStart));assert.equal((await api(root,gm.token)).status,'playing')
   await Promise.all(players.map(connect))
  })
  await t.test('Параллельные ходы: диалог с NPC, слушание, открытие ворот и движение не исполняются при отправке',async()=>{
@@ -88,7 +94,7 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
   ]})
   assert.equal((await world()).campaign.seconds,0)
   const notices=sockets.map(s=>once(s,'lobbyChanged',{signal:AbortSignal.timeout(5000)})),command=applyBody(p)
-  await api(root+'/rounds/apply',gm.token,'POST',command);await api(root+'/rounds/apply',gm.token,'POST',command)
+  assert(isRoundApplyAck(await api(root+'/rounds/apply',gm.token,'POST',command),command));assert(isRoundApplyAck(await api(root+'/rounds/apply',gm.token,'POST',command),command))
   assert((await Promise.all(notices)).every(([e])=>e.id===id))
   const after=await world();assert.equal(after.campaign.seconds,5);assert(after.campaign.scenes.scenes[0].objects[0].open);assert.equal(after.campaign.scenes.scenes[0].tokens.find(t=>t.actorId===heroes[3]).y,4)
   const journals=await Promise.all(heroes.map((hero,i)=>api(root+'/characters/'+hero+'/perception',players[i].token)))
@@ -98,11 +104,17 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
  })
  await t.test('Перерыв и контрольная точка сохраняют позиции; способности наносят урон и лечат товарища один раз',async()=>{
   const beforePause=await world()
-  await api(root+'/rounds/pause',gm.token,'POST',{revision:await revision(),paused:true,reason:'Перерыв всей группы',commandKey:crypto.randomUUID()})
+  const pause={revision:await revision(),paused:true,reason:'Перерыв всей группы',commandKey:crypto.randomUUID()}
+  assert(isGamePauseAck(await api(root+'/rounds/pause',gm.token,'POST',pause),pause))
   assert((await api(session,players[3].token)).paused)
-  await api(root+'/rounds/pause',gm.token,'POST',{revision:await revision(),paused:false,reason:'Группа вернулась',commandKey:crypto.randomUUID()})
+  const resume={revision:await revision(),paused:false,reason:'Группа вернулась',commandKey:crypto.randomUUID()}
+  assert(isGamePauseAck(await api(root+'/rounds/pause',gm.token,'POST',resume),resume))
   assert.deepEqual((await world()).campaign,beforePause.campaign)
-  await api(root+'/rounds/checkpoints',gm.token,'POST',{revision:await revision(),name:'После разговора',commandKey:crypto.randomUUID()})
+  const objective={operation:'objective',revision:await revision(),commandKey:'session:'+crypto.randomUUID(),objectiveId:'party-goal',done:true}
+  assert(isGameSessionChangeAck(await api(session,gm.token,'POST',objective),objective))
+  assert((await world()).campaign.gameSession.objectives[0].done)
+  const checkpoint={revision:await revision(),name:'После разговора',commandKey:crypto.randomUUID()}
+  assert(isCampaignCheckpointAck(await api(root+'/rounds/checkpoints',gm.token,'POST',checkpoint),checkpoint))
   sockets.pop().close();await connect(players[3])
   await open(true);const target=await contact(0,npc.name),friend=await contact(2,'Игрок 4')
   await Promise.all([
@@ -113,7 +125,7 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
   ])
   const before=await world(),p=await calculate({rules:[decision(heroes[0],0),decision(heroes[0],1,'prepare:new:'+heroes[0]+':0'),decision(heroes[2],0),decision(heroes[2],1,'prepare:new:'+heroes[2]+':0')]}),command=applyBody(p)
   assert.equal((await world()).characters.find(a=>a.id===heroes[0]).resources.mana.current,'50')
-  await api(root+'/rounds/apply',gm.token,'POST',command)
+  assert(isRoundApplyAck(await api(root+'/rounds/apply',gm.token,'POST',command),command))
   const after=await world();assert.equal(after.campaign.seconds,10);assert.equal(after.characters.find(a=>a.id===heroes[0]).resources.mana.current,'43');assert.equal(after.characters.find(a=>a.id===heroes[2]).resources.mana.current,'45')
   assert(after.characters.find(a=>a.id===npcId).body.parts.torso.current<before.characters.find(a=>a.id===npcId).body.parts.torso.current)
   assert(after.characters.find(a=>a.id===heroes[3]).body.parts.torso.current>before.characters.find(a=>a.id===heroes[3]).body.parts.torso.current)
@@ -125,7 +137,7 @@ for(const dialect of ['sqlite','postgres'])test('Полный игровой ц�
   const before=await world(),command={revision:before.revision,title:'Переправа пройдена',summary:'Группа поговорила со смотрителем, открыла ворота и помогла товарищу.',keepPending:false,commandKey:crypto.randomUUID()}
   await api(session+'/finish',players[0].token,'POST',command,403)
   const notices=sockets.map(s=>once(s,'lobbyChanged',{signal:AbortSignal.timeout(5000)})),results=await Promise.all([f.request(session+'/finish',gm.token,'POST',command),f.request(session+'/finish',gm.token,'POST',command)])
-  assert(results.every(r=>r.status===200));assert.equal(results.filter(r=>r.data.duplicate).length,1);assert((await Promise.all(notices)).every(([e])=>e.id===id))
+  assert(results.every(r=>r.status===200&&isGameFinishAck(r.data,command)));assert.equal(results.filter(r=>r.data.duplicate).length,1);assert((await Promise.all(notices)).every(([e])=>e.id===id))
   const result=results[0].data.result,closed=await world();assert.equal(closed.campaign.seconds,10);assert.deepEqual(closed.characters,before.characters)
   const exported=await api(root+'/archive',gm.token),portable=await unpackArchive(Buffer.from(exported.data,'base64'))
   assert.equal(portable.world.campaign.gameSession.status,'finished');assert(portable.world.campaign.gameSession.summary.includes(command.title));assert(portable.world.campaign.gameSession.summary.includes(command.summary))

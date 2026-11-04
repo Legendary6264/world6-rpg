@@ -2,6 +2,7 @@ import {useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {useOnline} from './onlineContext'
 import {useRemote} from './onlineHooks'
 import {NetworkError} from './onlineClient'
+import {isArchiveRestoreAck} from './commandAcknowledgements'
 import {lobbyFormKey,readLobbyForm,writeLobbyForm} from './lobbyFormDrafts'
 type Summary={fromSeconds:number;toSeconds:number;characters:{id:string;name:string;fields?:string[]}[];resources?:{actorId:string;name:string;label:string;from:{current:string;maximum:string}|null;to:{current:string;maximum:string}}[];sections?:string[];rounds:number;changes:number;activeRounds:number;compactedCollections?:number;checkpoints:string[];paused:boolean;fromPaused:boolean;oldRounds:number;oldCheckpoints:number}
 type Preview={id:string;revision:number;generation:number;summary:Summary}
@@ -38,7 +39,7 @@ export default function LobbyCompleteBackup({accountId,lobbyId,revision,checking
  async function apply(signal:AbortSignal){
   if(!allowRestore)return;let command=draft.command
   if(!command){if(!visible||!reviewed||!draft.reason.trim())return;command={previewId:visible.id,generation:visible.generation,commandKey:crypto.randomUUID(),reason:draft.reason};if(!remember({...draft,command}))return}
-  try{const result=await request<{duplicate:boolean}>(path+'/apply',{method:'POST',signal,body:JSON.stringify(command)});if(!active.current||signal.aborted)return;remember({...draft,command:null});setPreview(null);setReviewed(false);setMessage(result.duplicate?'Получено подтверждение прежнего восстановления.':'Полная копия восстановлена. Владельцы и права сохранены; прежнее состояние доступно в защитной копии.');refresh()}
+  try{const result=await request<{duplicate:boolean}>(path+'/apply',{method:'POST',signal,body:JSON.stringify(command)});if(!active.current||signal.aborted)return;if(!isArchiveRestoreAck(result,command))throw Error('Сервер не подтвердил восстановление этой копии. Повтори сохранённую команду для проверки результата.');remember({...draft,command:null});setPreview(null);setReviewed(false);setMessage(result.duplicate?'Получено подтверждение прежнего восстановления.':'Полная копия восстановлена. Владельцы и права сохранены; прежнее состояние доступно в защитной копии.');refresh()}
   catch(e){if(active.current&&!signal.aborted&&e instanceof NetworkError&&[400,409,413].includes(e.status)){remember({...draft,command:null});setPreview(null);setReviewed(false)}throw e}
  }
  return <section className="w6-fieldset" aria-label="Полная игровая копия"><h3>Полная игровая копия</h3>

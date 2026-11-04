@@ -10,6 +10,7 @@ import LobbyRoundCharges from './LobbyRoundCharges'
 import type { ChargeForm } from './roundCharges'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useOnline } from './onlineContext'
+import { isRoundApplyAck } from './commandAcknowledgements'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
 import { MAX_TIMING_MS } from './roundTimeline'
 import { NetworkError } from './onlineClient'
@@ -148,6 +149,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
     try {
       const result = await request<{ receipt: RoundReceipt; duplicate: boolean }>('/lobbies/' + lobbyId + '/rounds/apply', { method: 'POST', signal: abort.signal, body: JSON.stringify(command) })
       if (!active.current || abort.signal.aborted || attempt !== sequence.current) return
+      if(!isRoundApplyAck(result,command))throw Error('Сервер не подтвердил применение этого раунда. Повтори сохранённую команду для проверки результата.')
       remember({ ...draft, command: null }); setReceipt(result.receipt); setPreview(null)
       setMessage(result.duplicate ? 'Получено подтверждение прежней команды. Повторных последствий нет.' : 'Раунд применён. Исходное состояние сохранено для отката.'); refresh()
     } catch (e) { if (active.current && !abort.signal.aborted && attempt === sequence.current) {

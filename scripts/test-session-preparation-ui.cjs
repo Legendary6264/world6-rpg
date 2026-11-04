@@ -7,9 +7,10 @@ const flush=async(fn=()=>{})=>act(async()=>{fn();await new Promise(r=>setTimeout
 const button=name=>[...document.querySelectorAll('button')].find(b=>b.textContent===name)
 async function click(name){const b=button(name);assert(b,name);assert(!b.disabled,name+' disabled');await flush(()=>b.click())}
 async function input(label,value){const field=document.querySelector('[aria-label="'+label+'"]');assert(field,label);await flush(()=>{const proto=field.tagName==='TEXTAREA'?dom.window.HTMLTextAreaElement.prototype:dom.window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(field,value);field.dispatchEvent(new dom.window.Event('input',{bubbles:true}))})}
+const sessionAck=(body,duplicate=false)=>({receipt:{operation:'game-session-'+body.operation,revision:body.revision+1,appliedAt:'2026-11-04T12:00:00.000Z'},duplicate})
 async function fixture({chief=false,status='setup',mode='session'}={}){
  localStorage.clear();const tree=createRoot(document.getElementById('root')),writes=[],created=[],view={revision:1,chief,myReady:false,session:{...emptyGameSession(['Пройти переход']),status,...(status==='playing'?{startedAt:new Date().toISOString()}:{})},participants:[{userId:'player',name:'Друг',heroCount:1,placed:true,ready:false,mine:!chief}],blockers:[],durationSeconds:5,canStart:chief,roundPhase:null};let mounted=true,accountId=chief?'master':'player',lobbyId='room',intercept=null
- const context={user:{id:accountId},events:0,request:async(url,options={})=>{if(intercept){const result=intercept(url,options);if(result!==undefined)return result}if(!options.method||options.method==='GET')return structuredClone(view);writes.push({url,...options});return {ok:true}},refresh:()=>{context.events++;render()}}
+ const context={user:{id:accountId},events:0,request:async(url,options={})=>{if(intercept){const result=intercept(url,options);if(result!==undefined)return result}if(!options.method||options.method==='GET')return structuredClone(view);writes.push({url,...options});if(mode!=='session')return {ok:true};return url.endsWith('/ready')?{revision:view.revision+1,duplicate:false}:sessionAck(JSON.parse(options.body))},refresh:()=>{context.events++;render()}}
  function render(){tree.render(React.createElement(OnlineContext.Provider,{value:context},mounted?React.createElement(mode==='session'?Session:Hero,{key:accountId+':'+lobbyId,accountId,lobbyId,disabled:false,onHeroes(){},onScene(){},onRound(){},onCreated:id=>created.push(id)}):null))}
  await flush(render);return {view,writes,created,context,intercept:fn=>intercept=fn,notify:async()=>flush(()=>context.refresh()),mount:async v=>flush(()=>{mounted=v;render()}),switch:async(a,l)=>flush(()=>{accountId=a;lobbyId=l;context.user={id:a};render()}),close:async()=>flush(()=>tree.unmount())}
 }
@@ -19,3 +20,38 @@ test('Потерянный ответ сохранения целей переж
 test('Цели требуют проверки новой версии и сохраняют отметки выполненных задач',async()=>{const f=await fixture({chief:true,status:'playing'});try{await input('Цели приключения','Пройти переход\nВернуться');f.view.revision++;f.view.session.objectives[0].done=true;await f.notify();assert(button('Сохранить общие цели').disabled);await click('Цели проверены');await click('Сохранить общие цели');const b=JSON.parse(f.writes[0].body);assert.equal(b.revision,2);assert(b.objectives[0].done);assert.equal(b.objectives[1].title,'Вернуться')}finally{await f.close()}})
 test('Черновик целей разделён по аккаунту и лобби',async()=>{const f=await fixture({chief:true});try{await input('Цели приключения','Черновик мастера');await f.switch('another','other');assert.equal(document.querySelector('[aria-label="Цели приключения"]').value,'Пройти переход');await f.switch('master','room');assert.equal(document.querySelector('[aria-label="Цели приключения"]').value,'Черновик мастера')}finally{await f.close()}})
 test('Завершённая игра показывает цели и сохранённый итог без изменения и возобновления игроком',async()=>{const f=await fixture();try{Object.assign(f.view.session,{status:'finished',startedAt:new Date().toISOString(),finishedAt:new Date().toISOString(),outcome:'success',summary:'Переход пройден.'});await f.notify();assert(document.querySelector('[aria-label="Общие цели приключения"]'));assert(document.querySelector('[aria-label="Сохранённый итог приключения"]').textContent.includes('Переход пройден.'));assert(!button('Я готов играть'));assert(!button('Продолжить завершённую игру'));assert(!document.querySelector('[aria-label="Цели приключения"]'))}finally{await f.close()}})
+
+for(const variant of ['empty','receipt-missing','revision-wrong','operation-wrong','date-invalid','duplicate-missing'])test('Receipt: цели остаются в точной команде до подтверждения сохранения · '+variant,async()=>{
+ const f=await fixture({chief:true})
+ try{
+  f.intercept((url,options)=>{
+   if(!options.method)return
+   f.writes.push({url,...options});const ack=sessionAck(JSON.parse(options.body))
+   if(variant==='empty')return null
+   if(variant==='receipt-missing')return {duplicate:true}
+   if(variant==='revision-wrong')ack.receipt.revision++
+   if(variant==='operation-wrong')ack.receipt.operation='game-session-resume'
+   if(variant==='date-invalid')ack.receipt.appliedAt='invalid'
+   if(variant==='duplicate-missing')delete ack.duplicate
+   return ack
+  })
+  await input('Цели приключения','Найти переправу');await click('Сохранить общие цели')
+  assert(button('Повторить отправку сессии'));assert(!document.body.textContent.includes('Изменение сессии сохранено.'))
+  const original=f.writes[0].body;await f.mount(false);await f.mount(true)
+  f.intercept((url,options)=>{if(!options.method)return;f.writes.push({url,...options});return sessionAck(JSON.parse(options.body),true)})
+  await click('Повторить отправку сессии');assert.equal(f.writes[1].body,original)
+  assert(!button('Повторить отправку сессии'));assert(document.body.textContent.includes('Изменение сессии сохранено.'))
+ }finally{await f.close()}
+})
+
+test('Receipt: готовность повторяет прежнее решение и принимает свежую ревизию всей партии',async()=>{
+ const f=await fixture()
+ try{
+  let valid=false
+  f.intercept((url,options)=>{if(!options.method)return;f.writes.push({url,...options});return valid?{revision:9,duplicate:true}:{ok:true}})
+  await click('Я готов играть');assert(button('Повторить отправку сессии'))
+  assert(!document.body.textContent.includes('Изменение сессии сохранено.'));valid=true
+  await click('Повторить отправку сессии');assert.equal(f.writes[1].body,f.writes[0].body)
+  assert.deepEqual(JSON.parse(f.writes[1].body),{ready:true});assert(!button('Повторить отправку сессии'))
+ }finally{await f.close()}
+})

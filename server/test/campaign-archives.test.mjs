@@ -7,6 +7,7 @@ import {createScene,emptyScenes} from '../generated/scenes.mjs'
 import {emptyAbility} from '../generated/rpgSchema.mjs'
 import {lobbyPermissions} from '../generated/lobbyAccess.mjs'
 import {archiveHash,validateArchive,unpackArchive} from '../campaign-archive-format.mjs'
+import {isArchiveRestoreAck} from '../generated/commandAcknowledgements.mjs'
 const fields={region:'torso',distanceM:0,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:10,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:'ARCHIVE-SECRET-RULE'}
 for(const dialect of ['sqlite','postgres'])test('Полная игровая копия · '+dialect,async t=>{
  const f=await fixture(t,dialect),{api}=f,gm=await f.register('archive-gm'),player=await f.register('archive-player'),helper=await f.register('archive-helper')
@@ -62,11 +63,11 @@ for(const dialect of ['sqlite','postgres'])test('Полная игровая к�
   assert.deepEqual(await world(),before);assert.equal((await history()).generation,preview.generation);assert.equal((await api(root+'/archive/recoveries',gm.token)).length,0);assert(await db.get('SELECT id FROM campaign_archive_previews WHERE id=?',[preview.id]))
  })
  await t.test('Восстановление и повтор после перезапуска сохраняют текущие права и раннюю ветку',async()=>{
-  const before=await world(),result=await restore(restoreBody);assert.equal(result.duplicate,false);assert(result.receipt.revision>before.revision);assert(result.receipt.generation>preview.generation)
+  const before=await world(),result=await restore(restoreBody);assert(isArchiveRestoreAck(result,restoreBody));assert.equal(result.duplicate,false);assert(result.receipt.revision>before.revision);assert(result.receipt.generation>preview.generation)
   const w=await world(),h=await history();assert.equal(w.campaign.seconds,5);assert.equal(hero(w).resources.mana.current,'40');assert.deepEqual(w.campaign.roundWork,saved.value.world.campaign.roundWork);assert.deepEqual(hero(w).rpg.casts,hero(saved.value.world).rpg.casts);assert(!JSON.stringify(w).includes('AFTER-ARCHIVE-NOTE'));assert.deepEqual(w.campaign.scenes,saved.value.world.campaign.scenes);assert(h.session.paused)
   assert.deepEqual(await f.server.db.all('SELECT * FROM character_bindings WHERE lobby_id=? ORDER BY character_id',[id]),bindings);assert.deepEqual(await f.server.db.all('SELECT * FROM character_delegations WHERE lobby_id=?',[id]),delegations);assert.deepEqual(await f.server.db.all('SELECT * FROM lobby_permissions WHERE lobby_id=?',[id]),permissions)
   assert.equal(h.rounds.length,1);assert.notEqual(h.rounds[0].id,saved.value.rounds[0].id);assert.equal(h.rounds[0].imported_author,'archive-gm');assert.equal(h.checkpoints.length,1);assert.equal((await api(root+'/declarations',gm.token)).executed,true)
-  await apply(originalCommand,409);await f.restart();assert.equal((await restore(restoreBody)).duplicate,true);assert.deepEqual(await world(),w)
+  await apply(originalCommand,409);await f.restart();const duplicate=await restore(restoreBody);assert(isArchiveRestoreAck(duplicate,restoreBody));assert.equal(duplicate.duplicate,true);assert.deepEqual(await world(),w)
   const recovered=await api(root+'/archive/recoveries/'+result.receipt.id,gm.token),archive=await unpackArchive(Buffer.from(recovered.data,'base64'));assert.equal(archive.checkpoints.length,2);assert.deepEqual(archive.world.campaign,before.campaign)
   await api(root+'/rounds/pause',gm.token,'POST',{revision:w.revision,paused:false,reason:'Продолжаем',commandKey:crypto.randomUUID()});const c=(await world()).campaign.declarations.active;await api(root+'/declarations',gm.token,'PATCH',{collectionId:c.id,epoch:c.epoch,operation:'reopen'},409)
  })

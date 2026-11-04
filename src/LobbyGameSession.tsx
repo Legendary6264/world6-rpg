@@ -5,7 +5,7 @@ import {useRemote} from './onlineHooks'
 import {NetworkError} from './onlineClient'
 import {lobbyFormKey,readLobbyForm,writeLobbyForm} from './lobbyFormDrafts'
 import {sceneEditorId} from './sceneEditorId'
-import {gameSessionLabels,isGameSessionView} from './gameSession'
+import {gameSessionLabels,isGameSessionView,isGameFinishAck,isGameStartAck,isGamePauseAck} from './gameSession'
 import type {FinishGameCommand,GameSessionView} from './gameSession'
 import type {Lobby} from './onlineTypes'
 
@@ -26,10 +26,11 @@ export default function LobbyGameSession({accountId,lobby,disabled,onHeroes,onRo
  useEffect(()=>()=>{pending.current?.abort();pending.current=null},[request,accountId,lobby.id])
  const busy=busySource?.request===request
  const unavailable=disabled||busy||remote.loading||!value,stale=draft.revision!==undefined&&draft.revision!==value?.revision
- const acknowledged=!!draft.command&&!!value?.result&&value.result.sourceRevision===draft.command.revision&&value.result.title===draft.command.title.trim()&&value.result.summary===draft.command.summary.trim()
+ const acknowledged=!!draft.command&&value?.status==='closed'&&isGameFinishAck({result:value.result,duplicate:true},draft.command)
  useEffect(()=>{if(!acknowledged)return;const next={...draft,command:undefined,confirmed:false,revision:undefined};writeLobbyForm(key,next);
   // oxlint-disable-next-line react/set-state-in-effect -- A fetched durable result acknowledges a command whose HTTP response was lost.
-  setDraft(next)
+  setDraft(next);setEnding(false);setBusySource(null);setMessage('Игра завершена. Общий итог подтверждён сохранённым состоянием кампании.')
+  pending.current?.abort();pending.current=null
  },[acknowledged,draft,key])
  function remember(next:Draft){setDraft(next);setWarning(writeLobbyForm(key,next)?'':'Черновик итога сохранён только в памяти. Не закрывай страницу.')}
  function edit(patch:Partial<Draft>){remember({...draft,...patch,confirmed:false,revision:draft.revision??value?.revision})}
@@ -44,16 +45,18 @@ export default function LobbyGameSession({accountId,lobby,disabled,onHeroes,onRo
    }
   }else if(kind==='start'?!value.canStart:!reason.trim())return
   const abort=new AbortController();pending.current=abort;setBusySource({request});setMessage('')
+  const pause=kind==='pause'?{revision:value.revision,paused:!value.paused,reason,commandKey:sceneEditorId()}:null
   try{
-   await request(kind==='pause'?'/lobbies/'+lobby.id+'/rounds/pause':path+'/'+kind,{method:'POST',signal:abort.signal,body:JSON.stringify(kind==='finish'?command:kind==='start'?{revision:value.revision}:{revision:value.revision,paused:!value.paused,reason,commandKey:sceneEditorId()})})
+   const reply=await request<unknown>(kind==='pause'?'/lobbies/'+lobby.id+'/rounds/pause':path+'/'+kind,{method:'POST',signal:abort.signal,body:JSON.stringify(kind==='finish'?command:kind==='start'?{revision:value.revision}:pause)})
    if(!mounted.current||abort.signal.aborted||pending.current!==abort)return
+   if(!(kind==='finish'?isGameFinishAck(reply,command!):kind==='start'?isGameStartAck(reply,value.revision):isGamePauseAck(reply,pause!)))throw Error('Сервер не подтвердил изменение игры. Проверяем сохранённое состояние; при необходимости повтори отправку.')
    if(kind==='finish'){remember({...draft,confirmed:false,command:undefined,revision:undefined});setEnding(false)}
    if(kind==='start')remember({...draft,confirmed:false,command:undefined,revision:undefined})
    setMessage(kind==='finish'?'Игра завершена. Финальный снимок и общий итог сохранены.':kind==='start'?'Игра начата. Открой раунд, чтобы принять ходы игроков.':value.paused?'Игра продолжена.':'Игра на паузе. Позиции и черновики сохранены.');refresh()
   }catch(e){
    if(!mounted.current||abort.signal.aborted)return
    if(kind==='finish'&&e instanceof NetworkError&&[400,403,404,409,413].includes(e.status))remember({...draft,command:undefined,confirmed:false})
-   setMessage((e as Error).message)
+   setMessage((e as Error).message);refresh()
   }finally{if(mounted.current&&pending.current===abort){pending.current=null;setBusySource(null)}}
  }
  return <section className="gb-game-session" aria-label="Совместная игра">

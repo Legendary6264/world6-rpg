@@ -2040,7 +2040,7 @@ function historyFixture(f,rooms,rollbackState=null) {
   if(operation==='change/apply'||operation==='apply'&&previews.has(body.previewId)){
    calls.push({operation,...body});const old=commands.get(body.commandKey);if(old)return {receipt:old,duplicate:true}
    const p=previews.get(body.previewId);assert(p,'missing preview');f.worlds[id]={...p.world,revision:w.revision+1};if(p.p.summary.operation==='rollback'){generations[id]++;replay=true}else if(p.kind==='round')replay=false
-   const receipt={id:'history-receipt-'+index,revision:w.revision+1,generation:generations[id],summary:p.p.summary};commands.set(body.commandKey,receipt);return {receipt,duplicate:false}
+   const receipt={id:'history-receipt-'+index,previewId:body.previewId,collectionId:p.p.collectionId,revision:w.revision+1,generation:generations[id],sourceGeneration:body.generation,appliedAt:'2026-10-12T00:00:00Z',summary:p.p.summary};commands.set(body.commandKey,receipt);return {receipt,duplicate:false}
   }
   return undefined
  }
@@ -2107,8 +2107,8 @@ function continuationFixture(f){
   if(operation==='checkpoints'||operation==='pause'){
    calls.push({id,operation,...body});if(commands.has(body.commandKey))return {...commands.get(body.commandKey),duplicate:true}
    let result
-   if(operation==='checkpoints'){const p={id:'cp-'+(++next),name:body.name,source_revision:w.revision,created_at:'2026-10-12T00:00:00Z',snapshot:structuredClone(w)};checkpoints[id].push(p);result={checkpoint:p,duplicate:false}}
-   else {paused[id]=body.paused;f.worlds[id]={...w,revision:w.revision+1};result={receipt:{id:'pause-'+(++next)},duplicate:false}}
+   if(operation==='checkpoints'){const p={id:'cp-'+(++next),name:body.name,source_revision:w.revision,created_at:'2026-10-12T00:00:00Z',author_id:f.accountId,snapshot:structuredClone(w)};checkpoints[id].push(p);result={checkpoint:p,duplicate:false}}
+   else {paused[id]=body.paused;f.worlds[id]={...w,revision:w.revision+1};result={receipt:{id:'pause-'+(++next),revision:w.revision+1,generation:generations[id],appliedAt:'2026-10-12T00:00:00Z',summary:{operation:'pause',paused:body.paused,reason:body.reason.trim()}},duplicate:false}}
    commands.set(body.commandKey,result);return result
   }
   if(operation==='rollback/calculate'){
@@ -2117,7 +2117,7 @@ function continuationFixture(f){
   }
   if(operation==='change/apply'){
    calls.push({id,operation,...body});if(commands.has(body.commandKey))return {...commands.get(body.commandKey),duplicate:true}
-   const p=previews.get(body.previewId);assert(p);f.worlds[id]={...p.target,revision:w.revision+1};rounds[id]=rounds[id].filter(r=>!p.removed.some(x=>x.id===r.id));generations[id]++;const result={receipt:{id:'change-'+next},duplicate:false};commands.set(body.commandKey,result);return result
+   const p=previews.get(body.previewId);assert(p);f.worlds[id]={...p.target,revision:w.revision+1};rounds[id]=rounds[id].filter(r=>!p.removed.some(x=>x.id===r.id));generations[id]++;const result={receipt:{id:'change-'+next,previewId:body.previewId,revision:w.revision+1,generation:generations[id],sourceGeneration:body.generation,appliedAt:'2026-10-12T00:00:00Z',summary:p.p.summary},duplicate:false};commands.set(body.commandKey,result);return result
   }
   return undefined
  }
@@ -2182,12 +2182,64 @@ function archiveFixture(f){
   }
   if(operation==='apply'){
    const body=JSON.parse(options.body);calls.push({id,operation,...body});if(commands.has(body.commandKey))return {duplicate:true,receipt:commands.get(body.commandKey)}
-   assert.equal(previews.get(body.previewId)?.id,id);f.worlds[id]={...f.worlds[id],revision:f.worlds[id].revision+1,campaign:{...f.worlds[id].campaign,seconds:2}};const receipt={id:'restore-'+index};commands.set(body.commandKey,receipt);return {duplicate:false,receipt}
+   assert.equal(previews.get(body.previewId)?.id,id);f.worlds[id]={...f.worlds[id],revision:f.worlds[id].revision+1,campaign:{...f.worlds[id].campaign,seconds:2}};const receipt={id:'restore-'+index,previewId:body.previewId,revision:f.worlds[id].revision,generation:body.generation+1,appliedAt:'2026-10-12T00:00:00Z',reason:body.reason.trim(),summary:{...previews.get(body.previewId).p.summary,sha256:'a'.repeat(64)}};commands.set(body.commandKey,receipt);return {duplicate:false,receipt}
   }
   return undefined
  }
  f.context.refresh=f.notify;f.intercept(handler);return {handler,calls}
 }
+
+test('Receipt: раунд с неполным ответом повторяет прежний ключ без второго исполнения',async()=>{
+ const f=await fixture()
+ try{
+  executableRound(f,'a');await executionFields(f,'a');await click('Рассчитать последствия раунда')
+  f.intercept((url,options)=>{if(!url.endsWith('/rounds/apply'))return;f.intercept(null);return f.request(url,options).then(()=>({ok:true}))})
+  await click('Применить рассчитанный раунд');const original=f.applications[0],after=structuredClone(f.worlds.a)
+  assert(document.body.textContent.includes('Результат команды ещё не подтверждён.'))
+  await f.mount(false);await f.mount(true);await flush();await f.open('a');await click('Открыть инструменты заявлений');await click('Проверить результат команды')
+  assert.deepEqual(f.applications[1],original);assert.deepEqual(f.worlds.a,after)
+  assert(document.body.textContent.includes('Повторных последствий нет.'))
+ }finally{await f.close()}
+})
+
+test('Receipt: изменение истории с неполным ответом сохраняет точную команду',async()=>{
+ const f=await fixture()
+ try{
+  executableCharge(f,'a',true);const h=historyFixture(f,['a']);await cancelFields(f,'a');await flush(()=>document.querySelector('[aria-label="Последствия истории проверены"]').click())
+  f.intercept((url,options)=>{const result=h.handler(url,options);if(url.endsWith('/change/apply')){f.intercept(h.handler);return {ok:true}}return result})
+  await click('Применить изменение истории');const after=structuredClone(f.worlds.a),original=h.calls[0]
+  await click('Проверить команду истории');assert.deepEqual(h.calls[1],original);assert.deepEqual(f.worlds.a,after)
+  assert(document.body.textContent.includes('Повторных изменений нет.'))
+ }finally{await f.close()}
+})
+
+for(const operation of ['checkpoints','pause'])test('Receipt: неполный ответ '+operation+' не создаёт второй снимок и не переключает паузу',async()=>{
+ const f=await fixture()
+ try{
+  executableCharge(f,'a',true);const h=continuationFixture(f);await openHistory(f,'a')
+  if(operation==='checkpoints')await input('[aria-label="Название контрольной точки"]','Привал группы')
+  else await input('[aria-label="Причина отмены или отката"]','Перерыв группы')
+  f.intercept((url,options)=>{const result=h.handler(url,options);if(url.endsWith('/'+operation)){f.intercept(h.handler);return {ok:true}}return result})
+  await click(operation==='checkpoints'?'Сохранить контрольную точку':'Поставить кампанию на паузу')
+  const original=h.calls.at(-1),after=structuredClone(f.worlds.a)
+  await click('Проверить команду кампании');assert.deepEqual(h.calls.at(-1),original);assert.deepEqual(f.worlds.a,after)
+  if(operation==='checkpoints')assert.equal(h.checkpoints.a.length,1)
+  else assert.equal(h.paused.a,true)
+  assert(document.body.textContent.includes('Получено подтверждение прежней команды.'))
+ }finally{await f.close()}
+})
+
+test('Receipt: неполный ответ восстановления сохраняет ключ и защитную копию от повторной записи',async()=>{
+ const f=await fixture()
+ try{
+  executableCharge(f,'a',true);const h=archiveFixture(f);await openComplete(f,'a');await restoreFields()
+  f.intercept((url,options)=>{const result=h.handler(url,options);if(url.endsWith('/archive/apply')){f.intercept(h.handler);return {ok:true}}return result})
+  await click('Восстановить полную игровую копию');const original=h.calls.at(-1),after=structuredClone(f.worlds.a)
+  await f.mount(false);await f.mount(true);await flush();await openComplete(f,'a');await click('Проверить восстановление полной копии')
+  assert.deepEqual(h.calls.at(-1),original);assert.deepEqual(f.worlds.a,after)
+  assert(document.body.textContent.includes('Получено подтверждение прежнего восстановления.'))
+ }finally{await f.close()}
+})
 async function openComplete(f,id){await f.render();await f.open(id);await click('Открыть полные копии');await flush()}
 async function archiveFile(file={size:100,name:'save.w6.gz'}){const field=document.querySelector('[aria-label="Файл полной игровой копии"]');assert(field);await flush(()=>{Object.defineProperty(field,'files',{configurable:true,value:[file]});field.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})}
 async function restoreFields(){await archiveFile();await input('[aria-label="Причина восстановления полной копии"]','Вернуться к прошлому сеансу');await flush(()=>document.querySelector('[aria-label="Последствия полной копии проверены"]').click())}

@@ -3,6 +3,8 @@ import {useOnline} from './onlineContext'
 import {useRemote} from './onlineHooks'
 import {lobbyFormKey,readLobbyForm,writeLobbyForm} from './lobbyFormDrafts'
 import {NetworkError} from './onlineClient'
+import {isRoundApplyAck,isRoundChangeAck,isCampaignCheckpointAck} from './commandAcknowledgements'
+import {isGamePauseAck} from './gameSession'
 import type {CancellationSummary} from './roundCancellation'
 import type {RoundExecutionInput,RoundExecutionPreview,RoundReceipt} from './roundExecution'
 type RollbackSummary={checkpointName?:string;removedRounds?:{id:string;revision:number;appliedAt:string}[];restoredRoundIds?:string[];affectedChanges?:{id:string;revision:number;operation:string;reason:string}[];operation:'rollback';reason:string;fromSeconds:number;toSeconds:number;characters:{actorId:string;name:string;fields:string[]}[];sections:string[];includesLaterChanges:boolean;canReplay:boolean}
@@ -44,6 +46,7 @@ export default function LobbyRoundHistory({accountId,lobbyId,checkingAccess,memb
   const attempt=++sequence.current,abort=new AbortController();pending.current=abort;inFlight.current=true;setBusy({source,request});setMessage('')
   try{const {kind,...body}=command,result=await request<{receipt:RoundReceipt|{summary:CancellationSummary|RollbackSummary};duplicate:boolean}>(path+(kind==='change'?'/change/apply':'/apply'),{method:'POST',signal:abort.signal,body:JSON.stringify(body)})
    if(!active.current||abort.signal.aborted||attempt!==sequence.current)return
+   if(!(kind==='change'?isRoundChangeAck(result,body):isRoundApplyAck(result,body)))throw Error('Сервер не подтвердил изменение истории. Повтори сохранённую команду для проверки результата.')
    remember({...draft,command:null,reviewed:false});setPreview(null);setMessage(result.duplicate?'Получено подтверждение прежней команды. Повторных изменений нет.':'Изменения применены. Исходный снимок сохранён.');refresh()
   }catch(e){if(active.current&&!abort.signal.aborted&&attempt===sequence.current){if(e instanceof NetworkError&&[400,409,413].includes(e.status)){remember({...draft,command:null,reviewed:false});setPreview(null)}setMessage((e as Error).message)}}finally{if(active.current&&pending.current===abort){setBusy(null);inFlight.current=false}}
  }
@@ -54,6 +57,7 @@ export default function LobbyRoundHistory({accountId,lobbyId,checkingAccess,memb
   const attempt=++sequence.current,abort=new AbortController();pending.current=abort;inFlight.current=true;setBusy({source,request});setMessage('');setPreview(null)
   try{const result=await request<{duplicate:boolean}>(path+'/'+command.operation,{method:'POST',signal:abort.signal,body:JSON.stringify(command.body)})
    if(!active.current||abort.signal.aborted||attempt!==sequence.current)return
+   if(!(command.operation==='checkpoints'?isCampaignCheckpointAck(result,{revision:command.body.revision,name:command.body.name!}):isGamePauseAck(result,{revision:command.body.revision,paused:command.body.paused!,reason:command.body.reason!})))throw Error('Сервер не подтвердил сохранение. Повтори ту же команду; второй снимок или пауза не создастся.')
    remember({...draft,maintenance:null,reviewed:false});setMessage(result.duplicate?'Получено подтверждение прежней команды.':command.operation==='checkpoints'?'Контрольная точка сохранена.':command.body.paused?'Кампания поставлена на паузу.':'Кампания продолжена.');refresh()
   }catch(e){if(active.current&&!abort.signal.aborted&&attempt===sequence.current){if(e instanceof NetworkError&&[400,409,413].includes(e.status))remember({...draft,maintenance:null,reviewed:false});setMessage((e as Error).message)}}finally{if(active.current&&pending.current===abort){setBusy(null);inFlight.current=false}}
  }
