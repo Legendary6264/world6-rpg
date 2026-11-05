@@ -4,7 +4,9 @@ import {legacyAsset,legacyPlacementDefaults,presentationAssetId} from './legacyA
 import {sceneObject} from './sceneObjectDefaults.ts'
 
 export type PlacementFrame=Pick<Scene,'width'|'depth'|'groundZ'|'maxZ'>
-export type PlacementSurface=Pick<SceneObject,'id'|'name'|'kind'|'asset'|'artwork'|'facing'|'x'|'y'|'z'|'width'|'depth'|'height'|'canSupport'|'open'>
+import { supportsSceneTokens } from './waterPhysics'
+
+export type PlacementSurface=Pick<SceneObject,'id'|'name'|'kind'|'asset'|'artwork'|'facing'|'x'|'y'|'z'|'width'|'depth'|'height'|'canSupport'|'open'|'water'>
 export type PlacementOptions={surfaceSnap?:boolean;snapStep?:number;surfaceId?:string|null}
 export type AssetPlacement=({asset:string}|{object:SceneObject})&{facing:number;surfaceSnap?:boolean;surfaces?:PlacementSurface[]}
 export function createEnvironmentObject(kind:SceneObject['kind'],artwork:string,id:string,point:ScenePosition,facing=0):SceneObject{
@@ -20,7 +22,7 @@ export function flatPlacementSurface(o:PlacementSurface){
  // nor a bed's headboard is a flat plane at z + height.
  const legacy=legacyAsset(o),asset=presentationAssetId(o)
  if(legacy&&!['table','round-table','bench','stool','barrel','desk','workbench','platform'].includes(asset??''))return false
- return (isFloorAsset(o.asset)||o.canSupport)&&!['roof-tile','stairs','bed','chest'].includes(asset??'')&&!(o.open&&o.kind==='crate')
+ return (isFloorAsset(o.asset)||supportsSceneTokens(o))&&!['roof-tile','stairs','bed','chest'].includes(asset??'')&&!(o.open&&o.kind==='crate')
 }
 export function placementSurfaceFootprint(surface:Pick<PlacementSurface,'asset'|'facing'|'width'|'depth'>&Partial<Pick<PlacementSurface,'kind'|'artwork'>>){
  // Conservative flat tops, inside bevels and the low-detail circular polygon.

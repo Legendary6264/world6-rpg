@@ -33,7 +33,7 @@ const frame = (v: unknown): v is MapFrame => record(v) && (v.environment===undef
 const area = (v: unknown): v is KnownArea => record(v) && position(v) && id(v.id) && number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 && number(v.height) && v.height > 0 && typeof v.visible === 'boolean'
 const observedObject = (v: unknown): v is ObservedObject => record(v) && position(v) && id(v.id) && text(v.name, 120) && typeof v.kind === 'string' && kinds.includes(v.kind) &&
   number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 && number(v.height) && v.height >= 0 && typeof v.open === 'boolean' &&
-  (v.waterVolume === undefined || v.waterVolume === true && v.kind === 'water' && v.height > 0) && (v.artwork === undefined || isArtwork(v.artwork)) && validTabletopAppearance(v)
+  (v.waterVolume === undefined || v.waterVolume === true && v.kind === 'water') && (v.artwork === undefined || isArtwork(v.artwork)) && validTabletopAppearance(v)
 const contact = (v: unknown): v is Omit<ContactDisclosure, 'id'> => record(v) && id(v.actorId) && typeof v.kind === 'string' && ['identified', 'silhouette', 'sound'].includes(v.kind) &&
   text(v.label, 120) && text(v.signs, 1000) && typeof v.showHeight === 'boolean' && (v.showVisuals===undefined||typeof v.showVisuals==='boolean'&&(!v.showVisuals||v.kind==='identified'&&v.showHeight)) && position(v.point) && number(v.radius) && v.radius >= 0 && v.radius <= 1000
 const sceneInput = (v: unknown): boolean => record(v) && id(v.sceneId) && text(v.title, 120) && text(v.description, 4000) &&
@@ -63,7 +63,8 @@ export function perceptionDraft(value: HeroPerception): PerceptionDraft {
 const copyArea = (a: KnownArea): KnownArea => ({ id: a.id, x: a.x, y: a.y, z: a.z, width: a.width, depth: a.depth, height: a.height, visible: a.visible })
 export const mapFrame = (s: MapFrame): MapFrame => ({ id: s.id, width: s.width, depth: s.depth, groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, view: s.view, palette: s.palette, environment:sceneEnvironment(s), ...(mapBackground(s.background)?{background:s.background,...(s.backgroundTileSizeM!==undefined?{backgroundTileSizeM:s.backgroundTileSizeM}:{})}:{}) })
 export const publicObject = (o: SceneObject | ObservedObject): ObservedObject => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z, width: o.width, depth: o.depth, height: o.height, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}),...(o.asset!==undefined?{asset:o.asset}:{}),...(o.facing!==undefined?{facing:o.facing}:{}),...(o.active!==undefined?{active:o.active}:{}),...(o.locked!==undefined?{locked:o.locked}:{}),
-  ...(o.kind === 'water' && o.height > 0 && (('water' in o && o.water) || ('waterVolume' in o && o.waterVolume === true)) ? {waterVolume:true} : {}) })
+  ...(o.kind === 'water' && (('water' in o && o.water && (o.height > 0 || o.water.flow)) ||
+    ('waterVolume' in o && o.waterVolume === true)) ? {waterVolume:true} : {}) })
 function areaInside(a: KnownArea, f: MapFrame) { return a.x >= 0 && a.y >= 0 && a.z >= f.minZ && a.x + a.width <= f.width && a.y + a.depth <= f.depth && a.z + a.height <= f.maxZ }
 export function withinArea(p: ScenePosition, a: KnownArea) { return p.x >= a.x && p.x <= a.x + a.width && p.y >= a.y && p.y <= a.y + a.depth && p.z >= a.z && p.z <= a.z + a.height }
 export function preparePerception(draft: PerceptionDraft, previous: HeroPerception, scenes: SceneState, actorIds: string[]): HeroPerception {
@@ -112,7 +113,9 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
   const inArea = (p: ScenePosition, visible: boolean) => knowledge.areas.some(a => (!visible || a.visible) && withinArea(p, a))
   const objects = knowledge.objects.flatMap(o => {
     const current = o.visible ? live.objects.find(c => c.id === o.objectId) : o.snapshot
-    return current && inArea(current, o.visible) ? [{ ...publicObject(current), visible: o.visible }] : []
+    if (!current || !inArea(current, o.visible)) return []
+    const visible = publicObject(current)
+    return visible.waterVolume && visible.height === 0 ? [] : [{ ...visible, visible: o.visible }]
   })
   const contacts: VisibleContact[] = knowledge.contacts.flatMap(c => {
     const token = live.tokens.find(t => t.actorId === c.actorId), actor = actors.find(a => a.id === c.actorId)

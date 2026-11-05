@@ -1,8 +1,9 @@
 import { addAmounts, amountFromNumber, compareAmounts, exactAmount, scaleAmount, subtractAmounts } from './exactWork'
 import type { ExactAmount } from './exactWork'
 import type { RoundWorkEntry } from './roundWork'
-import type { Scene, ScenePosition, SceneSupport, SceneToken } from './sceneTypes'
+import type { Scene, SceneObject, ScenePosition, SceneSupport, SceneToken } from './sceneTypes'
 import { segmentSlab as slab } from './sceneGeometry'
+import { supportsSceneTokens } from './waterPhysics'
 export type MovementBody = { actorId: string; heightM: number; flightReason?: string }
 export type MovementPlan = { work: RoundWorkEntry; startMs: ExactAmount; endMs: ExactAmount; points: ScenePosition[]; lengths: number[]; distance: number }
 export type MovementChange = { workId: string; actorId: string; from: ScenePosition; to: ScenePosition; support: SceneSupport; atMs: ExactAmount; completed: boolean }
@@ -49,7 +50,7 @@ export function prepareMovement(work: RoundWorkEntry, token: SceneToken | undefi
 }
 export function supportAt(scene: Scene, p: ScenePosition): SceneSupport {
   if (Math.abs(p.z - scene.groundZ) < EPS) return { kind: 'ground' }
-  const surface = scene.objects.find(o => o.canSupport && Math.abs(p.z - o.z - o.height) < EPS && Math.abs(p.x - o.x) <= o.width / 2 && Math.abs(p.y - o.y) <= o.depth / 2)
+  const surface = scene.objects.find(o => supportsSceneTokens(o) && Math.abs(p.z - o.z - o.height) < EPS && Math.abs(p.x - o.x) <= o.width / 2 && Math.abs(p.y - o.y) <= o.depth / 2)
   if (!surface) throw Error('На маршруте нет опоры. Для полёта выбери движение в воздухе; падение автоматически не назначено.')
   return { kind: 'object', objectId: surface.id }
 }
@@ -65,7 +66,7 @@ function grounded(scene: Scene, a: ScenePosition, b: ScenePosition, check: () =>
   const ranges: Range[] = []
   for (const o of scene.objects) {
     check()
-    if (!o.canSupport || Math.abs(a.z - o.z - o.height) >= EPS || Math.abs(b.z - o.z - o.height) >= EPS) continue
+    if (!supportsSceneTokens(o) || Math.abs(a.z - o.z - o.height) >= EPS || Math.abs(b.z - o.z - o.height) >= EPS) continue
     const covered = rectangle(a, b, o.x, o.y, o.width, o.depth)
     if (covered) ranges.push(covered)
   }
@@ -121,7 +122,8 @@ export function checkClosingDoor(scene: Scene, objectId: string, bodies: Movemen
 
 // Upright cylinders, linear path segments and static boxes between world events.
 // A shared bounded check counter protects a free service from pathological input.
-export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: MovementBody[], from: ExactAmount, to: ExactAmount, check: () => void) {
+export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: MovementBody[], from: ExactAmount, to: ExactAmount, check: () => void,
+  wetContact?: (actorId: string, object: SceneObject, kind: 'water' | 'support') => void) {
   const moving = new Set(plans.filter(p => compareAmounts(p.startMs, to) < 0 && compareAmounts(p.endMs, from) > 0).map(p => p.work.actorId))
   if (compareAmounts(from, to) < 0 && moving.size) {
     const trajectories = scene.tokens.map(t => ({ token: t, height: bodies.find(b => b.actorId === t.actorId)!.heightM, pieces: pieces(t, plans, from, to) }))
@@ -129,9 +131,17 @@ export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: Mov
       for (const p of t.pieces) {
         const middle = addAmounts(from, scaleAmount(subtractAmounts(to, from), amountFromNumber((p.start + p.end) / 2)))
         const active = plans.find(m => m.work.actorId === t.token.actorId && compareAmounts(m.startMs, middle) <= 0 && compareAmounts(m.endMs, middle) >= 0)
-        if (active?.work.action.kind === 'move' && active.work.action.support === 'ground') grounded(scene, p.a, p.b, check)
+        const walking = active?.work.action.kind === 'move' && active.work.action.support === 'ground'
+        if (walking) grounded(scene, p.a, p.b, check)
         for (const o of scene.objects) {
           check()
+          if (wetContact && walking) {
+            const water = o.water?.flow && o.height > 0 && p.a.z >= o.z - EPS && p.a.z <= o.z + o.height + EPS
+            const wetSupport = o.physics && o.physics.wetnessFraction > 0 && supportsSceneTokens(o) && Math.abs(p.a.z - o.z - o.height) < EPS
+            if ((water || wetSupport) && rectangle(p.a, p.b, o.x, o.y, o.width, o.depth)) {
+              wetContact(t.token.actorId, o, water ? 'water' : 'support')
+            }
+          }
           if (!o.blocksMovement || o.height <= 0 || o.kind === 'door' && o.open) continue
           const overlap = overlapZ(p.a, p.b, t.height, o, o, o.height)
           if (overlap && rectangleDistance(mix(p.a, p.b, overlap[0]), mix(p.a, p.b, overlap[1]), o.x, o.y, o.width, o.depth) < (t.token.diameter / 2 - EPS) ** 2) {

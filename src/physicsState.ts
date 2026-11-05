@@ -49,6 +49,9 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
     for (const object of scene.objects) {
       const before = objects.get(object.id)
       if (object.kind === 'water' && object.water === undefined && before?.water !== undefined) object.water = copyWaterComposition(before.water)
+      else if (object.water && object.water.flow === undefined && before?.water?.flow !== undefined) {
+        object.water = {...object.water, flow:before.water.flow}
+      }
       if (object.physics === undefined && before?.physics !== undefined) object.physics = copyPhysicsBody(before.physics)
       else if (object.physics && object.physics.noiseLevelDbAt1m === undefined && before?.physics?.noiseLevelDbAt1m !== undefined) {
         object.physics = {...object.physics, noiseLevelDbAt1m:before.physics.noiseLevelDbAt1m}

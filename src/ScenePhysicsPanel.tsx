@@ -26,9 +26,12 @@ export function WaterVolumePanel({ object, disabled, onChange }: { object: Scene
     setError('')
     try {
       const data = new FormData(event.currentTarget), height = number(data, 'waterHeight')
-      const water = { version: 1, base: data.get('waterBase'), saltKg: number(data, 'waterSalt'), sedimentKg: number(data, 'waterSediment') }
-      if (!isWaterComposition(water) || !physicsNumber(height, MIN_WATER_HEIGHT_M, 1e6)) throw Error('Проверь глубину слоя и массы примесей.')
-      if (!onChange({ ...object, height, water })) setError('Проверь границы сцены и положение слоя.')
+      const flow = data.has('waterFlow')
+      const water = { version: 1, base: data.get('waterBase'), saltKg: number(data, 'waterSalt'), sedimentKg: number(data, 'waterSediment'),
+        ...(flow || value?.flow !== undefined ? { flow } : {}) }
+      if (!isWaterComposition(water) || !physicsNumber(height, flow ? 0 : MIN_WATER_HEIGHT_M, 1e6)) throw Error('Проверь глубину слоя и массы примесей.')
+      if (height === 0 && (water.saltKg || water.sedimentKg)) throw Error('Для соли и песка укажи положительную глубину воды.')
+      if (!onChange({ ...object, height, water })) setError('Проверь границы сцены, стыки участков и опоры персонажей.')
     } catch (cause) {
       setError((cause as Error).message)
     }
@@ -37,13 +40,15 @@ export function WaterVolumePanel({ object, disabled, onChange }: { object: Scene
     {value && <p className="w6-copy">{display(cubicMetresToLitres(waterVolumeM3(object)), 'л')} · проводимость {display(waterConductivitySM(value, object), 'См/м')}</p>}
     <p className="w6-copy">Объём определяется размерами слоя. Проводимость рассчитана для чистой воды и раствора NaCl до 50 г/л при комнатной температуре.</p>
     <form key={JSON.stringify([object.height, value])} onSubmit={submit} aria-label="Объём и состав воды"><fieldset className="gb-properties gb-physics-properties" disabled={disabled}>
-      <label className="w6-field"><span>Глубина слоя, м</span><input name="waterHeight" type="number" step="any" min={MIN_WATER_HEIGHT_M} defaultValue={object.height || .05} required/></label>
+      <label className="w6-field"><span>Глубина слоя, м</span><input name="waterHeight" type="number" step="any" min={0} defaultValue={value ? object.height : object.height || .05} required/></label>
       <label className="w6-field"><span>Исходная вода</span><select name="waterBase" defaultValue={value?.base ?? 'unknown'}>
         <option value="unknown">Неизвестный состав</option>
         <option value="pure">Чистая вода</option>
       </select></label>
       <label className="w6-field"><span>Растворённая соль (NaCl), кг</span><input name="waterSalt" type="number" step="any" min="0" max={MAX_WATER_ADDITIVE_KG} defaultValue={value?.saltKg ?? 0} required/></label>
       <label className="w6-field"><span>Песок, кг</span><input name="waterSediment" type="number" step="any" min="0" max={MAX_WATER_ADDITIVE_KG} defaultValue={value?.sedimentKg ?? 0} required/></label>
+      <label className="w6-check gb-wide"><input name="waterFlow" type="checkbox" defaultChecked={value?.flow}/>Участок растекания</label>
+      <p className="w6-copy gb-wide">Соединяй участки общей стороной. Для сухого участка задай глубину 0 м. Уровни пересчитываются в раунде.</p>
       <div className="w6-buttons gb-wide">
         <button type="submit" className="w6-button w6-primary">Сохранить состав</button>
         <button type="button" className="w6-button" disabled={!value} onClick={() => { if (onChange({ ...object, water: null })) setError('') }}>Снять состав</button>

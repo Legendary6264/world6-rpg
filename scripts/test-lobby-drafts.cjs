@@ -2121,6 +2121,28 @@ test('Пространство UI: индивидуальный неверный
   await spatialFields(f,'b');assert.equal(document.querySelector('[aria-label="Локальное повреждение цели NPC C · Hero b · 1"]'),null);assert.equal(f.applications.length,0)
  }finally{await f.close()}
 })
+test('Растекание UI: мастер доливает воду, видит объёмы соседних участков и применяет предпросмотр',async()=>{
+ const f=await fixture()
+ try {
+  executableSpatial(f,'a')
+  const {sceneObject}=load('scenes'),scene=f.worlds.a.campaign.scenes.scenes[0]
+  scene.objects=[8,10].map((x,index)=>({...sceneObject('water','cell-'+index,{x,y:2,z:0}),name:'Участок '+(index+1),
+    width:2,depth:1,height:0,water:{version:1,base:'pure',saltKg:0,sedimentKg:0,flow:true}}))
+  await spatialFields(f,'a')
+  const label=name=>'[aria-label="'+name+' Hero a · 1"]'
+  await selectValue(label('Действие со средой'),'fill-water')
+  await input(label('Объём доливаемой воды, л'),'200')
+  await flush(()=>document.querySelector(label('Пространство подтверждено')).click())
+  await flush(()=>document.querySelector(label('Правила подтверждены')).click())
+  await click('Рассчитать последствия раунда')
+  const preview=document.querySelector('[aria-label="Растекание и смачивание"]')
+  assert(preview);assert(preview.textContent.includes('Участок 2'));assert(scene.objects.every(o=>o.height===0))
+  await click('Применить рассчитанный раунд')
+  const cells=f.worlds.a.campaign.scenes.scenes[0].objects
+  assert(cells[1].height>0)
+  assert(Math.abs(cells.reduce((sum,cell)=>sum+cell.width*cell.depth*cell.height,0)-.2)<1e-10)
+ } finally { await f.close() }
+})
 test('Пространство UI: потерянный ответ повторяет тот же выпуск и сохраняет список целей',async()=>{
  const f=await fixture()
  try {

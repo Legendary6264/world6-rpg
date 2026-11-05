@@ -3,11 +3,13 @@ import type { AbilityPhysicsForm } from './roundRuleForms'
 
 const modeLabels = {
   'create-water': 'Создать чистую воду',
+  'fill-water': 'Долить воду в участок растекания',
   'add-substance': 'Добавить примесь',
   discharge: 'Подать разряд на контакты',
 } satisfies Record<AbilityPhysicsForm['kind'], string>
 const hints = {
   'create-water': 'Точка выпуска станет центром основания нового объёма. Укажи его размеры.',
+  'fill-water': 'Выбери точку внутри подготовленного участка. Для сухого участка укажи высоту его основания.',
   'add-substance': 'Направь выпуск в существующий объём воды. Соль растворится, песок будет учтён как осадок.',
   discharge: 'Точка выпуска задаёт первый контакт. Укажи положение обратной клеммы. Импульс должен помещаться во время выпуска, порог операций — в предел тока источника.',
 } satisfies Record<AbilityPhysicsForm['kind'], string>

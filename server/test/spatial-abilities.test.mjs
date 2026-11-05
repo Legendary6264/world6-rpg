@@ -165,3 +165,86 @@ for (const dialect of ['sqlite', 'postgres']) test('Вода и разряд м�
  await apply({previewId:replay.id,generation:replay.generation,commandKey:crypto.randomUUID()})
  assert.deepEqual((await world()).campaign.scenes.scenes[0].objects,objects)
 })
+
+for (const dialect of ['sqlite','postgres']) test('Растекание в раунде: дверь открывает путь воде и разряду · '+dialect,async t=>{
+ const f=await fixture(t,dialect),{api}=f,gm=await f.register('flow-owner'),player=await f.register('flow-player')
+ const {id}=await api('/lobbies',gm.token,'POST',lobbyBody,201),root='/lobbies/'+id
+ await api(root+'/join',player.token,'POST')
+ const character={...createDefaultCharacter(),id:'flow-source',name:'Герой'}
+ await api('/characters/'+character.id,player.token,'PUT',{character,revision:-1})
+ const {id:actorId}=await api(root+'/characters',player.token,'POST',{characterId:character.id},201)
+ const route=root+'/characters/'+actorId,world=()=>api(root+'/world',gm.token)
+ await api(route+'/review',gm.token,'POST',{revision:(await world()).revision,decision:'approve',note:''})
+ const initial=await world(),actor=initial.characters[0]
+ actor.rpg.formulas=[];actor.statistics.energyRegeneration='0';actor.resources.mana={maximum:'50',current:'50'}
+ actor.rpg.abilities=[{...emptyAbility(),id:'spell',templateId:'flow-spell',name:'Разряд',approved:true,spatial:{shape:'sphere',includeCaster:false,radiusM:.5},
+  rangeM:10,mechanism:'effect',cost:{mana:7,shadow:0,stamina:0}}]
+ initial.campaign.scenes=createScene(emptyScenes(),'flow-scene','Шлюз','top')
+ const scene=initial.campaign.scenes.scenes[0]
+ const rider={...createDefaultCharacter(),id:'flow-rider',name:'Наблюдатель'}
+ initial.characters.push(rider)
+ scene.tokens=[{actorId,x:2,y:2,z:0,diameter:1,support:{kind:'ground'}},
+  {actorId:rider.id,x:4.2,y:5,z:.2,diameter:.5,support:{kind:'object',objectId:'cell-0'}}]
+ const cells=[4,6].map((x,index)=>({...sceneObject('water','cell-'+index,{x,y:5,z:0}),width:2,depth:1,height:index?0:.2,
+  canSupport:index===0,
+  water:{version:1,base:'pure',saltKg:index?0:.4,sedimentKg:index?0:.1,flow:true}}))
+ const gate={...sceneObject('door','gate',{x:5,y:5,z:0}),width:.2,depth:1,height:2}
+ const prop={...sceneObject('crate','damp-prop',{x:6.75,y:5,z:0}),width:.3,depth:.3,height:.1,
+  physics:{version:1,material:physicsMaterialPreset('wood'),massKg:2,temperatureK:293.15,wetnessFraction:0}}
+ scene.objects=[...cells,gate,prop]
+ await api(root+'/world',gm.token,'PUT',{world:initial,revision:initial.revision})
+ await api(route+'/disclosure',gm.token,'PUT',{revision:(await world()).revision,draft:{activeSceneId:scene.id,scenes:[{sceneId:scene.id,
+  title:'Шлюз',description:'',areas:[{id:'area',x:0,y:0,z:0,width:20,depth:20,height:4,visible:true}],
+  objects:[{objectId:'gate',visible:true},{objectId:'cell-1',visible:true}],contacts:[]}]}})
+ assert(!(await api(route+'/perception',player.token)).map.objects.some(o=>o.id==='cell-1'))
+ await api(root+'/declarations',gm.token,'POST',{sceneId:scene.id,participantIds:[actorId],durationSeconds:5,allowReplace:true,revision:(await world()).revision},201)
+ const view=await api(route+'/declarations',player.token)
+ const actions=[
+  {kind:'interact',operation:'open',target:{kind:'object',id:'gate'},note:''},
+  {kind:'ability',abilityId:'spell',stage:'prepare',target:{kind:'none'},note:''},
+  {kind:'ability',abilityId:'spell',stage:'release',target:{kind:'area',point:{x:3.5,y:5,z:.02}},note:''},
+ ]
+ await api(route+'/declarations',player.token,'PUT',{collectionId:view.collection.id,epoch:view.collection.epoch,baseVersion:0,controlStamp:view.controlStamp,actions})
+ await api(root+'/declarations',gm.token,'PATCH',{collectionId:view.collection.id,epoch:view.collection.epoch,operation:'close'})
+ const before=await world(),collection=before.campaign.declarations.active,key=i=>'new:'+actorId+':'+i
+ const request={revision:before.revision,collectionId:collection.id,epoch:collection.epoch,input:{
+  timings:[{actorId,entryRevision:1,budgetMs:5000,costs:actions.map((_,index)=>({index,personalMs:1000}))}],
+  continuations:[],missingDecisions:[],interactionsConfirmed:true,rules:[
+   {key:key(1),kind:'ability',confirmed:true,binding:'unbound',charge:'',input:fields},
+   {key:key(2),kind:'ability',confirmed:true,binding:'unbound',charge:'prepare:'+key(1),input:fields,spatialConfirmed:true,
+    physics:{kind:'discharge',returnContact:{x:6.25,y:5,z:.02},voltageV:24,limitA:.5,durationMs:100,thresholdA:.02}},
+  ],
+ }}
+ await api(root+'/rounds/calculate',player.token,'POST',request,403)
+ const preview=await api(root+'/rounds/calculate',gm.token,'POST',request)
+ assert.deepEqual(await world(),before)
+ assert.equal(preview.summary.water.layers.find(o=>o.id==='cell-1').fromL,0)
+ assert(preview.summary.water.layers.find(o=>o.id==='cell-1').toL>0)
+ assert(preview.summary.water.wetted.find(o=>o.id==='damp-prop').fraction>0)
+ const support=preview.summary.water.supports.find(change=>change.actorId===rider.id)
+ assert(support.toZ<.2);assert.equal(support.lostSupport,false)
+ assert.deepEqual(preview.summary.rules.find(r=>r.kind==='release').physics.circuit.path.map(o=>o.id),['cell-0','cell-1'])
+ const command={previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()}
+ const apply=()=>api(root+'/rounds/apply',gm.token,'POST',command)
+ const applied=await apply(),after=await world(),objects=after.campaign.scenes.scenes[0].objects
+ assert.equal(objects[2].open,true);assert(objects[3].physics.wetnessFraction>0)
+ assert.equal(after.campaign.scenes.scenes[0].tokens.find(token=>token.actorId===rider.id).z,objects[0].height)
+ for(const [actual,expected] of [
+  [objects[0].height*2+objects[1].height*2,.4],
+  [objects[0].water.saltKg+objects[1].water.saltKg,.4],
+  [objects[0].water.sedimentKg+objects[1].water.sedimentKg,.1],
+ ])assert(Math.abs(actual-expected)<1e-10)
+ const visible=(await api(route+'/perception',player.token)).map.objects.find(o=>o.id==='cell-1')
+ assert(visible.height>0);assert(!Object.hasOwn(visible,'water'))
+ await f.restart()
+ assert.equal((await apply()).duplicate,true);assert.deepEqual(await world(),after)
+ const history=await api(root+'/rounds/history',gm.token)
+ const rollback=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:history.revision,receiptId:applied.receipt.id,reason:'Повторить поток'})
+ await api(root+'/rounds/change/apply',gm.token,'POST',{previewId:rollback.id,generation:rollback.generation,commandKey:crypto.randomUUID()})
+ assert.deepEqual((await world()).campaign.scenes.scenes[0].objects,before.campaign.scenes.scenes[0].objects)
+ const rolledBack=await api(root+'/rounds/history',gm.token)
+ const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:rolledBack.revision,receiptId:applied.receipt.id})
+ await api(root+'/rounds/apply',gm.token,'POST',{previewId:replay.id,generation:replay.generation,commandKey:crypto.randomUUID()})
+ assert.deepEqual((await world()).campaign.scenes.scenes[0].objects,objects)
+ assert.deepEqual((await world()).campaign.scenes.scenes[0].tokens,after.campaign.scenes.scenes[0].tokens)
+})

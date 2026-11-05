@@ -15,6 +15,11 @@ export type ModelMesh=(geometry:THREE.BufferGeometry,color:string,x:number,y:num
 // to use the existing collision/support data.
 export function populateEntityModel(e:RenderEntity,mesh:ModelMesh,low=false){
  if((e.geometry.facing??0)%180!==0)e={...e,geometry:{...e.geometry,width:e.geometry.depth,depth:e.geometry.width}}
+ if(e.geometry.kind==='water'&&e.geometry.waterVolume&&e.geometry.height===0){
+  const area=new THREE.PlaneGeometry(e.geometry.width,e.geometry.depth).rotateX(-Math.PI/2)
+  mesh(area,'#6397a5',0,.004,0,{opacity:.28,castShadow:false,doubleSided:true})
+  return
+ }
  if(populateLegacyEntity(e,mesh,low))return
  if(populateTabletopEntity(e,mesh,low))return
  if(populateCraftedEntity(e,mesh,low))return

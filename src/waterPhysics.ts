@@ -4,13 +4,21 @@ import type { SceneObject } from './sceneTypes'
 
 export const MIN_WATER_HEIGHT_M = 0.0001
 export const MAX_WATER_ADDITIVE_KG = 1e9
-export type WaterComposition = { version: 1; base: 'pure' | 'unknown'; saltKg: number; sedimentKg: number }
+export const MAX_FLOW_CELLS = 64
+export const WATER_EDGE_TOLERANCE_M = 1e-8
+export type WaterComposition = { version: 1; base: 'pure' | 'unknown'; saltKg: number; sedimentKg: number; flow?: boolean }
 type Dimensions = Pick<SceneObject, 'width' | 'depth' | 'height'>
 
 export const pureWater = (): WaterComposition => ({ version: 1, base: 'pure', saltKg: 0, sedimentKg: 0 })
 
 export function isWaterComposition(value: unknown): value is WaterComposition {
-  return physicsRecord(value) && physicsKeys(value, ['version', 'base', 'saltKg', 'sedimentKg']) && value.version === 1 &&
+  if (!physicsRecord(value)) return false
+  const keys = ['version', 'base', 'saltKg', 'sedimentKg']
+  if (Object.hasOwn(value, 'flow')) {
+    if (typeof value.flow !== 'boolean') return false
+    keys.push('flow')
+  }
+  return physicsKeys(value, keys) && value.version === 1 &&
     (value.base === 'pure' || value.base === 'unknown') && physicsNumber(value.saltKg, 0, MAX_WATER_ADDITIVE_KG) &&
     physicsNumber(value.sedimentKg, 0, MAX_WATER_ADDITIVE_KG)
 }
@@ -22,6 +30,8 @@ export function copyWaterComposition(value: WaterComposition | null): WaterCompo
 }
 
 export const waterVolumeM3 = (size: Dimensions) => size.width * size.depth * size.height
+export const supportsSceneTokens = (object: Pick<SceneObject, 'canSupport' | 'water' | 'height'>) =>
+  object.canSupport && (!object.water?.flow || object.height >= MIN_WATER_HEIGHT_M)
 
 // Concentration in kg/m³ (numerically g/L). The dilute slope uses the NaCl
 // limiting molar conductivity at 25 °C (NBS J. Res. 69A, 39, table 6).

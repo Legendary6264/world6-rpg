@@ -13,6 +13,7 @@ export type RuleForm=TargetRuleForm&{key:string;kind:'item'|'ability';confirmed:
 
 export const physicsFields = {
   'create-water': { widthM: 'Ширина слоя, м', depthM: 'Длина слоя, м', heightM: 'Глубина воды, м' },
+  'fill-water': { volumeL: 'Объём доливаемой воды, л' },
   'add-substance': { massKg: 'Масса примеси, кг' },
   discharge: { x: 'X обратной клеммы, м', y: 'Y обратной клеммы, м', z: 'Z обратной клеммы, м',
     voltageV: 'Напряжение источника, В', limitA: 'Предел тока источника, А', durationMs: 'Длительность разряда, мс', thresholdA: 'Ток для операций с объектами, А' },
@@ -41,6 +42,9 @@ function physicsFormEffect(form: AbilityPhysicsForm): AbilityPhysicsEffect | nul
   switch (form.kind) {
     case 'create-water':
       effect = { kind: form.kind, widthM: n('widthM'), depthM: n('depthM'), heightM: n('heightM') }
+      break
+    case 'fill-water':
+      effect = { kind: form.kind, volumeL: n('volumeL') }
       break
     case 'add-substance':
       effect = { kind: form.kind, substance: form.substance, massKg: n('massKg') }

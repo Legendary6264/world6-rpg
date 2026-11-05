@@ -1,4 +1,5 @@
 import {ObjectPhysicsPanel,EnvironmentPhysicsPanel,WaterVolumePanel} from './ScenePhysicsPanel'
+import {supportsSceneTokens} from './waterPhysics'
 import DisclosureMenu from './DisclosureMenu'
 import {characterModels,characterModelFor,isCharacterModel,characterAnimations,isCharacterAnimation} from './characterAppearance'
 import {editorKey} from './sceneEditorKeyboard'
@@ -446,7 +447,7 @@ export default function SceneEditor({ value, actors, disabled = false, onChange,
         <p className="w6-copy gb-wide">Облик задаёт внешность фигурки. Игровые предметы и способности задаются в листе героя.</p>
         {positionFields(selectedToken)}<Numeric name="diameter" label="Занимаемый диаметр (м)" value={selectedToken.diameter} min={.1} max={100}/>
         <Label label="Опора персонажа"><select name="support" defaultValue={selectedToken.support.kind === 'object' ? 'object:' + selectedToken.support.objectId : selectedToken.support.kind}>
-          <option value="ground">Земля сцены</option><option value="air">В воздухе</option>{scene.objects.filter(o => o.canSupport).map(o => <option key={o.id} value={'object:' + o.id}>{o.name} · верх {o.z + o.height} м</option>)}</select></Label>
+          <option value="ground">Земля сцены</option><option value="air">В воздухе</option>{scene.objects.filter(supportsSceneTokens).map(o => <option key={o.id} value={'object:' + o.id}>{o.name} · верх {o.z + o.height} м</option>)}</select></Label>
         <p className="w6-copy gb-wide">При опоре на землю или объект Z вычисляется по поверхности. Для объекта X/Y должны лежать на нём. Диаметр задаёт пространство тела, а не размер портрета. Состояние «В воздухе» назначает мастер; оно не выдаёт способность полёта.</p>
         <div className="w6-buttons gb-wide"><button className="w6-button w6-primary" disabled={disabled}>Сохранить параметры персонажа</button><button className="w6-button" type="button" disabled={disabled} onClick={() => {
           if (perform(() => replaceScene(state, { ...scene, tokens: scene.tokens.filter(t => t.actorId !== selectedToken.actorId) }))) setSelection(null)

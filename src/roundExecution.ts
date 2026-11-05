@@ -27,8 +27,11 @@ import type { ActorTiming } from './roundTimeline'
 import type { MovementBody, MovementChange, MovementPlan } from './sceneMovement'
 import { isRoundReplay } from './roundReplay'
 import type { RoundReplay } from './roundReplay'
-export const ROUND_EXECUTOR_VERSION = 'r11-water-electricity-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+import { advanceWaterFlow, settleWaterSupports, waterRoundChanges } from './waterFlow'
+import type { WaterRoundChanges, WaterSupportChange, WetRouteContact } from './waterFlow'
+import type { SceneSupport } from './sceneTypes'
+export const ROUND_EXECUTOR_VERSION = 'r12-water-flow-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -39,7 +42,7 @@ export type RoundExecutionEvent = { actorId: string; actionIndex: number; workId
 export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
   carried: { id: string; actorId: string; actionKind: string; remaining: ExactAmount; unit: string }[];
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
-  movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[] }
+  movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges }
 export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
 const zero = exactAmount(0n), thousand = exactAmount(1000n)
@@ -211,9 +214,42 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     }
   }
   const movementCheck = () => { if (++movementChecks > MAX_MOVEMENT_CHECKS) throw Error('Сцена слишком сложна для одного расчёта движения. Технический предел проверок; ничего не применено.') }
+  const flowEnabled = !!scene?.objects.some(object => object.water?.flow)
+  const waterSupports = new Map<string, WaterSupportChange>(), routeSupports = new Map<string, SceneSupport>()
+  const wetRoutes = new Map<string, WetRouteContact>()
+  const activeScene = () => candidate.campaign.scenes?.scenes.find(s => s.id === collection.sceneId)
+  function advanceWater(seconds: number, at: ExactAmount) {
+    if (!flowEnabled) return
+    const current = activeScene()
+    if (!current) return
+    advanceWaterFlow(current, seconds)
+    for (const change of settleWaterSupports(current)) {
+      if (movements.some(p => p.work.actorId === change.actorId && compareAmounts(p.endMs, at) > 0)) {
+        throw Error('Уровень водной опоры изменился во время запланированного маршрута. Заверши маршрут до изменения уровня или выбери устойчивую опору.')
+      }
+      const previous = waterSupports.get(change.actorId)
+      waterSupports.set(change.actorId, previous ?
+        { ...previous, toZ: change.toZ, lostSupport: previous.lostSupport || change.lostSupport } : change)
+    }
+  }
   const advance = (at: ExactAmount) => {
-    const move = () => { if (movements.length) advanceMovement(candidate.campaign.scenes!.scenes.find(s => s.id === collection.sceneId)!, movements, bodies, cursor, at, movementCheck) }
-    if (compareAmounts(cursor, at) === 0) { move(); return }
+    const move = () => {
+      const current = activeScene()
+      if (!current || !movements.length) return
+      // Completed paths cannot reset a rider after the surface has moved.
+      const routes = flowEnabled ? movements.filter(p => compareAmounts(p.endMs, cursor) > 0) : movements
+      advanceMovement(current, routes, bodies, cursor, at, movementCheck, flowEnabled ? (actorId, object, kind) => {
+        wetRoutes.set(JSON.stringify([actorId, object.id]), { actorId, objectId: object.id, name: object.name, kind })
+      } : undefined)
+      if (!flowEnabled) return
+      for (const route of routes) {
+        if (compareAmounts(route.startMs, at) >= 0 || (compareAmounts(at, route.endMs) < 0 && compareAmounts(at, duration) < 0)) continue
+        const support = route.work.action.kind === 'move' && route.work.action.support === 'air' ?
+          { kind: 'air' as const } : supportAt(current, movementPosition(route, at))
+        routeSupports.set(route.work.id, support)
+      }
+    }
+    if (compareAmounts(cursor, at) === 0) { if (!flowEnabled) move(); return }
     const activeMovements = movements.filter(p => compareAmounts(p.startMs,at) < 0 && compareAmounts(p.endMs,cursor) > 0)
     checkCapabilities(activeMovements)
     const seconds = numberOf(subtractAmounts(at, cursor)) / 1000, previous = candidate.campaign.seconds
@@ -224,6 +260,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     }
     move()
     candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment))
+    advanceWater(seconds, at)
     checkCapabilities(activeMovements)
     cursor = at
   }
@@ -239,6 +276,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       const result=stage==='start'?beginRoundAbility(candidate,work,key,decision):finishRoundRule(candidate,work,key,decision,works,replay,replay?seed+':'+key:undefined)
       if(hasMovement)for(const effect of result.outcome.environment??[])if(effect.operation==='close')checkClosingDoor(result.world.campaign.scenes!.scenes.find(s=>s.id===work.sceneId)!,effect.objectId,bodies,movementCheck)
       candidate=result.world;ruleOutcomes.push({...result.outcome,atMs:at})
+      if (result.outcome.physics?.kind === 'water' && result.outcome.physics.change === 'filled') advanceWater(0, at)
       events.push({actorId:work.actorId,actionIndex:work.origin.actionIndex,workId:work.id,atMs:at,kind:result.outcome.kind,...(result.outcome.castId?{castId:result.outcome.castId}:{})})
       continue
     }
@@ -275,10 +313,12 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const changes: MovementChange[] = movements.map(m => {
     const atMs = compareAmounts(m.endMs, duration) <= 0 ? m.endMs : duration, to = movementPosition(m, atMs)
     return { workId: m.work.id, actorId: m.work.actorId, from: movementPosition(m, m.startMs), to, atMs,
-      support: m.work.action.kind === 'move' && m.work.action.support === 'air' ? { kind: 'air' } : supportAt(scene!, to), completed: compareAmounts(m.endMs, duration) <= 0 }
+      support: routeSupports.get(m.work.id) ?? (m.work.action.kind === 'move' && m.work.action.support === 'air' ? { kind: 'air' } : supportAt(scene!, to)), completed: compareAmounts(m.endMs, duration) <= 0 }
   })
+  const water = flowEnabled ? waterRoundChanges(scene!, activeScene()!, [...waterSupports.values()], [...wetRoutes.values()]) : undefined
   if(input.replay?.selections.some(s=>s.mode==='preserve'&&!ruleOutcomes.some(r=>r.key===s.key&&r.kind==='release'))) throw Error('Выпуск с прежними бросками должен завершиться в этом раунде. Для переноса выбери новые броски.')
   return { world: candidate, summary: { durationSeconds: collection.durationSeconds, events,
+    ...(water ? { water } : {}),
     ...(listeningWindows.length?{listeningWindows}:{}),
     ...(speechOutcomes.length?{speech:speechOutcomes}:{}),
     ...(input.replay?{replay:{sourceReceiptId:input.replay.sourceReceiptId,selections:input.replay.selections.map(({key,mode,sourceKey})=>({key,mode,...(sourceKey?{sourceKey}:{})}))}}:{}),

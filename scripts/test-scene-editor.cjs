@@ -74,6 +74,14 @@ test('Вода в редакторе: глубина и состав образ�
  assert.equal(saved().height,.1);assert.equal(saved().water.saltKg,.2)
  await key('z',{ctrlKey:true});assert.deepEqual(saved(),water)
  await key('z',{ctrlKey:true,shiftKey:true});assert.equal(saved().water.saltKg,.2)
+ await flush(()=>{
+  form().querySelector('[name=waterHeight]').value='0'
+  form().querySelector('[name=waterSalt]').value='0'
+  form().querySelector('[name=waterFlow]').checked=true
+  form().dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}))
+ })
+ assert.equal(saved().height,0);assert.equal(saved().water.flow,true)
+ await key('z',{ctrlKey:true});assert.equal(saved().height,.1);assert.equal(saved().water.saltKg,.2)
 })
 
 test('Поворот героя: R, панель, отмена и повтор сохраняют точные XYZ, опору и оформление',async()=>{

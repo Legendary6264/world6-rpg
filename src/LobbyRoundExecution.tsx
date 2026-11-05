@@ -51,6 +51,7 @@ const valid = (v: unknown): v is Draft => record(v) && typeof v.source === 'stri
 const ms = (v: string) => { const n = Number(v.trim()); return v.trim() && Number.isSafeInteger(n) && n > 0 && n <= MAX_TIMING_MS ? n : 0 }
 const height = (v: string) => { const n = Number(v.trim().replace(',', '.')); return Number.isFinite(n) && n > 1e-6 && n <= 1e6 ? n : 0 }
 const coords = (p: {x:number;y:number;z:number}) => [p.x, p.y, p.z].map(n => n.toLocaleString('ru-RU', {maximumFractionDigits:6})).join('; ')
+const quantity = (n: number) => n.toLocaleString('ru-RU', { maximumSignificantDigits: 5 })
 
 export default function LobbyRoundExecution({ accountId, lobbyId, collection, revision, checkingAccess, timings, timingReady, roundWork, executed, actors, objects, movementBodies, acoustics }: {
   accountId: string; lobbyId: string; collection: DeclarationCollection; revision: number; checkingAccess: boolean;
@@ -221,6 +222,13 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
       {!!visible.summary.listeningWindows?.length&&<section aria-label="Время внимания слушателей"><h4>Заявленное внимание</h4>{visible.summary.listeningWindows.map(r=><p key={r.key}>{name(r.actorId)} · {listeningPlanLabel(r)} · {listeningFocusLabel(r,objects.filter(o=>o.sceneId===r.sceneId))} · с {Number(r.fromMs.numerator)/Number(r.fromMs.denominator)/1000} до {Number(r.toMs.numerator)/Number(r.toMs.denominator)/1000} с раунда · {r.completes?'ожидание завершится':'продолжится в следующем раунде'}</p>)}<p className="w6-copy">Это время заявленного действия, не автоматический результат слышимости или скрытности. Пограничные и одновременные события оценивает мастер.</p></section>}
       {!!visible.summary.speech?.length&&<div aria-label="Расчёт слышимости">{visible.summary.speech.map(s=><article key={s.key}><h4>{name(s.actorId)} · реплика</h4><p className="w6-prose">{s.text}</p><p>Других слушателей: {s.heard.length}</p>{s.heard.map(h=><div key={h.actorId}><strong>{name(h.actorId)} · обозначение говорящего: {h.speaker}</strong><p className="w6-prose">{h.text}</p></div>)}</article>)}</div>}
       {!!visible.summary.movements?.length && <div aria-label="Позиции после движения">{visible.summary.movements.map(m=><p key={m.workId}>{name(m.actorId)} · ({coords(m.from)}) → ({coords(m.to)}) м · {m.support.kind==='air'?'в воздухе':m.support.kind==='ground'?'на земле':'на объекте '+objectName(collection.sceneId,m.support.objectId)} · {m.completed?'маршрут завершён':'маршрут продолжается'}</p>)}</div>}
+      {visible.summary.water && <section aria-label="Растекание и смачивание">
+        <h4>Вода и опоры</h4>
+        {visible.summary.water.layers.map(layer => <p key={layer.id}>{layer.name} · {quantity(layer.fromL)} → {quantity(layer.toL)} л · соль {quantity(layer.saltKg)} кг · песок {quantity(layer.sedimentKg)} кг</p>)}
+        {visible.summary.water.wetted.map(surface => <p key={surface.id}>{surface.name} · смочено {quantity(surface.fraction * 100)} % поверхности</p>)}
+        {visible.summary.water.supports.map(change => <p key={change.actorId}>{name(change.actorId)} · {change.lostSupport ? 'покинул водную опору' : 'сместился вместе с водной опорой'} · {quantity(change.fromZ)} → {quantity(change.toZ)} м по Z</p>)}
+        {visible.summary.water.routes.map(contact => <p key={JSON.stringify([contact.actorId, contact.objectId])}>{name(contact.actorId)} · на маршруте {contact.kind === 'water' ? 'вода' : 'мокрая опора'} «{contact.name}»</p>)}
+      </section>}
       {visible.summary.movementApprovals?.map(a=><p key={a.actorId}>{name(a.actorId)} · основание полёта: {a.reason}</p>)}
       {visible.summary.carried.map(e => <p key={e.id}>{name(e.actorId)} · остаток {e.remaining.numerator}/{e.remaining.denominator} {e.unit === 'world-ms' ? 'мировых мс' : 'личных мс'}</p>)}
       {visible.summary.warnings.map(w => <p key={w}>{w}</p>)}

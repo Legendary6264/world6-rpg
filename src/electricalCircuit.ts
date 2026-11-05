@@ -1,8 +1,9 @@
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
+import { objectBounds, overlapLength } from './sceneGeometry'
+import type { ObjectBounds } from './sceneGeometry'
 import { waterConductivitySM } from './waterPhysics'
 
-type Box = { min: ScenePosition; max: ScenePosition; center: ScenePosition }
-type Conductor = Box & { object: SceneObject; conductivity: number | null }
+type Conductor = ObjectBounds & { object: SceneObject; conductivity: number | null }
 type Link = { to: number; ohms: number | null; direct?: SceneObject }
 export type DischargeSettings = { returnContact: ScenePosition; voltageV: number; limitA: number; durationMs: number; thresholdA: number }
 export type CircuitResult = { status: 'open' } | { status: 'unknown' } | {
@@ -14,18 +15,11 @@ const EPS_M = 1e-8
 const MAX_OHMS = 1e24
 const length = (a: ScenePosition, b: ScenePosition) => Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
 
-function objectBox(o: SceneObject): Box {
-  return {
-    min: { x: o.x - o.width / 2, y: o.y - o.depth / 2, z: o.z },
-    max: { x: o.x + o.width / 2, y: o.y + o.depth / 2, z: o.z + o.height },
-    center: { x: o.x, y: o.y, z: o.z + o.height / 2 },
-  }
-}
-const contains = (box: Box, p: ScenePosition) => axes.every(axis => p[axis] >= box.min[axis] - EPS_M && p[axis] <= box.max[axis] + EPS_M)
-export const pointInObject = (o: SceneObject, p: ScenePosition) => contains(objectBox(o), p)
+const contains = (box: ObjectBounds, p: ScenePosition) => axes.every(axis => p[axis] >= box.min[axis] - EPS_M && p[axis] <= box.max[axis] + EPS_M)
+export const pointInObject = (o: SceneObject, p: ScenePosition) => contains(objectBounds(o), p)
 
-function contact(a: Box, b: Box): { point: ScenePosition; areaM2: number } | null {
-  const spans = axes.map(k => Math.min(a.max[k], b.max[k]) - Math.max(a.min[k], b.min[k]))
+function contact(a: ObjectBounds, b: ObjectBounds): { point: ScenePosition; areaM2: number } | null {
+  const spans = axes.map(k => overlapLength(a.min[k], a.max[k], b.min[k], b.max[k]))
   if (spans.some(span => span < -EPS_M)) return null
   const normal = spans.indexOf(Math.min(...spans))
   const areaM2 = spans.reduce((area, span, index) => index === normal ? area : area * Math.max(0, span), 1)
@@ -67,7 +61,7 @@ export function calculateCircuit(scene: Scene, contactPoint: ScenePosition, sett
     const material = object.physics?.material
     const conductivity = object.water ? waterConductivitySM(object.water, object) :
       (material?.phase === 'solid' || material?.phase === 'liquid' && object.kind === 'water') ? material.electricalConductivitySM : undefined
-    if (conductivity !== undefined && conductivity !== 0) parts.push({ ...objectBox(object), object, conductivity })
+    if (conductivity !== undefined && conductivity !== 0) parts.push({ ...objectBounds(object), object, conductivity })
   }
   parts.sort((a, b) => a.object.id < b.object.id ? -1 : a.object.id > b.object.id ? 1 : 0)
   const graph: Link[][] = Array.from({ length: parts.length + 2 }, () => [])

@@ -25,6 +25,9 @@ const {emptyCampaign,isCampaign,copyCampaign}=await load('rpgSchema'),{createCha
 const {createDefaultCharacter}=await load('characterModel'),{advanceWorld}=await load('rpgEngine'),{exactAmount}=await load('exactWork'),{publicObject}=await load('scenePerception')
 const {pureWater,waterConductivitySM}=await load('waterPhysics'),{calculateCircuit}=await load('electricalCircuit')
 const {applyAbilityPhysics}=await load('abilityPhysics')
+const {advanceWaterFlow,settleWaterSupports}=await load('waterFlow')
+const {advanceMovement}=await load('sceneMovement')
+const {perceivedMap,preparePerception,emptyPerception}=await load('scenePerception')
 const environment=()=>({version:1,gravityMs2:9.81,ambientTemperatureK:293.15})
 const body=(id='water-pure')=>({version:1,material:physicsMaterialPreset(id),massKg:2,temperatureK:298.15,wetnessFraction:0})
 function sceneState(physical=true){const state=createScene(emptyScenes(),'scene','Физический полигон','top'),scene=state.scenes[0];scene.objects=[{...sceneObject('crate','object',{x:5,y:5,z:0}),width:1,depth:1,height:1,...(physical?{physics:body()}: {})}];if(physical)scene.physics=environment();return state}
@@ -110,6 +113,89 @@ test('Старый клиент: явное снятие профиля и уд�
 
 const pool=(id,x)=>({...sceneObject('water',id,{x,y:5,z:0}),width:2,depth:1,height:.1,water:pureWater()})
 const discharge=(x,y=5,z=.05)=>({kind:'discharge',returnContact:{x,y,z},voltageV:24,limitA:.5,durationMs:100,thresholdA:.02})
+const flowCell=(id,x,height=.2,z=0)=>({...pool(id,x),z,height,water:{...pureWater(),flow:true}})
+const totals=cells=>['volume','saltKg','sedimentKg'].map(key=>cells.reduce((sum,c)=>sum+(key==='volume'?c.width*c.depth*c.height:c.water[key]),0))
+const closeTo=(actual,expected)=>assert(Math.abs(actual-expected)<1e-10,`${actual} differs from ${expected}`)
+
+test('Растекание: дверь меняет путь воды, переносит соль и песок, смачивает предмет и замыкает контакт',()=>{
+ const state=sceneState(),scene=state.scenes[0],source=flowCell('source',4),receiver=flowCell('receiver',6,0)
+ source.water.saltKg=.4;source.water.sedimentKg=.1
+ const gate={...sceneObject('door','gate',{x:5,y:5,z:0}),width:.2,depth:1,height:2}
+ const prop={...sceneObject('crate','prop',{x:6.5,y:5,z:0}),width:.3,depth:.3,height:.1,physics:body('wood')}
+ scene.objects=[source,receiver,gate,prop]
+ const original=totals([source,receiver]),aim={x:3.5,y:5,z:.02},settings=discharge(6.25,5,.02)
+ advanceWaterFlow(scene,5)
+ assert.equal(receiver.height,0);assert.equal(prop.physics.wetnessFraction,0)
+ assert.equal(calculateCircuit(scene,aim,settings).status,'open')
+ gate.open=true
+ advanceWaterFlow(scene,12)
+ assert(receiver.height>.08&&receiver.height<=.1)
+ assert(receiver.water.saltKg>0&&receiver.water.sedimentKg>0)
+ assert(prop.physics.wetnessFraction>0)
+ totals([source,receiver]).forEach((total,index)=>closeTo(total,original[index]))
+ assert.deepEqual(calculateCircuit(scene,aim,settings).path.map(o=>o.id),['source','receiver'])
+ assert(isSceneState(state))
+})
+
+test('Растекание: несколько выходов сохраняют воду и примеси, нулевая гравитация удерживает уровень',()=>{
+ const scene=sceneState().scenes[0],left=flowCell('left',4,0),source=flowCell('source',6),right=flowCell('right',8,0)
+ source.water.base='unknown';source.water.saltKg=1;source.water.sedimentKg=.5
+ const isolated=flowCell('isolated',15,0);isolated.water.base='unknown'
+ scene.objects=[left,source,right,isolated]
+ const original=totals(scene.objects)
+ scene.physics.gravityMs2=0;advanceWaterFlow(scene,15)
+ assert.equal(left.height,0);assert.equal(right.height,0)
+ scene.physics.gravityMs2=9.81;advanceWaterFlow(scene,120)
+ assert(left.height>0&&right.height>0);closeTo(left.height,right.height)
+ assert.equal(left.water.base,'unknown');assert.equal(right.water.base,'unknown')
+ assert.equal(isolated.water.base,'unknown');assert.equal(isolated.height,0)
+ totals(scene.objects).forEach((total,index)=>closeTo(total,original[index]))
+})
+
+test('Растекание: персонаж с осушенной водной опоры оказывается на ближайшей площадке ниже',()=>{
+ const state=sceneState(),scene=state.scenes[0],upper={...flowCell('upper',4,.005,1.5),canSupport:true},lower=flowCell('lower',6,0)
+ const platform={...sceneObject('platform','platform',{x:4,y:5,z:0}),width:1,depth:1,height:1}
+ scene.objects=[upper,lower,platform]
+ scene.tokens=[{actorId:'rider',x:4,y:5,z:1.505,diameter:1,support:{kind:'object',objectId:'upper'}}]
+ assert(isSceneState(state))
+ advanceWaterFlow(scene,300)
+ assert(upper.height<.0001)
+ assert.deepEqual(settleWaterSupports(scene),[{actorId:'rider',waterId:'upper',fromZ:1.505,toZ:1,lostSupport:true}])
+ assert.deepEqual(scene.tokens[0].support,{kind:'object',objectId:'platform'})
+ assert(isSceneState(state))
+})
+
+test('Растекание: сухой участок можно наполнить, копия сохраняет настройку, игрок видит только заполненную геометрию',()=>{
+ const state=sceneState(false),scene=state.scenes[0],cell=flowCell('prepared',4,0)
+ scene.objects=[cell]
+ const knowledge=preparePerception({activeSceneId:scene.id,scenes:[{sceneId:scene.id,title:'Вода',description:'',
+  areas:[{id:'area',x:0,y:0,z:0,width:10,depth:10,height:4,visible:true}],objects:[{objectId:cell.id,visible:true}],contacts:[]}]},
+  emptyPerception('viewer'),state,['viewer'])
+ assert.equal(perceivedMap(knowledge,state,[]).objects.length,0)
+ const filled=applyAbilityPhysics(scene,{x:4,y:5,z:0},'unused',{kind:'fill-water',volumeL:100})
+ assert.equal(filled.volumeL,100);assert.equal(cell.height,.05)
+ const [visible]=perceivedMap(knowledge,state,[]).objects
+ assert.equal(visible.waterVolume,true);assert(!Object.hasOwn(visible,'water'))
+ const older=copySceneState(state)
+ delete older.scenes[0].objects[0].water.flow;preserveScenePhysics(state,older)
+ assert.equal(older.scenes[0].objects[0].water.flow,true)
+ older.scenes[0].objects[0].water.flow=false;preserveScenePhysics(state,older)
+ assert.equal(older.scenes[0].objects[0].water.flow,false)
+ scene.objects.push(flowCell('overlap',4.5,0));assert(!isSceneState(state))
+})
+
+test('Растекание: отмечается контакт пройденного маршрута с водой, даже если обе крайние точки сухие',()=>{
+ const scene=sceneState().scenes[0],cell=flowCell('pool',6)
+ scene.objects=[cell]
+ const from={x:4,y:5,z:0},to={x:8,y:5,z:0},startMs=exactAmount(0n),endMs=exactAmount(4000n)
+ scene.tokens=[{actorId:'walker',...from,diameter:1,support:{kind:'ground'}}]
+ const plan={work:{actorId:'walker',action:{kind:'move',support:'ground',route:[to]},amount:{total:endMs,remaining:endMs}},
+  points:[from,to],lengths:[4],distance:4,startMs,endMs}
+ const contacts=[]
+ advanceMovement(scene,[plan],[{actorId:'walker',heightM:1.7}],startMs,endMs,()=>{},(actorId,object,kind)=>contacts.push([actorId,object.id,kind]))
+ assert.deepEqual(contacts,[['walker','pool','water']])
+ assert.equal(scene.tokens[0].x,8)
+})
 
 test('Вода: дозирование ведёт отдельный учёт соли и песка, а проводимость зависит от концентрации',()=>{
  const scene=sceneState().scenes[0],water=pool('pool',8),at={x:8,y:5,z:.05}

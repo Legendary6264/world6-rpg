@@ -5,7 +5,8 @@ import type { Scene, SceneObject, SceneState, SceneToken } from './sceneTypes'
 import {sceneObjectLabels} from './sceneObjectDefaults'
 import {validSceneEnvironment} from './sceneEnvironment'
 import {copyPhysicsBody,copyPhysicsEnvironment,isPhysicsBody,isPhysicsEnvironment} from './physicsState'
-import { copyWaterComposition, isWaterComposition, MIN_WATER_HEIGHT_M } from './waterPhysics'
+import { copyWaterComposition, isWaterComposition, MAX_FLOW_CELLS, MIN_WATER_HEIGHT_M, supportsSceneTokens, WATER_EDGE_TOLERANCE_M } from './waterPhysics'
+import { objectBounds, overlapLength } from './sceneGeometry'
 export {sceneObject,sceneObjectLabels} from './sceneObjectDefaults'
 
 // Storage/rendering limits, not game rules. Coordinates and dimensions are metres.
@@ -39,18 +40,26 @@ function validScene(v: unknown): v is Scene {
       typeof o.kind === 'string' && Object.hasOwn(sceneObjectLabels, o.kind) && validTabletopAppearance(o) && position(o, v) && (o.artwork === undefined || isArtwork(o.artwork)) &&
       (o.physics === undefined || o.physics === null || isPhysicsBody(o.physics)) &&
       size(o.width) && size(o.depth) && finite(o.height) && o.height >= 0 && Number(o.z) + o.height <= Number(v.maxZ) &&
-      (o.water === undefined || o.kind === 'water' && (o.water === null || isWaterComposition(o.water) && o.height >= MIN_WATER_HEIGHT_M)) &&
+      (o.water === undefined || o.kind === 'water' && (o.water === null || isWaterComposition(o.water) &&
+        (o.water.flow ? o.height > 0 || o.water.saltKg === 0 && o.water.sedimentKg === 0 : o.height >= MIN_WATER_HEIGHT_M))) &&
       o.width <= Number(v.width) && o.depth <= Number(v.depth) &&
       ['blocksMovement', 'blocksSight', 'canSupport', 'open'].every(k => typeof o[k] === 'boolean'))) return false
   const objects = v.objects as SceneObject[]
   if (!unique(objects.map(o => o.id))) return false
+  const cells = objects.filter(o => o.water?.flow).map(objectBounds), tolerance = WATER_EDGE_TOLERANCE_M
+  if (cells.length > MAX_FLOW_CELLS || cells.some(({ min, max }) =>
+    min.x < -tolerance || min.y < -tolerance || max.x > Number(v.width) + tolerance || max.y > Number(v.depth) + tolerance)) return false
+  for (const [i, a] of cells.entries()) {
+    if (cells.slice(0, i).some(b => overlapLength(a.min.x, a.max.x, b.min.x, b.max.x) > tolerance &&
+      overlapLength(a.min.y, a.max.y, b.min.y, b.max.y) > tolerance)) return false
+  }
   return v.tokens.every(t => {
     if (!object(t) || !id(t.actorId) || !position(t, v) || !size(t.diameter) || t.diameter > 100 || !object(t.support) || t.characterModel!==undefined&&!isCharacterModel(t.characterModel) || t.facing!==undefined&&(!finite(t.facing)||t.facing<0||t.facing>=360) || t.characterAnimation!==undefined&&!isCharacterAnimation(t.characterAnimation)) return false
     if (t.support.kind === 'ground') return sameHeight(Number(t.z), Number(v.groundZ))
     if (t.support.kind === 'air') return true
     if (t.support.kind !== 'object' || !id(t.support.objectId)) return false
     const objectId = t.support.objectId
-    const surface = objects.find(o => o.id === objectId && o.canSupport)
+    const surface = objects.find(o => o.id === objectId && supportsSceneTokens(o))
     return !!surface && Math.abs(Number(t.x) - surface.x) <= surface.width / 2 &&
       Math.abs(Number(t.y) - surface.y) <= surface.depth / 2 && sameHeight(Number(t.z), surface.z + surface.height)
   })
