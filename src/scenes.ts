@@ -7,6 +7,7 @@ import {validSceneEnvironment} from './sceneEnvironment'
 import {copyPhysicsBody,copyPhysicsEnvironment,isPhysicsBody,isPhysicsEnvironment} from './physicsState'
 import { copyWaterComposition, isWaterComposition, MAX_FLOW_CELLS, supportsSceneTokens, validWaterHeight, WATER_EDGE_TOLERANCE_M } from './waterPhysics'
 import { objectBounds, overlapLength } from './sceneGeometry'
+import { isFallMotion, isLandingProfile } from './mechanicalProfiles'
 export {sceneObject,sceneObjectLabels} from './sceneObjectDefaults'
 
 // Storage/rendering limits, not game rules. Coordinates and dimensions are metres.
@@ -55,6 +56,8 @@ function validScene(v: unknown): v is Scene {
   }
   return v.tokens.every(t => {
     if (!object(t) || !id(t.actorId) || !position(t, v) || !size(t.diameter) || t.diameter > 100 || !object(t.support) || t.characterModel!==undefined&&!isCharacterModel(t.characterModel) || t.facing!==undefined&&(!finite(t.facing)||t.facing<0||t.facing>=360) || t.characterAnimation!==undefined&&!isCharacterAnimation(t.characterAnimation)) return false
+    if (t.landing != null && !isLandingProfile(t.landing)) return false
+    if (t.fall != null && (!isFallMotion(t.fall) || t.support.kind !== 'air' || t.fall.fromZ < Number(t.z))) return false
     if (t.support.kind === 'ground') return sameHeight(Number(t.z), Number(v.groundZ))
     if (t.support.kind === 'air') return true
     if (t.support.kind !== 'object' || !id(t.support.objectId)) return false
@@ -93,6 +96,7 @@ export function copySceneState(state: SceneState): SceneState {
       ...(o.asset!==undefined?{asset:o.asset}:{}),...(o.facing!==undefined?{facing:o.facing}:{}),...(o.active!==undefined?{active:o.active}:{}),...(o.locked!==undefined?{locked:o.locked}:{}) })),
     tokens: s.tokens.map(t => ({ actorId: t.actorId, x: t.x, y: t.y, z: t.z, diameter: t.diameter,
       ...(t.characterModel!==undefined?{characterModel:t.characterModel}:{}),...(t.facing!==undefined?{facing:t.facing}:{}),...(t.characterAnimation!==undefined?{characterAnimation:t.characterAnimation}:{}),
+      ...(t.landing!==undefined?{landing:t.landing&&{...t.landing}}:{}), ...(t.fall!==undefined?{fall:t.fall&&{...t.fall}}:{}),
       support: t.support.kind === 'object' ? { kind: 'object', objectId: t.support.objectId } : { kind: t.support.kind } })),
   })) }
 }
@@ -132,6 +136,10 @@ export function addSceneObject(state: SceneState, sceneId: string, value: SceneO
 }
 export function placeSceneToken(state: SceneState, sceneId: string, token: SceneToken): SceneState {
   if (!state.scenes.some(s => s.id === sceneId)) throw new Error('Выбери сцену.')
+  const previousScene = state.scenes.find(s => s.tokens.some(t => t.actorId === token.actorId))
+  const previous = previousScene?.tokens.find(t => t.actorId === token.actorId)
+  if (previous?.fall && (previousScene?.id !== sceneId || token.support.kind !== 'air' ||
+      token.x !== previous.x || token.y !== previous.y || token.z !== previous.z)) token = {...token, fall:null}
   // A character has one current position, including when the GM changes presentation.
   const next = copySceneState(state)
   for (const s of next.scenes) s.tokens = s.tokens.filter(t => t.actorId !== token.actorId)

@@ -53,7 +53,7 @@ export function perceivedRenderModel(map: PerceivedMap): SceneRenderModel {
         depth: .8, height: c.z === undefined ? .12 : 1.7, characterModel:c.characterModel, facing:c.facing, characterAnimation:c.characterAnimation },
       appearance: { color: c.kind === 'self' ? '#81e6da' : c.kind === 'identified' ? '#b8b0f5' : '#d3a7ee',
         remembered: false, heightKnown: c.z !== undefined },
-      identity: { label: c.label + (c.z === undefined ? ' · высота не раскрыта' : '') },
+      identity: { label: c.label + (c.z === undefined ? ' · высота не раскрыта' : c.falling ? ' · падает' : '') },
       interaction: { kind: 'contact' as const, id: c.id } }))], visuals: map.visuals ?? [] }
 }
 export function snapScenePoint(point: ScenePosition, enabled: boolean, step: number, frame: Pick<Scene, 'width' | 'depth'>): ScenePosition {

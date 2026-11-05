@@ -19,7 +19,7 @@ for(const file of await readdir('src')){
 const load=name=>import(pathToFileURL(join(directory,name+'.mjs')))
 const units=await load('physicsUnits'),{physicsMaterialPresets,physicsMaterialPreset,isPhysicsMaterial}=await load('physicsMaterials')
 const {isPhysicsBody,isPhysicsEnvironment,preserveScenePhysics}=await load('physicsState'),{isPhysicsEvent,orderPhysicsEvents}=await load('physicsEvents')
-const {emptyScenes,createScene,sceneObject,isSceneState,copySceneState,moveSceneObject}=await load('scenes'),{copyEditorScene}=await load('sceneEditorSceneCopy')
+const {emptyScenes,createScene,sceneObject,isSceneState,copySceneState,moveSceneObject,placeSceneToken}=await load('scenes'),{copyEditorScene}=await load('sceneEditorSceneCopy')
 const {captureSceneAssembly,assemblyLayout,isSceneAssembly}=await load('sceneAssemblies'),{mergeSceneDraft}=await load('sceneDraftMerge')
 const {emptyCampaign,isCampaign,copyCampaign}=await load('rpgSchema'),{createCharacterArchive,parseCharacterArchive}=await load('characterTransfer')
 const {createDefaultCharacter}=await load('characterModel'),{advanceWorld}=await load('rpgEngine'),{exactAmount}=await load('exactWork'),{publicObject}=await load('scenePerception')
@@ -29,6 +29,7 @@ const {advanceWaterFlow,settleWaterSupports}=await load('waterFlow')
 const {advanceMovement}=await load('sceneMovement')
 const {perceivedMap,preparePerception,emptyPerception}=await load('scenePerception')
 const {advanceThermal,applyHeat,smokeVisibilityM}=await load('thermalPhysics')
+const {advanceFalls,nextFallSeconds}=await load('structuralPhysics')
 const {BOILING_ENTHALPY_J_KG,FUSION_J_KG,VAPORIZATION_J_KG,waterVolumeM3,liquidEnthalpy}=await load('waterPhysics')
 const environment=()=>({version:1,gravityMs2:9.81,ambientTemperatureK:293.15})
 const body=(id='water-pure')=>({version:1,material:physicsMaterialPreset(id),massKg:2,temperatureK:298.15,wetnessFraction:0})
@@ -118,6 +119,67 @@ const discharge=(x,y=5,z=.05)=>({kind:'discharge',returnContact:{x,y,z},voltageV
 const flowCell=(id,x,height=.2,z=0)=>({...pool(id,x),z,height,water:{...pureWater(),flow:true}})
 const totals=cells=>['volume','saltKg','sedimentKg'].map(key=>cells.reduce((sum,c)=>sum+(key==='volume'?c.width*c.depth*c.height:c.water[key]),0))
 const closeTo=(actual,expected)=>assert(Math.abs(actual-expected)<1e-10,`${actual} differs from ${expected}`)
+
+function breakablePlatform() {
+ const state=sceneState(),scene=state.scenes[0]
+ scene.physics.gravityMs2=10
+ const upper={...sceneObject('platform','upper',{x:5,y:5,z:7}),width:2,depth:2,height:1,
+   physics:{...body('wood'),structure:{failureJ:200,absorbedJ:0}}}
+ const lower={...sceneObject('platform','lower',{x:5,y:5,z:1}),width:2,depth:2,height:1}
+ scene.objects=[upper,lower]
+ scene.tokens=[{actorId:'rider',x:5,y:5,z:8,diameter:.6,support:{kind:'object',objectId:upper.id},landing:{massKg:60,region:'torso',contactCm2:100}}]
+ return {state,scene,upper,lower,strike:energyJ=>applyAbilityPhysics(scene,{x:5,y:5,z:7.5},'unused',{kind:'structural-impact',energyJ})}
+}
+
+test('Конструкции: накапливают удар, разрушаются и приземляют героя по времени на ближайшую опору',()=>{
+ const {state,scene,upper,strike}=breakablePlatform()
+ assert.equal(strike(75).collapsed,false)
+ assert.equal(upper.physics.structure.absorbedJ,75)
+ assert.deepEqual(scene.tokens[0].support,{kind:'object',objectId:'upper'})
+ assert.equal(strike(125).collapsed,true)
+ assert.deepEqual(scene.objects.map(o=>o.id),['lower'])
+ closeTo(nextFallSeconds(scene),Math.sqrt(1.2))
+ assert.deepEqual(advanceFalls(scene,.5),[])
+ assert.equal(scene.tokens[0].z,6.75);assert.equal(scene.tokens[0].fall.speedMs,5)
+ const resumed=copySceneState(JSON.parse(JSON.stringify(state)))
+ assert(isSceneState(resumed))
+ const [landing]=advanceFalls(resumed.scenes[0],1)
+ assert.equal(landing.toZ,2);closeTo(landing.speedMs,Math.sqrt(120))
+ assert.deepEqual(landing.support,{kind:'object',objectId:'lower'})
+ assert.equal(resumed.scenes[0].tokens[0].fall,undefined)
+ assert.deepEqual(advanceFalls(resumed.scenes[0],2),[])
+})
+
+test('Конструкции: в невесомости опора исчезает без ускорения, препятствие останавливает расчёт атомарно',()=>{
+ const zero=breakablePlatform();zero.scene.physics.gravityMs2=0
+ zero.strike(200);assert.equal(zero.scene.tokens[0].fall,undefined)
+ assert.deepEqual(zero.scene.tokens[0].support,{kind:'air'})
+ assert.equal(zero.scene.tokens[0].z,8)
+ const {scene,strike}=breakablePlatform()
+ scene.objects.push({...sceneObject('wall','blocking-side',{x:5.65,y:5,z:4}),width:1,depth:1,height:2})
+ strike(200)
+ const falling=structuredClone(scene.tokens)
+ assert.throws(()=>advanceFalls(scene,1),/препятствие сбоку/)
+ assert.deepEqual(scene.tokens,falling)
+})
+
+test('Конструкции: старый клиент сохраняет прочность и падение, ручная перестановка прекращает падение',()=>{
+ const {state,scene,strike}=breakablePlatform(),legacy=copySceneState(state)
+ delete legacy.scenes[0].objects[0].physics.structure;delete legacy.scenes[0].tokens[0].landing
+ preserveScenePhysics(state,legacy)
+ assert.equal(legacy.scenes[0].objects[0].physics.structure.failureJ,200)
+ assert.equal(legacy.scenes[0].tokens[0].landing.massKg,60)
+ legacy.scenes[0].objects[0].physics.structure.absorbedJ=20
+ assert.equal(scene.objects[0].physics.structure.absorbedJ,0)
+ strike(200);advanceFalls(scene,.5)
+ const snapshot=copySceneState(state)
+ delete snapshot.scenes[0].tokens[0].fall
+ preserveScenePhysics(state,snapshot)
+ assert.equal(snapshot.scenes[0].tokens[0].fall.speedMs,5)
+ const moved=placeSceneToken(snapshot,scene.id,{...snapshot.scenes[0].tokens[0],z:0,support:{kind:'ground'}})
+ assert.equal(moved.scenes[0].tokens[0].fall,null)
+ assert.equal(moved.scenes[0].tokens[0].landing.massKg,60)
+})
 
 function thermalRoom() {
  const state=sceneState(),scene=state.scenes[0]

@@ -77,7 +77,7 @@ export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSel
           {c.kind === 'silhouette' ? <text x={c.x} y={yOf(c) + size * .4} fontSize={size * 1.6} className="gb-token-label">?</text> : <image href={artworkSource(c.portrait, 'portrait-traveler')} x={c.x - size * .85} y={yOf(c) - size * .85} width={size * 1.7} height={size * 1.7} preserveAspectRatio="xMidYMid slice"/>}
         </>}
         <text x={c.x} y={yOf(c) + size * 1.6} fontSize={size * .55} className="gb-token-label">{c.label}</text>
-        {c.z !== undefined && <text x={c.x} y={yOf(c) - size * 1.3} fontSize={size * .5} className="gb-height-label">{c.flying ? '↑ ' : ''}Z {Number(c.z.toFixed(2))} м</text>}
+        {c.z !== undefined && <text x={c.x} y={yOf(c) - size * 1.3} fontSize={size * .5} className="gb-height-label">{c.falling ? '↓ ' : c.flying ? '↑ ' : ''}Z {Number(c.z.toFixed(2))} м</text>}
       </g>)}
       <g clipPath={'url(#' + visualClip + ')'}><SceneAbilityAimOverlay aim={abilityAim} frame={f} targets={knownAimTargets(map,abilityAim??null)}/><SceneAbilityOverlay frame={f} visuals={map.visuals??[]} replay={playback.replay} paused={playback.paused} enabled={playback.enabled} effectTimeMs={effectTimeMs}/></g>
     </svg>{effectTimeMs===undefined&&!!map.visuals?.length&&playback.controls}<p className="gb-map-caption">{side ? 'X / Z' : 'X / Y'} · метры{onPoint ? ' · нажми на землю для маршрута; стрелки уточняют отметку, когда карта в фокусе' : ''} · тёмные области неизвестны; приглушённые объекты известны по прежнему наблюдению.</p></div>
@@ -108,7 +108,7 @@ export default function PerceivedScene(props: Props) {
       <p className="w6-copy">Тёмное пространство не раскрыто. Приглушённые объекты показывают последнее известное состояние. Рост фигур условный; высота без раскрытия обозначается плоской отметкой.</p>
       <div className="gb-scene-entities">{map.contacts.map(c => <button className={'w6-button' + (props.selected === c.id ? ' w6-active' : '')} type="button" key={c.id} onClick={() => {
         props.onSelect?.(c.id); if (c.kind === 'sound') props.onPoint?.({ x: c.x, y: c.y, z: c.z ?? map.frame.groundZ })
-      }}>{c.label}<small>{c.z === undefined ? 'Высота не раскрыта' : 'Z ' + c.z + ' м'}{c.signs ? ' · ' + c.signs : ''}</small></button>)}</div>
+      }}>{c.label}<small>{c.z === undefined ? 'Высота не раскрыта' : (c.falling ? 'Падает · ' : '') + 'Z ' + c.z + ' м'}{c.signs ? ' · ' + c.signs : ''}</small></button>)}</div>
       {!!props.onObject && <div className="gb-scene-entities" aria-label="Раскрытые объекты">{map.objects.map(o => <button type="button" className={'w6-button' + (props.selectedObject === o.id ? ' w6-active' : '')} key={o.id} onClick={() => props.onObject?.(o.id)}>{o.name}{o.visible ? '' : ' · последнее известное состояние'}</button>)}</div>}
     </section>}</div>
 }

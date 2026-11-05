@@ -5,6 +5,9 @@ import { MAX_SCENE_OBJECTS, sceneObject } from './scenes'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
 import { applyHeat, MAX_ABILITY_HEAT_KJ, thermalTarget } from './thermalPhysics'
 import type { HeatOutcome } from './thermalPhysics'
+import { MAX_STRUCTURAL_ENERGY_J } from './mechanicalProfiles'
+import { strikeStructure } from './structuralPhysics'
+import type { StructuralImpactOutcome } from './structuralPhysics'
 import { isVariableWater, isWaterComposition, liquidEnthalpy, liquidWaterHeight, MAX_WATER_ADDITIVE_KG, MIN_WATER_HEIGHT_M, pureWater, waterConductivitySM, waterEnthalpy, waterVolumeM3 } from './waterPhysics'
 import type { WaterComposition } from './waterPhysics'
 
@@ -14,10 +17,12 @@ export type AbilityPhysicsEffect =
   | { kind: 'add-substance'; substance: 'salt' | 'sediment'; massKg: number }
   | ({ kind: 'discharge' } & DischargeSettings)
   | { kind: 'heat'; energyKJ: number }
+  | { kind: 'structural-impact'; energyJ: number }
 export type AbilityPhysicsOutcome =
   | { kind: 'water'; change: 'created' | 'filled' | 'salt' | 'sediment'; objectId: string; volumeL: number; composition: WaterComposition; conductivitySM: number | null }
   | { kind: 'discharge'; circuit: CircuitResult; thresholdA: number }
   | HeatOutcome
+  | StructuralImpactOutcome
 
 const isPoint = (point: unknown): point is ScenePosition =>
   physicsRecord(point) && physicsKeys(point, ['x', 'y', 'z']) && Object.values(point).every(v => physicsNumber(v, -1e6, 1e6))
@@ -42,6 +47,8 @@ export function isAbilityPhysicsEffect(value: unknown): value is AbilityPhysicsE
     case 'heat':
       return physicsKeys(value, ['kind', 'energyKJ']) && physicsNumber(value.energyKJ, -MAX_ABILITY_HEAT_KJ, MAX_ABILITY_HEAT_KJ) &&
         Math.abs(value.energyKJ) >= .001
+    case 'structural-impact':
+      return physicsKeys(value, ['kind', 'energyJ']) && physicsNumber(value.energyJ, .001, MAX_STRUCTURAL_ENERGY_J)
     default: return false
   }
 }
@@ -108,6 +115,11 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
       if (targets.length !== 1) throw Error('Выбери точку внутри одного объёма воды или одного объекта с теплоёмкостью.')
       return applyHeat(scene, targets[0], effect.energyKJ)
     }
+    case 'structural-impact': {
+      const targets = scene.objects.filter(o => o.kind !== 'water' && o.height > 0 && o.physics?.structure && pointInObject(o, aim))
+      if (targets.length !== 1) throw Error('Укажи точку внутри одной конструкции с заданной прочностью.')
+      return strikeStructure(scene, targets[0], effect.energyJ)
+    }
   }
 }
 
@@ -125,6 +137,10 @@ export function physicsOutcomeDetails(outcome: AbilityPhysicsOutcome): string {
       (outcome.iceFraction !== undefined ? ' · лёд ' + number(outcome.iceFraction * 100) + ' %' : '') +
       (outcome.evaporatedKg ? ' · в пар ' + number(outcome.evaporatedKg) + ' кг' : '') +
       (outcome.ignited ? ' · объект загорелся' : '')
+  }
+  if (outcome.kind === 'structural-impact') {
+    return outcome.name + ' · ' + (outcome.collapsed ? 'конструкция разрушена' : 'конструкция выдержала') +
+      ' · удар ' + number(outcome.energyJ) + ' Дж · накоплено ' + number(outcome.absorbedJ) + ' / ' + number(outcome.failureJ) + ' Дж'
   }
   const { circuit, thresholdA } = outcome
   if (circuit.status === 'open') return 'Разряд · между клеммами нет непрерывного проводящего пути.'

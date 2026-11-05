@@ -1,5 +1,6 @@
 import type {PhysicsBody,PhysicsEnvironment} from './physicsState'
 import type { WaterComposition } from './waterPhysics'
+import type { FallMotion, LandingProfile } from './mechanicalProfiles'
 export type SceneObjectKind = 'wall' | 'door' | 'tree' | 'rock' | 'crate' | 'platform' | 'lamp' | 'water'
 export type ScenePosition = { x: number; y: number; z: number }
 export type SceneObject = ScenePosition & {
@@ -12,7 +13,9 @@ export type SceneObject = ScenePosition & {
   water?: WaterComposition | null
 }
 export type SceneSupport = { kind: 'ground' } | { kind: 'air' } | { kind: 'object'; objectId: string }
-export type SceneToken = ScenePosition & { actorId: string; diameter: number; support: SceneSupport; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
+export type SceneToken = ScenePosition & { actorId: string; diameter: number; support: SceneSupport;
+  characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation;
+  landing?: LandingProfile | null; fall?: FallMotion | null }
 export type Scene = {
   id: string; name: string; description: string; view: 'top' | 'side'
   roundDurationSeconds?: number

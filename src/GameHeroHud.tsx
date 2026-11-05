@@ -16,7 +16,7 @@ export default function GameHeroHud({hero,map,seconds,work=[]}:{hero:PlayerChara
     for(const door of snapshot.doors){const before=history.snapshot.doors.find(o=>o.id===door.id);if(before&&before.open!==door.open)changes.push(door.name+': '+(door.open?'открыта':'закрыта'))}
     setHistory({key,snapshot,events:[...history.events,...changes].slice(-12)})
   }
-  return <><div className="gb-game-hud"><div><strong>{hero.name}</strong><small style={{display:'block'}}>{hero.approved?'В игре':'Ожидает принятия мастером'}{self?' · '+(self.flying?'в воздухе':'на сцене'):''}</small></div>
+  return <><div className="gb-game-hud"><div><strong>{hero.name}</strong><small style={{display:'block'}}>{hero.approved?'В игре':'Ожидает принятия мастером'}{self?' · '+(self.falling?'падает':self.flying?'в воздухе':'на сцене'):''}</small></div>
     {Object.entries(hero.resources??{}).filter(([,r])=>Number(r.maximum)>0).map(([id,r])=><div className="gb-game-resource" key={id}><label htmlFor={'game-resource-'+hero.id+'-'+id}>{id==='mana'?'Мана':id==='shadow'?'Тень':'Выносливость'}</label><meter id={'game-resource-'+hero.id+'-'+id} min={0} max={Math.max(1,Number(r.maximum)||1)} value={Math.max(0,Number(r.current)||0)}/><small>{r.current} / {r.maximum}</small></div>)}
     {seconds!==undefined&&<div><small>Время мира</small><strong style={{display:'block'}}>{Math.floor(seconds/60)}:{String(Math.floor(seconds%60)).padStart(2,'0')}</strong></div>}
     {!!hero.charges?.length&&<div><small>Способности</small>{hero.charges.map(c=><p key={c.id}>{c.name}: {c.status==='ready'?'готово':'подготовка'}</p>)}</div>}

@@ -193,7 +193,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         {bodyRows.map(b=><label className="w6-field" key={b.actorId}><span>{name(b.actorId)} · диаметр {b.diameter} м · высота тела, м</span><input aria-label={'Высота тела '+name(b.actorId)+', м'} inputMode="decimal" maxLength={40} value={bodyHeight(b.actorId)} onChange={e=>change({...draft,movementConfirmed:false,bodyHeights:{...draft.bodyHeights,[b.actorId]:e.currentTarget.value}})}/></label>)}
         {airActors.map(id=><label className="w6-field" key={id}><span>{name(id)} · основание полёта {actors.find(a=>a.id===id)?.canFly?'(необязательно при работающих крыльях)':'без работающего лётного аппарата'}</span><textarea aria-label={'Основание полёта '+name(id)} maxLength={2000} value={flightReason(id)} onChange={e=>change({...draft,movementConfirmed:false,flightReasons:{...draft.flightReasons,[id]:e.currentTarget.value}})}/></label>)}
         <label className="w6-check"><input aria-label="Движение подтверждено мастером" type="checkbox" checked={!!draft.movementConfirmed} onChange={e=>change({...draft,movementConfirmed:e.currentTarget.checked})}/>Проверил возможность ходьбы/полёта, высоту тела и бюджет с учётом состояния героев</label>
-        <p>Ходьба требует непрерывной опоры на одной высоте и возможности двигаться. Для полёта без работающих крыльев мастер указывает основание, проверяет его условия и расходы. Прыжки, падение и толкание пока требуют отдельного решения.</p>
+        <p>Ходьба требует непрерывной опоры на одной высоте и возможности двигаться. Для полёта без работающих крыльев мастер указывает основание, проверяет его условия и расходы. При разрушении опоры герой начинает падать. Маршрут согласуй после приземления.</p>
       </fieldset>}
       <LobbyRoundRules rows={ruleRows} actors={actors} objects={objects.filter(o=>o.sceneId===collection.sceneId)} actorIds={bodyRows.map(b=>b.actorId)} form={ruleForm} onChange={f=>change({...draft,rules:[...(draft.rules??[]).filter(x=>x.key!==f.key&&ruleRows.some(r=>r.key===x.key)),f]})}/>
       {replayError&&!checkingAccess&&<><p role="alert">Не удалось проверить источник прежних бросков: {replayError}</p><button className="w6-button" onClick={()=>setReplayAttempt(n=>n+1)}>Повторить проверку переигровки</button></>}
@@ -240,6 +240,16 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         </section>
       })()}
       {visible.summary.movementApprovals?.map(a=><p key={a.actorId}>{name(a.actorId)} · основание полёта: {a.reason}</p>)}
+      {visible.summary.falls && <section aria-label="Падения и приземления">
+        <h4>Падения и приземления</h4>
+        {visible.summary.falls.falling.map(fall => <p key={fall.actorId}>{name(fall.actorId)} · продолжает падать · Z {quantity(fall.toZ)} м · скорость {quantity(fall.speedMs)} м/с</p>)}
+        {visible.summary.falls.landings.map((fall, index) => <p key={fall.actorId+':'+index}>
+          {name(fall.actorId)} · {fall.support.kind==='air'?'достиг границы сцены':'приземлился'} · {quantity(fall.fromZ)} → {quantity(fall.toZ)} м по Z · {quantity(fall.speedMs)} м/с
+          {fall.impact?.status==='applied' ? ' · ' + quantity(fall.impact.energyJ) + ' Дж, после брони ' + quantity(fall.impact.transmittedJ) + ' Дж · локальный урон ' + fall.impact.damage :
+            fall.impact?.status==='unconfigured' ? ' · для области контакта нужна калибровка удара' :
+            fall.impact?.status==='outside-range' ? ' · энергия удара за пределами калибровки' : ''}
+        </p>)}
+      </section>}
       {visible.summary.carried.map(e => <p key={e.id}>{name(e.actorId)} · остаток {e.remaining.numerator}/{e.remaining.denominator} {e.unit === 'world-ms' ? 'мировых мс' : 'личных мс'}</p>)}
       {visible.summary.warnings.map(w => <p key={w}>{w}</p>)}
       {!draft.command && <button className="w6-button" disabled={disabled} onClick={() => void apply()}>Применить рассчитанный раунд</button>}

@@ -11,7 +11,8 @@ import { manageRoundCharges } from './roundCharges'
 import type { ChargeDecision, ChargeOutcome } from './roundCharges'
 import { copyDeclaredAction } from './actionDeclarations'
 import { addAmounts, amountFromNumber, compareAmounts, exactAmount, scaleAmount, subtractAmounts } from './exactWork'
-import { advanceWorld } from './rpgEngine'
+import { advanceWorld, applyLandingImpact } from './rpgEngine'
+import type { LandingImpactResult } from './rpgEngine'
 import { bodyConsequences } from './characterBody'
 import { evaluatedParameters } from './rpgParameters'
 import { copyRoundWorkEntry, isRoundWork, projectWorkProgress, remainingWorldTime } from './roundWork'
@@ -33,8 +34,10 @@ import type { SceneSupport } from './sceneTypes'
 import { advanceThermal, settleFire, thermalRoundChanges } from './thermalPhysics'
 import type { ThermalRoundChanges } from './thermalPhysics'
 import { isVariableWater } from './waterPhysics'
-export const ROUND_EXECUTOR_VERSION = 'r13-thermal-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+import { advanceFalls, nextFallSeconds } from './structuralPhysics'
+import type { FallLanding } from './structuralPhysics'
+export const ROUND_EXECUTOR_VERSION = 'r14-structural-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -42,10 +45,12 @@ export type RoundExecutionInput = { timings: ActorTiming[]; continuations: Conti
   movement?: { confirmed: boolean; bodies: MovementBody[] }; rules?: RuleDecision[]; charges?: ChargeDecision[]; replay?: RoundReplay; speech?: SpeechDecision[]; inspections?: InspectionDecision[] }
 export type RoundExecutionEvent = { actorId: string; actionIndex: number; workId: string; atMs: ExactAmount;
   kind: 'inspect' | 'speak' | 'wait' | ObjectOperation | 'relocate' | 'move' | 'item' | 'prepare' | 'ready' | 'release'; objectId?: string; castId?:string; listening?:'listen'|'eavesdrop' }
+type RoundFallLanding = FallLanding & { atMs: ExactAmount; impact?: LandingImpactResult; region?: string }
+type RoundFalls = { landings: RoundFallLanding[]; falling: { actorId:string; fromZ:number; toZ:number; speedMs:number }[] }
 export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
   carried: { id: string; actorId: string; actionKind: string; remaining: ExactAmount; unit: string }[];
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
-  movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges }
+  movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls }
 export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
 const zero = exactAmount(0n), thousand = exactAmount(1000n)
@@ -219,9 +224,23 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const movementCheck = () => { if (++movementChecks > MAX_MOVEMENT_CHECKS) throw Error('Сцена слишком сложна для одного расчёта движения. Технический предел проверок; ничего не применено.') }
   const thermalEnabled = !!scene?.physics?.atmosphere
   const variableWater = thermalEnabled || !!scene?.objects.some(object => isVariableWater(object.water))
+  const structural = !!scene?.tokens.some(token => token.fall) ||
+    [...ruleDecisions.values()].some(decision => decision.kind === 'ability' && decision.physics?.kind === 'structural-impact')
+  const dynamicSupports = variableWater || structural
   const waterSupports = new Map<string, WaterSupportChange>(), routeSupports = new Map<string, SceneSupport>()
   const wetRoutes = new Map<string, WetRouteContact>()
+  const landings: RoundFallLanding[] = []
   const activeScene = () => candidate.campaign.scenes?.scenes.find(s => s.id === collection.sceneId)
+  function settleFalls(seconds: number, at: ExactAmount) {
+    const current = activeScene()
+    if (!structural || !current) return
+    for (const landing of advanceFalls(current, seconds)) {
+      const profile = current.tokens.find(t => t.actorId === landing.actorId)?.landing
+      const impact = profile && landing.support.kind !== 'air' && landing.speedMs > 0 ?
+        applyLandingImpact(candidate, landing.actorId, profile, landing.speedMs, 'round-' + seed + '-land-' + landings.length) : undefined
+      landings.push({ ...landing, atMs:at, ...(impact && profile ? {impact, region:profile.region} : {}) })
+    }
+  }
   function advanceEnvironment(seconds: number, at: ExactAmount) {
     if (!variableWater) return
     const current = activeScene()
@@ -237,16 +256,16 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         { ...previous, toZ: change.toZ, lostSupport: previous.lostSupport || change.lostSupport } : change)
     }
   }
-  const advance = (at: ExactAmount) => {
+  const advanceSegment = (at: ExactAmount) => {
     const move = () => {
       const current = activeScene()
       if (!current || !movements.length) return
       // Completed paths cannot reset a rider after the surface has moved.
-      const routes = variableWater ? movements.filter(p => compareAmounts(p.endMs, cursor) > 0) : movements
+      const routes = dynamicSupports ? movements.filter(p => compareAmounts(p.endMs, cursor) > 0) : movements
       advanceMovement(current, routes, bodies, cursor, at, movementCheck, variableWater ? (actorId, object, kind) => {
         wetRoutes.set(JSON.stringify([actorId, object.id]), { actorId, objectId: object.id, name: object.name, kind })
       } : undefined)
-      if (!variableWater) return
+      if (!dynamicSupports) return
       for (const route of routes) {
         if (compareAmounts(route.startMs, at) >= 0 || (compareAmounts(at, route.endMs) < 0 && compareAmounts(at, duration) < 0)) continue
         const support = route.work.action.kind === 'move' && route.work.action.support === 'air' ?
@@ -254,7 +273,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         routeSupports.set(route.work.id, support)
       }
     }
-    if (compareAmounts(cursor, at) === 0) { if (!variableWater) move(); return }
+    if (compareAmounts(cursor, at) === 0) { if (!dynamicSupports) move(); return }
     const activeMovements = movements.filter(p => compareAmounts(p.startMs,at) < 0 && compareAmounts(p.endMs,cursor) > 0)
     checkCapabilities(activeMovements)
     const seconds = numberOf(subtractAmounts(at, cursor)) / 1000, previous = candidate.campaign.seconds
@@ -265,9 +284,23 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     }
     move()
     candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment))
+    settleFalls(seconds, at)
     advanceEnvironment(seconds, at)
     checkCapabilities(activeMovements)
     cursor = at
+  }
+  const advance = (at: ExactAmount) => {
+    if (!structural) { advanceSegment(at); return }
+    settleFalls(0, cursor)
+    while (compareAmounts(cursor, at) < 0) {
+      const current = activeScene()
+      const remainingUs = numberOf(subtractAmounts(at, cursor)) * 1000
+      const nextUs = current ? Math.max(1, Math.ceil(nextFallSeconds(current) * 1e6)) : Infinity
+      // Land on the first representable microsecond, then let wounds and other
+      // existing effects run for the rest of the interval before the next action.
+      const end = nextUs + 1 <= remainingUs ? addAmounts(cursor, exactAmount(BigInt(nextUs), 1000n)) : at
+      advanceSegment(end)
+    }
   }
   const events: RoundExecutionEvent[] = []
   const ruleOutcomes:(RuleOutcome&{atMs:ExactAmount})[]=[]
@@ -281,6 +314,13 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       const result=stage==='start'?beginRoundAbility(candidate,work,key,decision):finishRoundRule(candidate,work,key,decision,works,replay,replay?seed+':'+key:undefined)
       if(hasMovement)for(const effect of result.outcome.environment??[])if(effect.operation==='close')checkClosingDoor(result.world.campaign.scenes!.scenes.find(s=>s.id===work.sceneId)!,effect.objectId,bodies,movementCheck)
       candidate=result.world;ruleOutcomes.push({...result.outcome,atMs:at})
+      if (result.outcome.physics?.kind === 'structural-impact' && result.outcome.physics.collapsed) {
+        const released = new Set(result.outcome.physics.releasedActors)
+        if (movements.some(p => released.has(p.work.actorId) && compareAmounts(p.endMs, at) > 0)) {
+          throw Error('Опора разрушится до завершения маршрута. Согласуй движение до расчёта раунда.')
+        }
+        settleFalls(0, at)
+      }
       if (result.outcome.physics?.kind === 'heat' || result.outcome.physics?.kind === 'water' &&
           (result.outcome.physics.change === 'filled' || thermalEnabled && result.outcome.physics.change === 'created')) advanceEnvironment(0, at)
       if (thermalEnabled && result.outcome.environment?.some(effect => effect.operation === 'ignite')) settleFire(activeScene()!)
@@ -299,7 +339,8 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       const actor = candidate.characters.find(c => c.id === work.actorId)!
       if (actor.rpg.dead || actor.body.consciousness !== 'awake') throw Error('Герой потерял возможность выполнить взаимодействие. Мастер должен пересмотреть раунд.')
       const objectId = a.target.id
-      const object = candidate.campaign.scenes!.scenes.find(s => s.id === work.sceneId)!.objects.find(o => o.id === objectId)!
+      const object = candidate.campaign.scenes?.scenes.find(s => s.id === work.sceneId)?.objects.find(o => o.id === objectId)
+      if (!object) throw Error('К моменту взаимодействия объекта уже нет. Согласуй порядок или измени заявление.')
       if (a.operation === 'close' && hasMovement) checkClosingDoor(candidate.campaign.scenes!.scenes.find(s => s.id === work.sceneId)!, objectId, bodies, movementCheck)
       if(a.operation==='relocate'){if(!a.destination)throw Error('Укажи новое положение объекта.');candidate.campaign.scenes=moveSceneObject(candidate.campaign.scenes!,work.sceneId!,{...object,...a.destination})}
       else Object.assign(object,operateSceneObject(object,a.operation as ObjectOperation))
@@ -325,16 +366,19 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   })
   const water = variableWater ? waterRoundChanges(scene!, activeScene()!, [...waterSupports.values()], [...wetRoutes.values()]) : undefined
   const thermal = thermalEnabled ? thermalRoundChanges(scene!, activeScene()!) : undefined
+  const falling = structural ? (activeScene()?.tokens ?? []).flatMap(token => token.fall ?
+    [{ actorId:token.actorId, fromZ:token.fall.fromZ, toZ:token.z, speedMs:token.fall.speedMs }] : []) : []
   if(input.replay?.selections.some(s=>s.mode==='preserve'&&!ruleOutcomes.some(r=>r.key===s.key&&r.kind==='release'))) throw Error('Выпуск с прежними бросками должен завершиться в этом раунде. Для переноса выбери новые броски.')
   return { world: candidate, summary: { durationSeconds: collection.durationSeconds, events,
     ...(water ? { water } : {}),
     ...(thermal ? { thermal } : {}),
+    ...(landings.length || falling.length ? { falls:{landings,falling} } : {}),
     ...(listeningWindows.length?{listeningWindows}:{}),
     ...(speechOutcomes.length?{speech:speechOutcomes}:{}),
     ...(input.replay?{replay:{sourceReceiptId:input.replay.sourceReceiptId,selections:input.replay.selections.map(({key,mode,sourceKey})=>({key,mode,...(sourceKey?{sourceKey}:{})}))}}:{}),
     ...(managed.outcomes.length?{charges:managed.outcomes}:{}), carried: carried.map(e => ({ id: e.id, actorId: e.actorId, actionKind: e.action.kind, remaining: e.amount.remaining, unit: e.amount.unit })),
     ...(changes.length ? { movements: changes } : {}), ...(movementApprovals.size ? {movementApprovals:[...movementApprovals].map(([actorId,reason])=>({actorId,reason}))} : {}), ...(ruleOutcomes.length?{rules:ruleOutcomes}:{}), missingDecisions: structuredClone(input.missingDecisions),
     warnings: [...(speechDecisions.size?['Слышимость, преграды и разборчивость подтвердил мастер. Фиксированные радиусы и автоматическое подслушивание не вводились; каждый герой получает только свою запись.']:[]), 'Доступность, расстояние и запирание объектов проверяет мастер. Правила взаимодействия ещё расширяются.',
-      ...(hasMovement ? ['Высоту тела и бюджет подтверждает мастер. Полёт без работающих крыльев требует основания мастера; его условия и ресурсные расходы проверяются отдельно. Столкновения проверены для прямых отрезков и вертикальных объёмов; прыжки, падение и толкание ещё не рассчитываются.'] : []),
-      ...(ruleDecisions.size?['Подготовка оплачивается один раз в начале по прежним правилам. Точную личную стоимость, привязку и условия удержания подтверждает мастер. Расходники и пространственные выпуски используют подтверждённые параметры. Изменения объектов применяются только по явному решению мастера внутри формы выпуска; автоматическое разрушение и поддерживаемые области не назначаются.']:[])] } }
+      ...(hasMovement ? ['Высоту тела и бюджет подтверждает мастер. Полёт без работающих крыльев требует основания мастера; его условия и ресурсные расходы проверяются отдельно. Для ходьбы проверяются отрезки маршрута и опоры.']: []),
+      ...(ruleDecisions.size?['Подготовка оплачивается один раз в начале по прежним правилам. Точную личную стоимость, привязку и условия удержания подтверждает мастер. Расходники, выпуски и последствия для окружения используют подтверждённые параметры.']:[])] } }
 }

@@ -38,6 +38,7 @@ export function movementPosition(p: MovementPlan, atMs: ExactAmount): ScenePosit
 }
 export function prepareMovement(work: RoundWorkEntry, token: SceneToken | undefined, scene: Scene | undefined, startMs: ExactAmount, endMs: ExactAmount): MovementPlan {
   if (work.action.kind !== 'move' || !token || !scene) throw Error('Перед движением размести героя в сцене сбора.')
+  if (token.fall) throw Error('Герой падает. Запланируй маршрут после приземления.')
   if (!work.movement && compareAmounts(work.amount.remaining, work.amount.total) !== 0) throw Error('У прежнего движения нет начальной позиции. Согласуй восстановление маршрута с мастером; позиция не угадана.')
   const initial = work.movement?.start ?? point(token), geometry = path([initial, ...work.action.route.map(point)])
   if (work.movement && (Math.abs(work.movement.diameter - token.diameter) > EPS || !same(onPath(geometry, scalar(beforeProgress(work))), token))) {

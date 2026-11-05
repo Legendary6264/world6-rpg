@@ -4,6 +4,7 @@ import { spatialLabel, spatialTargets } from './abilitySpatial'
 import type { DeclarationTarget } from './actionDeclarations'
 import { abilityLimit, abilityLimits, artifactCompatibility, magicEfficiency, skillValue, effectiveAttribute } from './creationRules'
 import { resolveAnatomyImpact, automaticLife, isHitLocation, copyHitLocation, structureBlocked } from './anatomyModel'
+import type { HitLocation } from './anatomyModel'
 import { activeEffects, evaluatedParameters, workingItem } from './rpgParameters'
 export { activeEffects, evaluatedParameters, workingItem, inventoryMass } from './rpgParameters'
 import { normalizeCharacterDraft, isCharacterDraft, resourceFields } from './characterModel'
@@ -12,6 +13,8 @@ import { bodyConsequences, bodyRegionDefs, partCondition } from './characterBody
 import { parameterFields, isCampaign, isActionInput, copyAbility, copyItem } from './rpgSchema'
 import type { ActionInput, ActionLog, Campaign, Cast, ConsumableEffect, InventoryItem, ItemTemplate, LearnedAbility, MechanicalEffect, Modifier, ParameterKey } from './rpgTypes'
 import { statisticFields } from './characterStatistics'
+import { kineticEnergyJ } from './physicsUnits'
+import type { LandingProfile } from './mechanicalProfiles'
 export type Actor = ReadyCharacterDraft & {id:string}
 export type World = {characters: Actor[]; campaign: Campaign}
 export type Plan = {fingerprint:string; world:World; text:string; details:string; eventId:string;targets?:{actorId:string;name:string;details:string}[]}
@@ -209,6 +212,70 @@ function recordVisualRelease(w:World,owner:Actor,cast:Cast,end?:{x:number;y:numb
   const target=end??scene?.tokens.find(t=>t.actorId===cast.targetId)
   if(scene&&start&&target)cast.visualRelease={sceneId:scene.id,start:{x:start.x,y:start.y,z:start.z},end:{x:target.x,y:target.y,z:target.z},releasedAt:w.campaign.seconds}
 }
+
+function bluntContact(target: Actor, region: string, initialJ: number, contactCm2: number,
+    contactFactor: number, armorPath: ActionInput['armorPath']) {
+  const profile = target.rpg.impact[region]
+  if (!profile) fail('Для области цели не задана калибровка тупого удара.')
+  if (!safe(initialJ)) fail('Энергия выходит за допустимый диапазон.')
+  let energy = initialJ, details = ''
+  const armor = armorPath === 'gap' ? [] : target.rpg.inventory
+    .filter(item => workingItem(item) && item.covers.includes(region))
+    .sort((a, b) => b.layer - a.layer || a.id.localeCompare(b.id))
+  for (const item of armor) {
+    const before = energy
+    const condition = item.maximumDurability > 0 ? item.durability / item.maximumDurability : 1
+    const removed = Math.min(energy * (1 - item.transmission), item.absorptionJ * condition)
+    energy = Math.max(0, energy - removed)
+    if (item.maximumDurability > 0 && item.joulesPerWear > 0) item.durability = round(Math.max(0, item.durability - removed / item.joulesPerWear))
+    details += '\nСлой '+item.layer+' «'+item.name+'»: '+before.toFixed(3)+' → '+energy.toFixed(3)+' Дж; прочность '+item.durability+'.'
+  }
+  const contact = profile.referenceCm2 / contactCm2 * contactFactor
+  const threshold = profile.thresholdJ / contact
+  const damage = Math.floor(Math.max(0, (energy - threshold) / profile.joulesPerHp))
+  if (!safe(damage)) fail('Повреждение выходит за допустимый диапазон.')
+  details += '\nТестовая модель: порог '+threshold.toFixed(3)+' Дж; '+profile.joulesPerHp+' Дж/HP; локальный урон '+damage+'.'
+  return { energy, damage, details }
+}
+
+function traceImpact(target: Actor, region: string, hit: HitLocation, energyJ: number, contactCm2: number, eventId: string) {
+  if (!target.body.anatomy) return ''
+  const area = target.body.parts[region]
+  const result = resolveAnatomyImpact(target.body.anatomy, region, hit, energyJ, contactCm2, eventId)
+  target.body.anatomy = result.anatomy
+  area.bleedingMlPerSecond = Math.max(area.bleedingMlPerSecond ?? 0, result.bleedingRate)
+  area.internalBleeding = area.internalBleeding || result.internal
+  return '\nВнутренний путь: ' + (result.anatomy.lastTrace?.steps.map(s =>
+    s.name + ': ' + s.beforeJ.toFixed(2) + ' → ' + s.afterJ.toFixed(2) + ' Дж, ' + s.damage + ' HP').join('; ') || 'структуры не пересечены')
+}
+
+const centralImpact: HitLocation = { x:.5, y:.5, approach:'front', mechanism:'blunt', angleX:0, angleY:0 }
+export type LandingImpactResult =
+  | { status: 'applied'; energyJ: number; transmittedJ: number; damage: number }
+  | { status: 'unconfigured' | 'outside-range' | 'deceased'; energyJ: number }
+
+// The round owns this candidate. Use the existing regional calibration, armor,
+// anatomy and life rules for the one contact at the end of the fall.
+export function applyLandingImpact(world: World, actorId: string, landing: LandingProfile, speedMs: number, eventId: string): LandingImpactResult {
+  const target = world.characters.find(actor => actor.id === actorId)
+  const energyJ = kineticEnergyJ(landing.massKg, speedMs)
+  if (target?.rpg.dead) return { status:'deceased', energyJ }
+  const area = target?.body.parts[landing.region]
+  if (!target || !area?.present || !area.maximum || !target.rpg.impact[landing.region]) return { status:'unconfigured', energyJ }
+  if (!safe(energyJ)) return { status:'outside-range', energyJ }
+  const priorHarm = target.body.anatomy?.harmRevision
+  const contact = bluntContact(target, landing.region, energyJ, landing.contactCm2, 1, 'covered')
+  const trace = traceImpact(target, landing.region, centralImpact, contact.energy, landing.contactCm2, eventId)
+  if (contact.damage && target.body.anatomy && target.body.anatomy.harmRevision === priorHarm) target.body.anatomy.harmRevision++
+  area.current = Math.max(0, area.current - contact.damage)
+  const label = 'Удар при приземлении'
+  if (contact.damage) area.wound = [area.wound, label].filter(Boolean).join('\n').slice(-2000)
+  clampResources(target, world.campaign.seconds)
+  applyAutomaticLife(target, world.campaign.seconds, eventId + '-life')
+  logWorld(world, eventId, target.name + ' · ' + label, 'Энергия ' + energyJ.toFixed(3) + ' Дж.' + contact.details + trace, [actorId])
+  return { status:'applied', energyJ, transmittedJ:contact.energy, damage:contact.damage }
+}
+
 function impacts(w:World,owner:Actor,target:Actor,cast:Cast,random:(targetId?:string)=>number){
   recordVisualRelease(w,owner,cast)
   const original=cast.ability,skill=(original.skillId??(original.schoolId?'spellcraft':original.mechanism==='heal'?'medicine':original.mechanism==='stone'?'ranged':'melee')) as Parameters<typeof skillValue>[1]
@@ -241,32 +308,18 @@ function impacts(w:World,owner:Actor,target:Actor,cast:Cast,random:(targetId?:st
         const profile=target.rpg.impact[i.region]
         if(!profile)fail('Для области цели не задана калибровка тупого удара.')
         if(!safe(i.criticalContactFactor)||i.criticalContactFactor<=0)fail('Коэффициент критического контакта должен быть положительным.')
-        let energy=0.5*a.massKg*a.speedMs*a.speedMs*factor
+        const energy=0.5*a.massKg*a.speedMs*a.speedMs*factor
         if(!safe(energy))fail('Энергия выходит за допустимый диапазон.')
         details+='\nМасса '+a.massKg+' кг; скорость '+a.speedMs+' м/с; энергия '+energy+' Дж; импульс '+a.massKg*a.speedMs+' кг·м/с; контакт '+a.contactCm2+' см².'
         if(i.armorPath==='gap'&&!i.gapConfirmed)fail('Попадание в зазор должен подтвердить мастер.')
-        const armor=i.armorPath==='gap'?[]:target.rpg.inventory.filter(x=>workingItem(x)&&x.covers.includes(i.region)).sort((a,b)=>b.layer-a.layer||a.id.localeCompare(b.id))
-        for(const armorItem of armor){
-          const before=energy,factor=armorItem.maximumDurability>0?armorItem.durability/armorItem.maximumDurability:1
-          const removed=Math.min(energy*(1-armorItem.transmission),armorItem.absorptionJ*factor)
-          energy=Math.max(0,energy-removed)
-          if(armorItem.maximumDurability>0&&armorItem.joulesPerWear>0)armorItem.durability=round(Math.max(0,armorItem.durability-removed/armorItem.joulesPerWear))
-          details+='\nСлой '+armorItem.layer+' «'+armorItem.name+'»: '+before.toFixed(3)+' → '+energy.toFixed(3)+' Дж; прочность '+armorItem.durability+'.'
-        }
-        internalEnergy=energy
-        const contact=profile.referenceCm2/a.contactCm2*(crit?i.criticalContactFactor:1)
-        const threshold=profile.thresholdJ/contact
-        damage=Math.floor(Math.max(0,(energy-threshold)/profile.joulesPerHp))
-        if(!safe(damage))fail('Повреждение выходит за допустимый диапазон.')
-        details+='\nТестовая модель: порог '+threshold.toFixed(3)+' Дж; '+profile.joulesPerHp+' Дж/HP; локальный урон '+damage+'. Крит меняет контакт, не энергию и не обход брони.'
+        const contact=bluntContact(target,i.region,energy,a.contactCm2,crit?i.criticalContactFactor:1,i.armorPath)
+        internalEnergy=contact.energy
+        damage=contact.damage
+        details+=contact.details+' Крит меняет контакт, не энергию и не обход брони.'
       }
       if(!Number.isSafeInteger(damage)||damage<0)fail('Локальное повреждение должно быть целым неотрицательным.')
       if(target.body.anatomy && !i.skipAnatomy && internalEnergy!==null){
-        const result=resolveAnatomyImpact(target.body.anatomy,i.region,{...copyHitLocation(i.hit??{x:.5,y:.5,approach:'front',mechanism:'blunt',angleX:0,angleY:0}),mechanism:a.mechanism==='stone'?'blunt':a.damageType??'blunt'},internalEnergy,a.contactCm2/(crit?i.criticalContactFactor:1),cast.id)
-        target.body.anatomy=result.anatomy
-        area.bleedingMlPerSecond=Math.max(area.bleedingMlPerSecond??0,result.bleedingRate)
-        area.internalBleeding=area.internalBleeding||result.internal
-        details+='\nВнутренний путь: '+(result.anatomy.lastTrace?.steps.map(s=>s.name+': '+s.beforeJ.toFixed(2)+' → '+s.afterJ.toFixed(2)+' Дж, '+s.damage+' HP').join('; ')||'структуры не пересечены')
+        details+=traceImpact(target,i.region,{...copyHitLocation(i.hit??centralImpact),mechanism:a.mechanism==='stone'?'blunt':a.damageType??'blunt'},internalEnergy,a.contactCm2/(crit?i.criticalContactFactor:1),cast.id)
       }else if(target.body.anatomy && (damage || i.manualSystemic || i.bleedingMlPerSecond || i.injury))target.body.anatomy.harmRevision++
       if(target.body.anatomy&&target.body.anatomy.harmRevision===previousHarm&&(damage||i.manualSystemic||i.bleedingMlPerSecond||i.injury))target.body.anatomy.harmRevision++
       area.current=Math.max(0,area.current-damage)

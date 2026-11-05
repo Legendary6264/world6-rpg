@@ -1,4 +1,4 @@
-import {useState} from 'react'
+import {useId,useState} from 'react'
 import type {FormEvent} from 'react'
 import {physicsMaterialPresets} from './physicsMaterials'
 import {copyPhysicsMaterial} from './physicsMaterials'
@@ -7,6 +7,9 @@ import type {PhysicsBody,PhysicsEnvironment} from './physicsState'
 import {celsiusToKelvin,cubicMetresToLitres,kelvinToCelsius,physicsNumber} from './physicsUnits'
 import {FUSION_J_KG,ICE_HEAT_J_KG_K,isWaterComposition,liquidEnthalpy,MAX_WATER_ADDITIVE_KG,validWaterHeight,waterConductivitySM,waterPhase,waterVolumeM3} from './waterPhysics'
 import type {SceneObject} from './sceneTypes'
+import {bodyRegions} from './bodyRegions'
+import {isLandingProfile,MAX_STRUCTURAL_ENERGY_J} from './mechanicalProfiles'
+import type {LandingProfile} from './mechanicalProfiles'
 
 const number = (data: FormData, key: string): number => {
   const text = data.get(key)
@@ -77,12 +80,13 @@ export function WaterVolumePanel({ object, thermal, disabled, onChange }: { obje
   </details>
 }
 
-export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;canBurn?:boolean;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
+export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,canBreak,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;canBurn?:boolean;canBreak?:boolean;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
   const [materialId,setMaterialId]=useState(value?.material.id??''),[message,setMessage]=useState(''),[failed,setFailed]=useState(false),presets=physicsMaterialPresets()
   // A saved snapshot wins over a later catalogue default, including custom values.
   const materials=value?[...presets.filter(material=>material.id!==value.material.id),value.material]:presets
   const material=materials.find(material=>material.id===materialId)
   const [burning, setBurning] = useState(!!value?.combustion)
+  const [breakable, setBreakable] = useState(!!value?.structure)
   function submit(event:FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if(disabled)return
@@ -96,7 +100,9 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,dis
         if (data.has('simulateCombustion')) next.combustion = {fuelKg:number(data,'fuelKg'),burnRateKgS:number(data,'burnRateKgS'),ignitionTemperatureK:celsiusToKelvin(number(data,'ignitionTemperatureC'))}
         else if (value?.combustion !== undefined) next.combustion = null
       } else if (value?.combustion === null) next.combustion = null
-      if (!isPhysicsBody(next)) throw Error('Проверь массу, температуру, влажность, шум и параметры горения.')
+      if (data.has('simulateStructure')) next.structure = {failureJ:number(data,'structureFailureJ'),absorbedJ:number(data,'structureAbsorbedJ')}
+      else if (value?.structure !== undefined) next.structure = null
+      if (!isPhysicsBody(next)) throw Error('Проверь физические параметры. Накопленная энергия должна быть меньше порога разрушения.')
       if (onChange(next)) setMessage('Физический профиль объекта сохранён.');else {setFailed(true);setMessage('Профиль не сохранён. Проверь сообщение редактора.')}
     } catch(error) {setFailed(true);setMessage((error as Error).message)}
   }
@@ -116,10 +122,50 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,dis
           <label className="w6-field"><span>Воспламенение от нагрева, °C</span><input name="ignitionTemperatureC" type="number" min="-272.15" max="999726.85" step="any" defaultValue={value?.combustion ? kelvinToCelsius(value.combustion.ignitionTemperatureK) : 300} required/></label>
         </>}
       </details>}
+      {(canBreak || !!value?.structure) && <details className="gb-scene-details gb-wide"><summary>Прочность{value?.structure ? ' · ' + display(value.structure.absorbedJ, 'Дж') + ' из ' + display(value.structure.failureJ, 'Дж') : ''}</summary>
+        <label className="w6-check"><input name="simulateStructure" type="checkbox" checked={breakable} onChange={event=>setBreakable(event.currentTarget.checked)}/>Разрешить разрушение ударами</label>
+        {breakable && <>
+          <label className="w6-field"><span>Порог разрушения, Дж</span><input name="structureFailureJ" type="number" step="any" min=".001" max={MAX_STRUCTURAL_ENERGY_J} defaultValue={value?.structure?.failureJ ?? ''} required/></label>
+          <label className="w6-field"><span>Уже накоплено от ударов, Дж</span><input name="structureAbsorbedJ" type="number" step="any" min="0" max={MAX_STRUCTURAL_ENERGY_J} defaultValue={value?.structure?.absorbedJ ?? 0} required/></label>
+          <p className="w6-copy">Удары складываются. При достижении порога объект перестаёт быть опорой и преградой.</p>
+        </>}
+      </details>}
       <div className="w6-buttons gb-wide"><button className="w6-button w6-primary" type="submit">Сохранить физический профиль</button><button className="w6-button" type="button" disabled={!value} onClick={()=>{if(onChange(null)){setFailed(false);setMessage('Физический профиль объекта снят.')}}}>Снять физический профиль</button></div>
     </fieldset></form>
     {material&&<details><summary>Свойства материала и основание</summary><dl className="w6-copy"><dt>Плотность</dt><dd>{display(material.densityKgM3,'кг/м³')}</dd><dt>Удельная теплоёмкость</dt><dd>{display(material.specificHeatJKgK,'Дж/(кг·K)')}</dd><dt>Теплопроводность</dt><dd>{display(material.thermalConductivityWMK,'Вт/(м·K)')}</dd><dt>Электропроводность</dt><dd>{display(material.electricalConductivitySM,'См/м')}</dd><dt>Температура профиля</dt><dd>{display(kelvinToCelsius(material.referenceTemperatureK),'°C')}</dd></dl><p className="w6-copy">{material.note}</p><p className="w6-copy">Неизвестная проводимость не означает изоляцию. Перенос свойств на другие температуры и составы требует отдельного расчёта.</p></details>}
     <p role={failed?'alert':'status'} className={failed?'w6-error':'w6-notice'}>{message}</p>
+  </details>
+}
+
+export function LandingPhysicsPanel({value,falling,disabled,onChange}:{value?:LandingProfile|null;falling:boolean;disabled:boolean;onChange:(value:LandingProfile|null)=>boolean}) {
+  const [enabled, setEnabled] = useState(!!value), [message, setMessage] = useState('')
+  const regions = useId()
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (disabled) return
+    try {
+      const data = new FormData(event.currentTarget)
+      const next = data.has('landingEnabled') ? {
+        massKg:number(data,'landingMassKg'), region:String(data.get('landingRegion') ?? '').trim(), contactCm2:number(data,'landingContactCm2'),
+      } : null
+      if (next && !isLandingProfile(next)) throw Error('Проверь массу, площадь и область контакта.')
+      setMessage(onChange(next) ? '' : 'Не удалось сохранить параметры приземления.')
+    } catch (error) { setMessage((error as Error).message) }
+  }
+  return <details className="gb-scene-details"><summary>Удар при приземлении{falling ? ' · герой падает' : ''}</summary>
+    <form onSubmit={submit} aria-label="Параметры приземления"><fieldset className="gb-properties gb-physics-properties" disabled={disabled}>
+      <label className="w6-check gb-wide"><input name="landingEnabled" type="checkbox" checked={enabled} onChange={event=>setEnabled(event.currentTarget.checked)}/>Рассчитывать травму при падении</label>
+      {enabled && <>
+        <label className="w6-field"><span>Масса с экипировкой, кг</span><input name="landingMassKg" type="number" min=".001" max="100000" step="any" defaultValue={value?.massKg ?? ''} required/></label>
+        <label className="w6-field"><span>Площадь контакта, см²</span><input name="landingContactCm2" type="number" min=".01" max="1000000" step="any" defaultValue={value?.contactCm2 ?? ''} required/></label>
+        <label className="w6-field gb-wide"><span>Область контакта</span><input name="landingRegion" list={regions} defaultValue={value?.region ?? ''} maxLength={160} required/>
+          <datalist id={regions}>{bodyRegions.map(region=><option key={region.key} value={region.key} label={region.label}/>)}</datalist>
+        </label>
+        <p className="w6-copy gb-wide">В листе героя для этой области нужна калибровка тупого удара. При приземлении учитываются покрывающие область доспехи.</p>
+      </>}
+      <div className="w6-buttons gb-wide"><button type="submit" className="w6-button w6-primary">Сохранить параметры приземления</button></div>
+    </fieldset></form>
+    {message && <p role="alert" className="w6-error">{message}</p>}
   </details>
 }
 

@@ -132,7 +132,17 @@ export function finishRoundRule(world:World,work:RoundWorkEntry,key:string,decis
     if (!scene || !origin || !shape || !('point' in target) || !abilityAreaContains(origin, target.point, shape, target.point)) {
       throw Error('Контакт физического действия должен находиться внутри формы пространственного выпуска.')
     }
+    if (decision.physics.kind === 'structural-impact' && ['stone','impact'].includes(cast.ability.mechanism) && plan.targets?.length) {
+      throw Error('Физический контакт уже направлен в существо. Для удара по конструкции выбери отдельную точку.')
+    }
     physics = applyAbilityPhysics(scene, target.point, work.id + '-water', decision.physics)
+    if (physics.kind === 'structural-impact' && physics.collapsed) {
+      const objectId = physics.objectId
+      for (const hero of plan.world.campaign.perceptions?.heroes ?? []) {
+        const known = hero.scenes.find(known => known.sceneId === scene.id)
+        if (known) known.objects = known.objects.filter(object => !object.visible || object.objectId !== objectId)
+      }
+    }
   }
   let effects = decision.environment ?? []
   if (physics?.kind === 'discharge') {

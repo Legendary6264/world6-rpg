@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import {fixture,lobbyBody} from './fixtures.mjs'
 import {createDefaultCharacter} from '../generated/characterModel.mjs'
 import {createScene,emptyScenes,sceneObject} from '../generated/scenes.mjs'
-import {emptyAbility} from '../generated/rpgSchema.mjs'
+import {emptyAbility,emptyItem} from '../generated/rpgSchema.mjs'
+import {createDetailedAnatomy} from '../generated/anatomyModel.mjs'
 import {physicsMaterialPreset} from '../generated/physicsMaterials.mjs'
 const fields={region:'torso',distanceM:999,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:'SPATIAL-SECRET-NOTE'}
 for(const dialect of ['sqlite','postgres'])test('Пространственный выпуск: API, снимок и повтор · '+dialect,async t=>{
@@ -332,4 +333,112 @@ for (const dialect of ['sqlite','postgres']) test('Тепло в раунде: �
  const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:rolledBack.revision,receiptId:receipt.id})
  await apply({previewId:replay.id,generation:replay.generation,commandKey:crypto.randomUUID()})
  assert.deepEqual((await world()).campaign.scenes.scenes[0],result)
+})
+
+for (const dialect of ['sqlite','postgres']) test('Разрушение опоры: падение продолжается после перезапуска и травма применяется один раз · '+dialect,async t=>{
+ const f=await fixture(t,dialect),{api}=f,gm=await f.register('structure-owner'),player=await f.register('structure-player')
+ const {id}=await api('/lobbies',gm.token,'POST',lobbyBody,201),root='/lobbies/'+id
+ await api(root+'/join',player.token,'POST')
+ const character={...createDefaultCharacter(),id:'structure-source',name:'Маг'}
+ await api('/characters/'+character.id,player.token,'PUT',{character,revision:-1})
+ const {id:actorId}=await api(root+'/characters',player.token,'POST',{characterId:character.id},201)
+ const route=root+'/characters/'+actorId,world=()=>api(root+'/world',gm.token)
+ await api(route+'/review',gm.token,'POST',{revision:(await world()).revision,decision:'approve',note:''})
+ const initial=await world(),actor=initial.characters[0]
+ actor.rpg.formulas=[];actor.statistics.energyRegeneration='0';actor.resources.mana={maximum:'50',current:'50'}
+ actor.rpg.abilities=[{...emptyAbility(),id:'spell',templateId:'breach',name:'Ударная волна',approved:true,
+   spatial:{shape:'point',includeCaster:false},rangeM:20,mechanism:'stone',cost:{mana:7,shadow:0,stamina:0}}]
+ const rider={...createDefaultCharacter(),id:'structure-rider',name:'Дозорный'}
+ Object.assign(rider.body.parts.torso,{present:true,maximum:100,current:100})
+ rider.body.anatomy=createDetailedAnatomy('humanoid',Object.keys(rider.body.parts))
+ rider.body.anatomy.automatic=false
+ rider.rpg.impact.torso={thresholdJ:190,joulesPerHp:200,referenceCm2:100}
+ rider.rpg.inventory=[{...emptyItem(),id:'armor',templateId:'armor',name:'Нагрудник',quantity:1,durability:100,equipped:true,
+   slot:'body',covers:['torso'],maximumDurability:100,absorptionJ:200,transmission:.5,joulesPerWear:20}]
+ initial.characters.push(rider)
+ initial.campaign.scenes=createScene(emptyScenes(),'structural-scene','Верхняя галерея','top')
+ const scene=initial.campaign.scenes.scenes[0],point={x:5,y:5,z:7.5}
+ scene.physics={version:1,gravityMs2:10,ambientTemperatureK:293.15}
+ scene.objects=[
+   {...sceneObject('platform','upper',{...point,z:7}),width:2,depth:2,height:1,physics:{
+     version:1,material:physicsMaterialPreset('wood'),massKg:20,temperatureK:293.15,wetnessFraction:0,
+     structure:{failureJ:200,absorbedJ:0},
+   }},
+   {...sceneObject('platform','lower',{...point,z:1}),width:2,depth:2,height:1},
+ ]
+ scene.tokens=[{actorId,x:2,y:2,z:0,diameter:.6,support:{kind:'ground'}},
+   {actorId:rider.id,...point,z:8,diameter:.6,support:{kind:'object',objectId:'upper'},landing:{massKg:60,region:'torso',contactCm2:100}}]
+ await api(root+'/world',gm.token,'PUT',{world:initial,revision:initial.revision})
+ await api(route+'/disclosure',gm.token,'PUT',{revision:(await world()).revision,draft:{activeSceneId:scene.id,scenes:[{sceneId:scene.id,title:scene.name,description:'',
+   areas:[{id:'hall',x:0,y:0,z:0,width:12,depth:12,height:12,visible:true}],objects:[{objectId:'upper',visible:true},{objectId:'lower',visible:true}],
+   contacts:[{actorId:rider.id,kind:'identified',label:rider.name,signs:'',showHeight:true,point:{...point,z:8},radius:1}]}]}})
+ const submit=async actions=>{
+   await api(root+'/declarations',gm.token,'POST',{sceneId:scene.id,participantIds:[actorId],durationSeconds:3,allowReplace:true,revision:(await world()).revision},201)
+   const view=await api(route+'/declarations',player.token)
+   await api(route+'/declarations',player.token,'PUT',{collectionId:view.collection.id,epoch:view.collection.epoch,baseVersion:0,controlStamp:view.controlStamp,actions})
+   await api(root+'/declarations',gm.token,'PATCH',{collectionId:view.collection.id,epoch:view.collection.epoch,operation:'close'})
+   return world()
+ }
+ const prepare=()=>({kind:'ability',abilityId:'spell',stage:'prepare',target:{kind:'none'},note:''})
+ const release=()=>({kind:'ability',abilityId:'spell',stage:'release',target:{kind:'point',point},note:''})
+ const request=(snapshot,costs,rules)=>({revision:snapshot.revision,collectionId:snapshot.campaign.declarations.active.id,
+   epoch:snapshot.campaign.declarations.active.epoch,input:{timings:[{actorId,entryRevision:1,budgetMs:3000,costs:costs.map((personalMs,index)=>({index,personalMs}))}],
+     continuations:[],missingDecisions:[],interactionsConfirmed:false,rules}})
+ const before=await submit([prepare(),release(),prepare(),release()]),key=i=>'new:'+actorId+':'+i
+ const rules=[75,125].flatMap((energyJ,index)=>[
+   {key:key(index*2),kind:'ability',confirmed:true,binding:'unbound',charge:'',input:fields},
+   {key:key(index*2+1),kind:'ability',confirmed:true,binding:'unbound',charge:'prepare:'+key(index*2),input:fields,
+     spatialConfirmed:true,physics:{kind:'structural-impact',energyJ}},
+ ])
+ const calculate=body=>api(root+'/rounds/calculate',gm.token,'POST',body)
+ const command=p=>({previewId:p.id,generation:p.generation,commandKey:crypto.randomUUID()})
+ const apply=body=>api(root+'/rounds/apply',gm.token,'POST',body)
+ const preview=await calculate(request(before,[500,500,500,1000],rules))
+ assert.deepEqual(await world(),before)
+ const strikes=preview.summary.rules.filter(rule=>rule.kind==='release').map(rule=>rule.physics)
+ assert.deepEqual(strikes.map(o=>[o.absorbedJ,o.collapsed]),[[75,false],[200,true]])
+ assert.deepEqual(preview.summary.falls,{landings:[],falling:[{actorId:rider.id,fromZ:8,toZ:6.75,speedMs:5}]})
+ await apply(command(preview))
+ const airborne=await world()
+ assert.equal(airborne.characters.find(c=>c.id===rider.id).body.parts.torso.current,100)
+ await f.restart()
+ assert.deepEqual(await world(),airborne)
+ const map=(await api(route+'/perception',player.token)).map
+ assert(!map.objects.some(o=>o.id==='upper'))
+ const contact=map.contacts.find(c=>c.kind==='identified')
+ assert.equal(contact.falling,true);assert.equal(contact.z,6.75)
+ assert(!Object.hasOwn(contact,'landing'));assert(!Object.hasOwn(contact,'fall'))
+ const disclosure=await api(route+'/disclosure',gm.token)
+ assert(!disclosure.draft.scenes[0].objects.some(o=>o.objectId==='upper'))
+ const first=airborne.campaign.declarations.active
+ await api(root+'/declarations',gm.token,'PATCH',{collectionId:first.id,epoch:first.epoch,operation:'archive'})
+ const next=await submit([{kind:'wait',seconds:1,note:''}])
+ const landingPreview=await calculate(request(next,[],[]))
+ const [landing]=landingPreview.summary.falls.landings
+ assert.equal(landing.support.objectId,'lower');assert.equal(landing.toZ,2)
+ assert(landing.atMs.numerator/landing.atMs.denominator<1000)
+ assert.equal(landing.impact.status,'applied');assert.equal(landing.impact.damage,16)
+ assert(Math.abs(landing.impact.energyJ-3600)<1e-8)
+ assert(Math.abs(landing.impact.transmittedJ-3400)<1e-8)
+ const appliedCommand=command(landingPreview),{receipt}=await apply(appliedCommand),after=await world()
+ const landed=after.characters.find(c=>c.id===rider.id),token=after.campaign.scenes.scenes[0].tokens.find(t=>t.actorId===rider.id)
+ assert.equal(landed.body.parts.torso.current,84);assert.equal(landed.rpg.inventory[0].durability,90)
+ assert.equal(landed.body.anatomy.harmRevision,rider.body.anatomy.harmRevision+1)
+ assert.equal(landed.rpg.logs.filter(l=>l.text.includes('Удар при приземлении')).length,1)
+ assert.equal(token.z,2);assert.equal(token.fall,undefined)
+ await f.restart()
+ assert.equal((await apply(appliedCommand)).duplicate,true);assert.deepEqual(await world(),after)
+ const history=await api(root+'/rounds/history',gm.token)
+ const rollback=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:history.revision,receiptId:receipt.id,reason:'Проверить приземление'})
+ await api(root+'/rounds/change/apply',gm.token,'POST',command(rollback))
+ const restored=await world()
+ assert.equal(restored.campaign.scenes.scenes[0].tokens.find(t=>t.actorId===rider.id).fall.speedMs,5)
+ assert.equal(restored.characters.find(c=>c.id===rider.id).rpg.inventory[0].durability,100)
+ const rolledBack=await api(root+'/rounds/history',gm.token)
+ const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:rolledBack.revision,receiptId:receipt.id})
+ await apply(command(replay))
+ const replayed=await world()
+ assert.deepEqual(replayed.campaign.scenes.scenes[0],after.campaign.scenes.scenes[0])
+ assert.deepEqual(replayed.characters.find(c=>c.id===rider.id).body,landed.body)
+ assert.deepEqual(replayed.characters.find(c=>c.id===rider.id).rpg.inventory,landed.rpg.inventory)
 })

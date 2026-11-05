@@ -18,6 +18,7 @@ export const physicsFields = {
   discharge: { x: 'X обратной клеммы, м', y: 'Y обратной клеммы, м', z: 'Z обратной клеммы, м',
     voltageV: 'Напряжение источника, В', limitA: 'Предел тока источника, А', durationMs: 'Длительность разряда, мс', thresholdA: 'Ток для операций с объектами, А' },
   heat: { energyKJ: 'Изменение тепловой энергии, кДж' },
+  'structural-impact': { energyJ: 'Энергия удара по конструкции, Дж' },
 } satisfies Record<AbilityPhysicsEffect['kind'], Record<string, string>>
 export type AbilityPhysicsForm = { kind: AbilityPhysicsEffect['kind']; fields: Record<string, string>; substance: 'salt' | 'sediment' }
 
@@ -56,6 +57,9 @@ function physicsFormEffect(form: AbilityPhysicsForm): AbilityPhysicsEffect | nul
       break
     case 'heat':
       effect = { kind: form.kind, energyKJ: n('energyKJ') }
+      break
+    case 'structural-impact':
+      effect = { kind: form.kind, energyJ: n('energyJ') }
       break
   }
   return isAbilityPhysicsEffect(effect) ? effect : null

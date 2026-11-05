@@ -3,7 +3,7 @@ const React=require('react'),{act}=React,{JSDOM}=require('jsdom'),dom=new JSDOM(
 Object.assign(global,{window:dom.window,document:dom.window.document,FormData:dom.window.FormData,IS_REACT_ACT_ENVIRONMENT:true})
 const {createRoot}=require('react-dom/client'),root=createRoot(document.getElementById('root')),cache=new Map()
 function load(name){if(cache.has(name))return cache.get(name).exports;const file=['.tsx','.ts'].map(ext=>path.resolve('src',name+ext)).find(fs.existsSync);assert(file,name);const mod={exports:{}};cache.set(name,mod);const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2023}}).outputText;vm.runInThisContext('(function(require,module,exports){'+code+'\n})',{filename:file})(id=>id.startsWith('./')?load(id.slice(2)):require(id),mod,mod.exports);return mod.exports}
-const {ObjectPhysicsPanel,EnvironmentPhysicsPanel}=load('ScenePhysicsPanel'),{physicsMaterialPreset}=load('physicsMaterials')
+const {ObjectPhysicsPanel,EnvironmentPhysicsPanel,LandingPhysicsPanel}=load('ScenePhysicsPanel'),{physicsMaterialPreset}=load('physicsMaterials')
 const flush=async fn=>act(async()=>{fn?.();await new Promise(resolve=>setTimeout(resolve,10))})
 const input=label=>document.querySelector('[aria-label="'+label+'"]')
 const button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text)
@@ -11,7 +11,7 @@ async function field(label,value){await flush(()=>{const element=input(label);as
 async function submit(){await flush(()=>document.querySelector('form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})))}
 async function fixture(Panel=ObjectPhysicsPanel,initial,options={}){
   await flush(()=>root.render(null));const observed={value:initial,changes:[]}
-  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),value,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
+  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),value,canBreak:options.canBreak,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
   await flush(()=>root.render(React.createElement(Wrapper)));return observed
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
@@ -71,4 +71,25 @@ test('Тепло UI: проветривание сохраняет параме�
   assert.equal(state.value.atmosphere.smokeKg,.02);assert.equal(state.value.atmosphere.steamKg,.5)
   await flush(()=>{name('simulateThermal').click()});assert.equal(name('doorVentilation'),null)
   await submit();assert.equal(state.value.atmosphere,null);assert.equal(state.value.backgroundNoiseDb,35)
+})
+
+test('Конструкции UI: прочность сохраняется, накопленный удар можно исправить без сброса материала',async()=>{
+  const state=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('wood'),massKg:4,temperatureK:293.15,wetnessFraction:0},{canBreak:true})
+  const name=key=>document.querySelector('[name="'+key+'"]')
+  await flush(()=>{name('simulateStructure').click()})
+  await flush(()=>{name('structureFailureJ').value='200';name('structureAbsorbedJ').value='75'})
+  await submit();assert.deepEqual(state.value.structure,{failureJ:200,absorbedJ:75})
+  await flush(()=>{name('structureAbsorbedJ').value='201'});await submit()
+  assert(document.querySelector('[role=alert]'));assert.equal(state.value.structure.absorbedJ,75)
+  await flush(()=>{name('structureAbsorbedJ').value='0'});await submit()
+  assert.equal(state.value.structure.absorbedJ,0);assert.equal(state.value.material.id,'wood')
+})
+
+test('Конструкции UI: параметры травмы задаются для отдельного героя и снимаются явно',async()=>{
+  const state=await fixture(LandingPhysicsPanel),name=key=>document.querySelector('[name="'+key+'"]')
+  await flush(()=>{name('landingEnabled').click()})
+  await flush(()=>{name('landingMassKg').value='60';name('landingRegion').value='torso';name('landingContactCm2').value='100'})
+  await submit();assert.deepEqual(state.value,{massKg:60,region:'torso',contactCm2:100})
+  await flush(()=>{name('landingEnabled').click()})
+  await submit();assert.equal(state.value,null)
 })

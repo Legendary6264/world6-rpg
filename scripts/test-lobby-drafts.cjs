@@ -2129,6 +2129,29 @@ test('Тепло UI: отрицательная энергия передаёт�
   assert.equal(scene.objects[0].water.enthalpyJKg,334000)
  }finally{await f.close()}
 })
+test('Конструкции UI: мастер подтверждает энергию удара и видит разрушение до записи',async()=>{
+ const f=await fixture()
+ try {
+  executableSpatial(f,'a')
+  const scene=f.worlds.a.campaign.scenes.scenes[0]
+  scene.objects=[{...load('scenes').sceneObject('platform','platform',{x:8,y:2,z:0}),name:'Хрупкая площадка',height:1,
+    physics:{version:1,material:load('physicsMaterials').physicsMaterialPreset('wood'),massKg:3,temperatureK:293.15,wetnessFraction:0,
+      structure:{failureJ:200,absorbedJ:75}}}]
+  await spatialFields(f,'a')
+  const label=name=>'[aria-label="'+name+' Hero a · 1"]'
+  await selectValue(label('Действие со средой'),'structural-impact')
+  await input(label('Энергия удара по конструкции, Дж'),'125')
+  assert(!enabledButton('Рассчитать последствия раунда'))
+  await flush(()=>document.querySelector(label('Пространство подтверждено')).click())
+  await flush(()=>document.querySelector(label('Правила подтверждены')).click())
+  await click('Рассчитать последствия раунда')
+  assert.deepEqual(f.executions[0].input.rules[0].physics,{kind:'structural-impact',energyJ:125})
+  assert.match(document.querySelector('[aria-label="Расчёт последствий"]').textContent,/Хрупкая площадка · конструкция разрушена/)
+  assert.equal(f.worlds.a.campaign.scenes.scenes[0].objects[0].physics.structure.absorbedJ,75)
+  await click('Применить рассчитанный раунд')
+  assert.equal(f.worlds.a.campaign.scenes.scenes[0].objects.length,0)
+ }finally{await f.close()}
+})
 test('Пространство UI: индивидуальный неверный ввод сохраняется и не смешивается между лобби',async()=>{
  const f=await fixture()
  try {

@@ -21,7 +21,7 @@ export type HeroPerception = { actorId: string; activeSceneId: string | null; sc
 export type ScenePerceptions = { version: 1; heroes: HeroPerception[] }
 export type PerceptionDraft = { activeSceneId: string | null; scenes: (Omit<KnownScene, 'frame' | 'objects' | 'contacts'> & {
   objects: Pick<ObjectDisclosure, 'objectId' | 'visible'>[]; contacts: Omit<ContactDisclosure, 'id'>[] })[] }
-export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; support?: 'ground' | 'air' | 'object'; portrait?: string; radius?: number; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
+export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; falling?: true; support?: 'ground' | 'air' | 'object'; portrait?: string; radius?: number; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
 export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; title: string; description: string; frame: MapFrame; areas: KnownArea[]; objects: (ObservedObject & { visible: boolean })[]; contacts: VisibleContact[] }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const id = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(v)
@@ -132,11 +132,13 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
     if (!point || !inArea(point, true) || c.actorId === value.actorId || c.kind !== 'sound' && !inSight(point)) return []
     const identity = c.kind === 'identified' && actor
     return [{ id: c.id, kind: c.kind, label: c.label || (identity ? actor.name : c.kind === 'sound' ? 'Источник звука' : 'Неизвестный силуэт'), signs: c.signs, x: point.x, y: point.y,
-      ...(c.showHeight ? { z: point.z, ...(token && c.kind !== 'sound' ? { flying: token.support.kind === 'air' } : {}) } : {}),
+      ...(c.showHeight ? { z: point.z, ...(token && c.kind !== 'sound' ?
+        { flying: token.support.kind === 'air' && !token.fall, ...(token.fall ? {falling:true as const} : {}) } : {}) } : {}),
       ...(identity && c.showHeight && token ? {characterModel:characterModelFor(token.actorId,token.characterModel),facing:token.facing,characterAnimation:token.characterAnimation}:{}),
       ...(identity && actor.profile.portrait && isArtwork(actor.profile.portrait) ? { portrait: actor.profile.portrait } : {}), ...(c.kind === 'sound' ? { radius: c.radius } : {}) }]
   })
-  if (self && actor) contacts.push({ id: 'self', kind: 'self', characterModel:characterModelFor(self.actorId,self.characterModel),facing:self.facing,characterAnimation:self.characterAnimation,label: actor.name, signs: '', x: self.x, y: self.y, z: self.z, flying: self.support.kind === 'air', support: self.support.kind, ...(actor.profile.portrait ? { portrait: actor.profile.portrait } : {}) })
+  if (self && actor) contacts.push({ id: 'self', kind: 'self', characterModel:characterModelFor(self.actorId,self.characterModel),facing:self.facing,characterAnimation:self.characterAnimation,label: actor.name, signs: '', x: self.x, y: self.y, z: self.z,
+    flying: self.support.kind === 'air' && !self.fall, ...(self.fall ? {falling:true} : {}), support: self.support.kind, ...(actor.profile.portrait ? { portrait: actor.profile.portrait } : {}) })
   const visuals:SceneAbilityVisual[]=[]
   // Only own casts or contacts explicitly revealed by the master can produce VFX.
   // No labels, internal cast/actor IDs, formulas or hidden target coordinates leave this projection.
