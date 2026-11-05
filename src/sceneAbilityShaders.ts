@@ -6,13 +6,15 @@ export type AbilitySurface='core'|'envelope'|'ribbon'|'mote'|'field'|'smoke'
 // color-space pipeline. Procedural detail adds no textures or remote assets.
 export function abilitySurfaceMaterial(color:string,highlight:string,shade:string,style:AbilityVisualStyle,layer:AbilitySurface,clippingPlanes:THREE.Plane[]=[]){
   const dark=style.archetype==='shadow',solid=style.archetype==='mineral'||style.archetype==='frost'
-  const material=new THREE.MeshBasicMaterial({color,transparent:true,opacity:1,depthWrite:false,depthTest:true,toneMapped:true,side:THREE.DoubleSide,
-    blending:dark||solid&&layer==='core'?THREE.NormalBlending:THREE.AdditiveBlending,clippingPlanes})
+  const physical=solid&&(layer==='core'||layer==='mote'),ice=style.archetype==='frost',metal=style.archetype==='mineral'&&[1,7,8].includes(style.variant)
+  const parameters={color,transparent:true,opacity:1,depthWrite:false,depthTest:true,toneMapped:true,side:THREE.DoubleSide,
+    blending:dark||physical?THREE.NormalBlending:THREE.AdditiveBlending,clippingPlanes}
+  const material=physical?new THREE.MeshPhysicalMaterial({...parameters,roughness:ice?.18:metal?.28:.86,metalness:metal?.72:ice?.12:0,clearcoat:ice?1:metal?.4:.08,clearcoatRoughness:ice?.12:.3,emissive:color,emissiveIntensity:ice?.16:.025,flatShading:true,envMapIntensity:ice?1.25:1}):new THREE.MeshBasicMaterial(parameters)
   const uniforms={fxTime:{value:0},fxOpacity:{value:1},fxPower:{value:1},fxHighlight:{value:new THREE.Color(highlight)},fxShade:{value:new THREE.Color(shade)},
     fxStyle:{value:['flame','fluid','storm','vortex','mineral','frost','growth','renewal','radiance','shadow','sigil','resonance'].indexOf(style.archetype)},
-    fxGlow:{value:style.glow},fxVariant:{value:style.variant},fxLayer:{value:['core','envelope','ribbon','mote','field','smoke'].indexOf(layer)}}
+    fxGlow:{value:style.glow},fxVariant:{value:style.variant},fxPhysical:{value:physical?1:0},fxLayer:{value:['core','envelope','ribbon','mote','field','smoke'].indexOf(layer)}}
   material.userData.abilityEffect=true;material.userData.lightEmitter=true;material.userData.proceduralSurface=layer
-  material.customProgramCacheKey=()=> 'world6-ability-surface-v2'
+  material.customProgramCacheKey=()=> 'world6-ability-surface-v3-'+(physical?'physical':'basic')
   material.onBeforeCompile=shader=>{
     Object.assign(shader.uniforms,uniforms)
     shader.vertexShader=shader.vertexShader.replace('#include <common>',`#include <common>
@@ -36,7 +38,7 @@ varying vec3 vFxPosition;
 varying vec3 vFxNormal;
 varying vec3 vFxView;
 varying vec2 vFxUv;
-uniform float fxTime, fxOpacity, fxPower, fxStyle, fxGlow, fxVariant, fxLayer;
+uniform float fxTime, fxOpacity, fxPower, fxStyle, fxGlow, fxVariant, fxLayer, fxPhysical;
 uniform vec3 fxHighlight, fxShade;
 float fxHash(vec3 p) { p = fract(p * .3183099 + vec3(.17,.31,.73)); return fract(17.0 * p.x * p.y * p.z * (p.x+p.y+p.z)); }
 float fxNoise(vec3 p) {
@@ -52,15 +54,16 @@ float alpha=1.0;
 if(fxStyle<.5) { hot=pow(clamp((1.0-vFxUv.y)*.6+n*.25+rim*.15,0.0,1.0),3.0)*.85; alpha=smoothstep(.12,.48,n+.5*(1.0-vFxUv.y)); }
 else if(fxStyle<1.5) { hot=rim*.85+veins*.35; alpha=.35+rim*.65; }
 else if(fxStyle<3.5) { hot=rim*.65+veins*.6; alpha=.45+n*.55; }
-else if(fxStyle<5.5) { hot=rim*.6+step(.78,n)*.45; diffuseColor.rgb*=.45+.55*abs(normalize(vFxNormal).y); }
+else if(fxStyle<5.5) { hot=rim*.6+step(.78,n)*.45; if(fxPhysical<.5)diffuseColor.rgb*=.45+.55*abs(normalize(vFxNormal).y); }
 else if(fxStyle>8.5&&fxStyle<9.5) { diffuseColor.rgb=mix(fxShade*.2,diffuseColor.rgb,rim*.8+veins*.2); hot=rim*.6; alpha=.6+rim*.4; }
 else { hot=rim*.65+veins*.4; }
 if(fxLayer>.5&&fxLayer<1.5) alpha*=pow(rim,1.1)*(.3+n*.7);
-if(fxLayer>1.5&&fxLayer<2.5) alpha*=pow(max(0.0,1.0-abs(vFxUv.x*2.0-1.0)),.7);
+if(fxLayer>1.5&&fxLayer<2.5){float spine=pow(max(0.0,1.0-abs(vFxUv.x*2.0-1.0)),1.4);alpha*=spine*(.6+n*.4);hot=max(hot,spine*.65);}
 if(fxLayer>3.5&&fxLayer<4.5) alpha*=rim*.5+veins*.22;
 if(fxLayer>4.5){alpha*=pow(1.0-rim,1.6)*(.4+n*.6);hot*=.12;}
 diffuseColor.rgb=mix(diffuseColor.rgb,fxHighlight,clamp(hot,0.0,.88))*(1.0+fxGlow*.75*fxPower);
-diffuseColor.a*=clamp(alpha*fxOpacity,0.0,1.0);`)
+diffuseColor.a*=clamp(alpha*fxOpacity,0.0,1.0);`).replace('#include <emissivemap_fragment>',`#include <emissivemap_fragment>
+totalEmissiveRadiance+=fxHighlight*hot*.12*fxGlow*fxOpacity;`)
   }
   return {material,update:(seconds:number,opacity:number,power:number)=>{uniforms.fxTime.value=Number.isFinite(seconds)?seconds:0;uniforms.fxOpacity.value=THREE.MathUtils.clamp(opacity,0,1);uniforms.fxPower.value=THREE.MathUtils.clamp(power,0,2)}}
 }

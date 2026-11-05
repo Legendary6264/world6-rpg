@@ -1,10 +1,11 @@
 import type {AbilityVisualStyle} from './abilityVisualStyles'
 import {visualEaseOut} from './abilityVisualStyles'
 import type {AbilityVisualPhase} from './abilityVisuals'
+import AbilityImpactGlyph from './AbilityImpactGlyph'
 
 /** Fine, bounded vector layers around the established school glyph. */
 export default function AbilityVisualAura({style,phase,progress=.45,gradientId}:{style:AbilityVisualStyle;phase:AbilityVisualPhase;progress?:number;gradientId:string}){
-  const p=Number.isFinite(progress)?Math.max(0,Math.min(1,progress)):.45,impact=phase==='impact',radius=impact?.55+visualEaseOut(p)*1.15:phase==='preparation'?.75:1.05
+  const p=Number.isFinite(progress)?Math.max(0,Math.min(1,progress)):.45,impact=phase==='impact'
   const flow=style.archetype
   return <g data-vfx-layer="aura" data-vfx-archetype={flow} opacity={phase==='residue'?.55:1}>
     <circle r="1.7" fill={`url(#${gradientId})`} opacity=".75"/>
@@ -31,10 +32,6 @@ export default function AbilityVisualAura({style,phase,progress=.45,gradientId}:
     {flow==='shadow'&&<g className="w6-vfx-accretion"><circle r=".79" fill="var(--vfx-shade)" opacity=".8"/><circle r=".83" className="w6-vfx-light-line" strokeWidth=".025"/>{[0,1,2].map(i=><path key={i} transform={`rotate(${i*120})`} d="M-.3-.1C-1.4-.28-1.16-1.45-.26-1.27C.38-1.18 .43-.6 .18-.33" className="w6-vfx-line" strokeWidth=".095" opacity=".65"/>)}</g>}
     {flow==='sigil'&&<g className="w6-vfx-seal"><circle r="1.2" className="w6-vfx-light-line" strokeWidth=".022"/><circle r="1.06" className="w6-vfx-outline" strokeWidth=".035" strokeDasharray=".11 .09 .03 .09"/>{Array.from({length:8},(_,i)=><path key={i} transform={`rotate(${i*45})`} d="M-.045-1.34V-1.14H.045V-1.34M0-1.22 .11-1.28" className="w6-vfx-light-line" strokeWidth=".025"/>)}</g>}
     {flow==='resonance'&&<g className="w6-vfx-wavefronts">{[0,1,2,3].map(i=><ellipse key={i} rx={.45+i*.3} ry={.7+i*.15} className="w6-vfx-light-line" strokeWidth=".035" opacity={.72-i*.14}/>)}</g>}
-    {(impact||phase==='release')&&<g data-vfx-layer="impact" opacity={1-p*.8}>
-      <circle r={radius} className="w6-vfx-light-line" strokeWidth=".035"/>
-      <circle r={radius*.8} className="w6-vfx-outline" strokeWidth=".06" strokeDasharray=".04 .12"/>
-      <circle r={.3+visualEaseOut(p)*.75} fill={`url(#${gradientId})`} opacity={1-p}/>
-    </g>}
+    {(impact||phase==='release'||phase==='residue')&&<AbilityImpactGlyph style={style} phase={phase} progress={p}/>}
   </g>
 }

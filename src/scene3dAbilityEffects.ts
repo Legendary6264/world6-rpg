@@ -2,6 +2,9 @@ import * as THREE from 'three'
 import {abilityVisualStyle,visualEaseOut} from './abilityVisualStyles.ts'
 import {abilitySurfaceMaterial} from './sceneAbilityShaders.ts'
 import {abilityCoreGeometry,abilityParticleGeometry,abilitySigilGeometry,createAbilityRibbonGeometry} from './sceneAbilityGeometry.ts'
+import {createAbilityAtmosphere,abilityGroundMaterial} from './sceneAbilityAtmosphere.ts'
+import {abilityBurstParticle} from './sceneAbilityDynamics.ts'
+import {createAbilityStreamGeometry,createAbilityBoltGeometry} from './sceneAbilityStreams.ts'
 import {abilityVisualFamilyById} from './abilityVisuals.ts'
 import type {AbilityVisualPhase} from './abilityVisuals'
 import type {SceneAbilityVisual} from './sceneAbilityVisuals'
@@ -28,7 +31,7 @@ export function createSceneAbilityEffect(visual:SceneAbilityVisual,options:Scene
  const group=new THREE.Group();group.name='ability-effect:'+visual.id
  group.userData.abilityEffect=true;group.userData.familyId=visual.spec.familyId
  const style=abilityVisualStyle(visual.spec.familyId)
- group.userData.visualVersion=2;group.userData.archetype=style.archetype
+ group.userData.visualVersion=3;group.userData.archetype=style.archetype
  const family=abilityVisualFamilyById(visual.spec.familyId),geometries=new Set<THREE.BufferGeometry>(),materials=new Set<THREE.Material>(),instances:THREE.InstancedMesh[]=[]
  let disposed=false
  const keep=<T extends THREE.BufferGeometry>(geometry:T):T=>{geometries.add(geometry);return geometry}
@@ -53,10 +56,12 @@ export function createSceneAbilityEffect(visual:SceneAbilityVisual,options:Scene
  const particleCount=Math.max(low?8:24,Math.min(low?20:68,Math.round((low?14:46)*Math.sqrt(intensity))))
  const particles=decorate(new THREE.InstancedMesh(keep(abilityParticleGeometry(family?.particle??'spark',style)),particleMat,particleCount));particles.name='ability-particles:'+motif;particles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);instances.push(particles);group.add(particles)
  const tint=new THREE.Color();for(let i=0;i<particleCount;i++)particles.setColorAt(i,tint.set(palette.primary).lerp(new THREE.Color(palette.highlight),(i%5)/5*.65))
- const accentMat=low?null:surface(palette.shade,'smoke'),accents=accentMat?decorate(new THREE.InstancedMesh(keep(new THREE.IcosahedronGeometry(1,0)),accentMat,16)):null
- if(accents){accents.name='ability-atmosphere';accents.instanceMatrix.setUsage(THREE.DynamicDrawUsage);instances.push(accents);group.add(accents);if(['flame','mineral','shadow'].includes(style.archetype))accentMat!.blending=THREE.NormalBlending}
+ const atmosphere=low?null:createAbilityAtmosphere(palette.primary,palette.highlight,palette.shade,style,Math.round(32*Math.sqrt(intensity)),options.clippingPlanes)
+ const accentMat=atmosphere?.material??null,accents=atmosphere?decorate(new THREE.InstancedMesh(keep(atmosphere.geometry),atmosphere.material,atmosphere.life.length)):null
+ if(accents&&accentMat){accents.name='ability-atmosphere';materials.add(accentMat);accents.instanceMatrix.setUsage(THREE.DynamicDrawUsage);instances.push(accents);group.add(accents)}
  const ringMat=makeMaterial(palette.primary,.3),rings=decorate(new THREE.InstancedMesh(keep(new THREE.TorusGeometry(1,.012,3,low?18:36)),ringMat,low?2:3));rings.name='ability-rings:'+motif;rings.instanceMatrix.setUsage(THREE.DynamicDrawUsage);instances.push(rings);group.add(rings)
- const ribbonGeometry=createAbilityRibbonGeometry(style,low),ribbonMat=surface(palette.primary,'ribbon'),ribbons=decorate(new THREE.Mesh(keep(ribbonGeometry.geometry),ribbonMat));ribbons.name='ability-ribbons:'+style.archetype;group.add(ribbons)
+ const ribbonGeometry=style.archetype==='storm'?createAbilityBoltGeometry(low):createAbilityRibbonGeometry(style,low),ribbonMat=surface(palette.primary,'ribbon'),ribbons=decorate(new THREE.Mesh(keep(ribbonGeometry.geometry),ribbonMat));ribbons.name='ability-ribbons:'+style.archetype;group.add(ribbons)
+ const streamGeometry=createAbilityStreamGeometry(style,low),streamMat=surface(palette.primary,'ribbon'),stream=decorate(new THREE.Mesh(keep(streamGeometry.geometry),streamMat));stream.name='ability-stream:'+style.archetype;group.add(stream)
  const shockMat=makeMaterial(palette.primary,0),shockwaves=decorate(new THREE.InstancedMesh(keep(new THREE.RingGeometry(.87,1,low?24:40)),shockMat,low?1:3));shockwaves.name='ability-shockwaves';shockwaves.instanceMatrix.setUsage(THREE.DynamicDrawUsage);instances.push(shockwaves);group.add(shockwaves)
  const sigilMat=low?null:lineMaterial(palette.highlight,.6),sigil=sigilMat?decorate(new THREE.LineSegments(keep(abilitySigilGeometry(style,false)),sigilMat)):null
  if(sigil){sigil.name='ability-sigil:'+style.archetype;group.add(sigil)}
@@ -72,9 +77,11 @@ export function createSceneAbilityEffect(visual:SceneAbilityVisual,options:Scene
  // A contact mark belongs to an actual nearby ground plane. In particular,
  // aiming at a raised object or into the air never projects a floating decal.
  const groundZ=options.groundZ,nearGround=groundZ!==undefined&&Number.isFinite(groundZ)&&Math.abs(end.y-groundZ)<=.08
- const contactMaterial=!low&&nearGround?makeMaterial(palette.primary,0):null
- const contact=contactMaterial?decorate(new THREE.Mesh(keep(new THREE.RingGeometry(.79,1,48)),contactMaterial)):null
- const contactRadius=visual.shape==='point'?.65*scale:Math.min(3,width)
+ const groundSurface=!low&&nearGround?abilityGroundMaterial(palette.primary,palette.highlight,palette.shade,style,options.clippingPlanes):null
+ const contactMaterial=groundSurface?.material??null
+ const contact=contactMaterial?decorate(new THREE.Mesh(keep(new THREE.PlaneGeometry(2,2)),contactMaterial)):null
+ const contactRadius=visual.shape==='point'?1.5*scale:Math.min(4,visual.shape==='cone'?length*Math.tan(clamp(visual.coneAngleDeg,45,.1,179)*Math.PI/360):width)
+ if(contactMaterial)materials.add(contactMaterial)
  if(contact){contact.name='ability-ground-contact';contact.rotation.x=-Math.PI/2;contact.visible=false;group.add(contact)}
  const segment=(a:THREE.Vector3,b:THREE.Vector3)=>volumePoints.push(...a.toArray(),...b.toArray())
  const circle=(radius:number,center:THREE.Vector3,normal:THREE.Vector3)=>{
@@ -109,7 +116,7 @@ export function createSceneAbilityEffect(visual:SceneAbilityVisual,options:Scene
   group.visible=sample.visible&&amount>0
   if(!group.visible){if(flash){flash.intensity=0;flash.visible=false}if(contact)contact.visible=false;return}
   anchor.copy(preparing||release?start:travel?start.clone().lerp(end,p):end);group.position.copy(anchor)
-  const fade=residue?1-p:impact?1-p*.65:1,burst=impact?.35+visualEaseOut(p)*1.65:residue?1+p*.3:preparing?.42+p*.25:.72
+  const normalizedSample={...sample,progress:p},fade=residue?.55*(1-p):impact?1-p*.45:1,burst=impact?.35+visualEaseOut(p)*1.65:residue?1+p*.3:preparing?.42+p*.25:.72
   surfaces.forEach(surface=>surface.update(time,1,intensity))
   if(flash){
    const power=preparing?.2+p*.35:release?.55+Math.sin(p*Math.PI)*.65:travel?.65:impact?.45+1.75*(1-p)**2:.45*(1-p)**2
@@ -118,8 +125,9 @@ export function createSceneAbilityEffect(visual:SceneAbilityVisual,options:Scene
   if(contact&&contactMaterial){
    contact.visible=(impact||residue)&&p<1
    contact.position.set(end.x-anchor.x,groundZ!+.015-anchor.y,end.z-anchor.z)
-   contact.scale.setScalar(contactRadius*(impact?.3+p*.7:1+p*.1))
-   contactMaterial.opacity=(impact?.18*(1-p*.55):residue?.081*(1-p):0)*Math.min(1.5,intensity)
+   contact.scale.setScalar(contactRadius*(impact?.35+visualEaseOut(p)*.65:1))
+   contactMaterial.opacity=(impact?.65*(1-p*.55):residue?.28*(1-p):0)*Math.min(1.2,intensity)
+   groundSurface?.update(time,impact?p:1+p)
   }
   const pulse=1+Math.sin(time*3+seed)*.045,baseSize=scale*(preparing?.28+p*.16:release?.4+p*.15:impact?.42+p*.24:.42)*pulse
   core.visible=!residue
@@ -130,7 +138,9 @@ export function createSceneAbilityEffect(visual:SceneAbilityVisual,options:Scene
   if(shell&&shellMat){shell.visible=!residue||style.archetype==='shadow';shell.scale.set(scale*.7,scale*.7*style.stretch,scale*.7);shellMat.opacity=Math.min(.55,(style.archetype==='shadow'?.4:.24)*fade*intensity);shell.rotation.set(time*.11,time*.2+seed,0)}
   for(let i=0;i<particleCount;i++){
    const f=(i+.5)/particleCount,a=i*2.399963+seed,life=(time*(style.flow==='fall'?.42:.26)+f)%1,expansion=impact?burst:residue?.8:preparing?.55:.75,r=Math.sqrt(f)*scale*style.spread*expansion
-   if(travel){
+   let lifeScale=1
+   if(impact||residue){lifeScale=abilityBurstParticle(style,i,particleCount,phase,p,seed,point,nearGround);point.multiplyScalar(scale)}
+   else if(travel){
     point.copy(direction).multiplyScalar(-life*Math.min(3.8,Math.max(.6,length*.4))*scale).addScaledVector(side,Math.cos(a+time)*r*.32).addScaledVector(up,Math.sin(a+time)*r*.32)
    }else if(style.flow==='inward'){
     const inward=1-life;point.set(Math.cos(a+time)*r*inward,(f-.5)*scale*style.stretch*inward,Math.sin(a+time)*r*inward)
@@ -139,16 +149,23 @@ export function createSceneAbilityEffect(visual:SceneAbilityVisual,options:Scene
    }else if(style.flow==='coil'||style.flow==='orbit'){
     const turn=a+time*(style.archetype==='vortex'?2.2:.8);point.set(Math.cos(turn)*r,(f-.5)*scale*style.stretch,Math.sin(turn)*r)
    }else{point.set(Math.cos(a)*r,Math.sin(i*1.618+seed)*r*.8+(impact?Math.sin(p*Math.PI)*scale*.2:0),Math.sin(a)*r)}
-   const particleSize=scale*(style.archetype==='mineral'||style.archetype==='frost'?.09:style.archetype==='fluid'?.045:.035)*(1+(i%4)*.22)*(residue?1-p*.65:1)*(impact?1-p*.45:1)
+   const particleSize=scale*(style.archetype==='mineral'||style.archetype==='frost'?.12:style.archetype==='fluid'?.065:.045)*(1+(i%4)*.22)*lifeScale*(residue?1-p*.65:1)*(impact?1-p*.35:1)
    size.set(particleSize,particleSize*(style.archetype==='flame'?2.5:style.archetype==='frost'?2.7:style.archetype==='storm'?2.2:1.4),particleSize)
    if(family?.particle==='leaf'||family?.particle==='petal')size.set(particleSize*1.8,particleSize,particleSize*1.8)
    euler.set(a+time*.3,a*.7+time*.5,time*.15);rotation.setFromEuler(euler);matrix.compose(point,rotation,size);particles.setMatrixAt(i,matrix)
   }
   particles.instanceMatrix.needsUpdate=true
-  if(accents&&accentMat){
-   accents.visible=!travel||style.archetype==='flame'||style.archetype==='shadow';accentMat.opacity=Math.min(.28,.16*fade*intensity)
-   for(let i=0;i<accents.count;i++){const f=(i+.5)/accents.count,life=(f+time*.13)%1,a=i*2.399963+seed,r=scale*style.spread*(.5+life*.7)*(impact?burst:1);point.set(Math.cos(a+time*.15)*r,(life-.2)*scale*style.stretch,Math.sin(a+time*.15)*r);size.setScalar(scale*(.11+life*.16));rotation.setFromEuler(euler.set(time*.2+a,time*.1+a,0));matrix.compose(point,rotation,size);accents.setMatrixAt(i,matrix)}
-   accents.instanceMatrix.needsUpdate=true
+  if(accents&&accentMat&&atmosphere){
+   accents.visible=true;accentMat.opacity=Math.min(.8,(style.archetype==='shadow'?.65:style.archetype==='flame'?.4:.5)*fade*intensity)
+   for(let i=0;i<accents.count;i++){
+    const f=(i+.5)/accents.count,life=(f+time*.13)%1,a=i*2.399963+seed,age=impact?p*.78+f*.3:residue?.78+p*1.1+f*.3:life,r=scale*style.spread*(.25+age*.75)
+    point.set(Math.cos(a+time*.12)*r,(age-.08)*scale*style.stretch,Math.sin(a+time*.12)*r)
+    if(travel)point.copy(direction).multiplyScalar(-life*Math.min(3.8,length*.6)*scale).addScaledVector(side,Math.cos(a)*r*.35).addScaledVector(up,Math.sin(a)*r*.35+life*scale*.2)
+    const cloud=['flame','mineral','shadow','fluid','frost'].includes(style.archetype),s=scale*(cloud?.18+age*.35:.035+age*.08)
+    size.set(s,s*(style.archetype==='flame'?1.3:1),s);rotation.identity();matrix.compose(point,rotation,size);accents.setMatrixAt(i,matrix)
+    atmosphere.life[i]=(impact||residue?Math.max(0,Math.min(1,(1.8-age)/.6)):Math.sin(life*Math.PI))*.85
+   }
+   atmosphere.update(time);accents.instanceMatrix.needsUpdate=true
   }
   for(let i=0;i<rings.count;i++){
    const ringScale=scale*(.34+i*.22)*(impact?.6+visualEaseOut(p)*1.7:residue?1+p*.3:preparing?.65+p*.3:1)
@@ -156,7 +173,8 @@ export function createSceneAbilityEffect(visual:SceneAbilityVisual,options:Scene
    euler.set(Math.PI/2+(style.archetype==='radiance'||style.archetype==='shadow'?i*.8:style.archetype==='sigil'?i*.23:0),time*(i%2?-.3:.3),i*.7);rotation.setFromEuler(euler);size.set(ringScale,ringScale,ringScale);matrix.compose(point,rotation,size);rings.setMatrixAt(i,matrix)
   }
   rings.instanceMatrix.needsUpdate=true;ringMat.opacity=Math.min(.55,.32*fade*intensity);rings.visible=['vortex','sigil','shadow','resonance','fluid'].includes(style.archetype)&&(!travel||style.archetype==='vortex'||style.archetype==='shadow')||preparing
-  ribbons.visible=style.archetype!=='mineral'||travel||preparing||release;ribbonMat.opacity=Math.min(.9,(style.archetype==='shadow'?.75:.65)*fade*intensity);ribbonGeometry.update(sample,time,scale,start,end,anchor,seed)
+  ribbons.visible=style.archetype!=='mineral'||travel||preparing||release;ribbonMat.opacity=Math.min(.9,(style.archetype==='shadow'?.75:.65)*fade*intensity);ribbonGeometry.update(normalizedSample,time,scale,start,end,anchor,seed)
+  stream.visible=length>1e-6&&(travel||impact&&p<.25&&style.archetype==='storm');streamMat.opacity=Math.max(0,Math.min(.85,(travel?.75:.75*(1-p*4))*intensity));streamGeometry.update(normalizedSample,time,scale,start,end,anchor,seed)
   shockwaves.visible=impact||release;shockMat.opacity=shockwaves.visible?Math.min(.45,(1-p)**1.4*.42*intensity):0
   for(let i=0;i<shockwaves.count;i++){const q=Math.max(0,Math.min(1,p-i*.11)),r=scale*(.16+visualEaseOut(q)*(1.6+i*.28));point.set(0,impact&&nearGround?groundZ!+.025-anchor.y:0,0);rotation.setFromUnitVectors(new THREE.Vector3(0,0,1),impact&&nearGround?new THREE.Vector3(0,1,0):direction);size.set(r,r,r);matrix.compose(point,rotation,size);shockwaves.setMatrixAt(i,matrix)}shockwaves.instanceMatrix.needsUpdate=true
   if(sigil&&sigilMat){sigil.visible=!travel&&['sigil','renewal','radiance','frost','shadow'].includes(style.archetype);sigil.scale.setScalar(scale*(preparing?.55+p*.25:impact?.7+visualEaseOut(p)*.55:1));sigil.rotation.y=time*(style.archetype==='shadow'?-.18:.18)+seed;sigilMat.opacity=Math.min(.8,.62*fade*intensity)}

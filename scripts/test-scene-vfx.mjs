@@ -24,7 +24,7 @@ test('Ability VFX: every family has finite actual geometry, bounded instancing a
     assert(o.material.opacity>=0&&o.material.opacity<=1)
     if(o.isMesh)triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3*(o.isInstancedMesh?o.count:1)
    })
-   assert(drawObjects<=(low?7:12)&&triangles<(low?1000:4000),family.id+' bounded render cost')
+   assert(drawObjects<=(low?8:13)&&triangles<(low?1000:4000),family.id+' bounded render cost')
    assert.equal(new THREE.Raycaster(group.position.clone().add(new THREE.Vector3(0,10,0)),new THREE.Vector3(0,-1,0)).intersectObject(group,true).length,0,family.id+' never steals a click')
   }
   assert(group.getObjectByName('ability-particles:'+group.children[0].name.split(':')[1]))
@@ -128,7 +128,7 @@ test('Ability VFX: opt-in light/contact resources detach and dispose once stay w
  for(const low of [false,true]){
   const effect=createSceneAbilityEffect(example,{low,light:true,groundZ:3}),scene=new THREE.Scene();scene.add(effect.group);sample(effect,'impact',.4)
   let drawObjects=0;effect.group.traverse(o=>{if(o.isMesh||o.isLine)drawObjects++})
-  assert.equal(drawObjects,low?7:11)
+  assert.equal(drawObjects,low?8:12)
   const objects=resources(effect.group),released=new Map(),flash=effect.group.getObjectByName('ability-flash')
   objects.forEach(o=>o.addEventListener('dispose',()=>released.set(o,(released.get(o)??0)+1)))
   effect.dispose();effect.dispose();assert.equal(effect.group.parent,null);assert.equal(released.size,objects.size);assert([...released.values()].every(n=>n===1))
@@ -149,7 +149,7 @@ test('Ability VFX v2: maximum density, spatial shells and ground contact stay un
  for(const family of abilityVisualFamilies)for(const low of [false,true])for(const shape of ['point','sphere','beam','cone']){
   const effect=createSceneAbilityEffect({...example,spec:{familyId:family.id,intensity:2,scale:4},shape,end:{x:9,y:2,z:0}},{low,groundZ:0});sample(effect,'impact',.4)
   let draws=0,triangles=0;effect.group.traverse(o=>{if(o.isMesh||o.isLine)draws++;if(o.isMesh)triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3*(o.isInstancedMesh?o.count:1)})
-  assert(draws<=(low?7:12),family.id+' '+shape+' bounded draws');assert(triangles<(low?1000:4000),family.id+' '+shape+' bounded triangles')
+  assert(draws<=(low?8:13),family.id+' '+shape+' bounded draws');assert(triangles<(low?1000:4000),family.id+' '+shape+' bounded triangles')
   assert.equal(!!effect.group.getObjectByName('ability-field:'+shape),!low&&shape!=='point');effect.dispose()
  }
 })
@@ -158,7 +158,7 @@ test('Ability VFX v2: surfaces retain Three clipping/instancing/color-space chun
  const plane=new THREE.Plane(new THREE.Vector3(1,0,0),-5)
  for(const familyId of ['fire','water','electricity','wind','earth','frost','vegetation','healing','light','void','runes','resonance']){
   const effect=createSceneAbilityEffect({...example,spec:{familyId},shape:'sphere'},{low:false,clippingPlanes:[plane]}),shaders=[]
-  effect.group.traverse(o=>{if(o.material?.userData.proceduralSurface){const shader={vertexShader:THREE.ShaderLib.basic.vertexShader,fragmentShader:THREE.ShaderLib.basic.fragmentShader,uniforms:{}};o.material.onBeforeCompile(shader,{});shaders.push(shader);assert(o.material.toneMapped);assert.deepEqual(o.material.clippingPlanes,[plane]);assert(shader.vertexShader.includes('#include <clipping_planes_vertex>'));assert(shader.fragmentShader.includes('#include <clipping_planes_fragment>'));assert(shader.fragmentShader.includes('#include <colorspace_fragment>'));assert(shader.vertexShader.includes('USE_INSTANCING'));assert(!/https?:|sampler2D/.test(shader.fragmentShader.replaceAll('#include <common>','')))}})
+  effect.group.traverse(o=>{if(o.material?.userData.proceduralSurface){const shader={vertexShader:THREE.ShaderLib[o.material.isMeshPhysicalMaterial?'physical':'basic'].vertexShader,fragmentShader:THREE.ShaderLib[o.material.isMeshPhysicalMaterial?'physical':'basic'].fragmentShader,uniforms:{}};o.material.onBeforeCompile(shader,{});shaders.push(shader);assert(o.material.toneMapped);assert.deepEqual(o.material.clippingPlanes,[plane]);assert(shader.vertexShader.includes('#include <clipping_planes_vertex>'));assert(shader.fragmentShader.includes('#include <clipping_planes_fragment>'));assert(shader.fragmentShader.includes('#include <colorspace_fragment>'));assert(shader.vertexShader.includes('USE_INSTANCING'));assert(!/https?:/.test(shader.fragmentShader));assert.equal(o.material.map,null)}})
   assert(shaders.length>=4);sample(effect,'impact',.3,12.5)
   for(const shader of shaders){assert.equal(shader.uniforms.fxTime.value,12.5);assert(Number.isFinite(shader.uniforms.fxStyle.value));assert(shader.uniforms.fxPower.value<=2)}
   sample(effect,'impact',.3,12.5);effect.dispose()

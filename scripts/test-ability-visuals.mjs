@@ -12,7 +12,7 @@ import { JSDOM } from 'jsdom'
 // resolution on Windows without symlink privileges or reparse-point support.
 const directory = await mkdtemp(join(resolve('node_modules'), '.world6-visual-renderer-'))
 test.after(() => rm(directory, { recursive: true, force: true }))
-for (const file of ['abilityVisuals.ts', 'abilityVisualStyles.ts', 'AbilityVisualAura.tsx', 'AbilityVisualEffect.tsx', 'AbilityVisualPicker.tsx', 'magicCatalog.ts']) {
+for (const file of ['abilityVisuals.ts', 'abilityVisualStyles.ts', 'AbilityVisualAura.tsx', 'AbilityImpactGlyph.tsx', 'AbilityVisualEffect.tsx', 'AbilityVisualPicker.tsx', 'magicCatalog.ts']) {
   const source = (await readFile('src/' + file, 'utf8')).replace("import './abilityVisuals.css'", '')
   const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText
     .replace(/(from\s+['"]\.\/[^'"]+)(['"])/g, (_, prefix, quote) => prefix.replace(/\.ts$/, '') + '.mjs' + quote)
