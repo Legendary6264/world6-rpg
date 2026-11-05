@@ -1,7 +1,7 @@
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
 import { objectBounds, overlapLength } from './sceneGeometry'
 import type { ObjectBounds } from './sceneGeometry'
-import { waterConductivitySM } from './waterPhysics'
+import { liquidWaterHeight, waterConductivitySM } from './waterPhysics'
 
 type Conductor = ObjectBounds & { object: SceneObject; conductivity: number | null }
 type Link = { to: number; ohms: number | null; direct?: SceneObject }
@@ -61,7 +61,12 @@ export function calculateCircuit(scene: Scene, contactPoint: ScenePosition, sett
     const material = object.physics?.material
     const conductivity = object.water ? waterConductivitySM(object.water, object) :
       (material?.phase === 'solid' || material?.phase === 'liquid' && object.kind === 'water') ? material.electricalConductivitySM : undefined
-    if (conductivity !== undefined && conductivity !== 0) parts.push({ ...objectBounds(object), object, conductivity })
+    if (conductivity === undefined || conductivity === 0) continue
+    const height = object.water ? liquidWaterHeight(object.water, object.height) : object.height
+    if (height <= EPS_M) continue
+    // During a mixed phase, approximate the remaining liquid as a bottom layer.
+    const liquid = height === object.height ? object : { ...object, height }
+    parts.push({ ...objectBounds(liquid), object: liquid, conductivity })
   }
   parts.sort((a, b) => a.object.id < b.object.id ? -1 : a.object.id > b.object.id ? 1 : 0)
   const graph: Link[][] = Array.from({ length: parts.length + 2 }, () => [])

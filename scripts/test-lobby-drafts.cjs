@@ -2107,6 +2107,28 @@ test('Вода UI: параметры выпуска сохраняются, т�
   assert.equal(water.height,.1);assert.deepEqual(water.water,{version:1,base:'pure',saltKg:0,sedimentKg:0})
  }finally{await f.close()}
 })
+test('Тепло UI: отрицательная энергия передаётся после повторного подтверждения и результат виден мастеру',async()=>{
+ const f=await fixture()
+ try {
+  executableSpatial(f,'a')
+  const scene=f.worlds.a.campaign.scenes.scenes[0]
+  scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:273.15,atmosphere:{oxygenFraction:.2095,smokeKg:0,steamKg:0,outsideTemperatureK:273.15,doorVentilation:false}}
+  const pool={...load('scenes').sceneObject('water','pool',{x:8,y:2,z:0}),name:'Ледяная лужа',width:1,depth:1,height:.001,
+    water:{version:1,base:'pure',saltKg:0,sedimentKg:0,enthalpyJKg:334000}}
+  scene.objects.push(pool)
+  await spatialFields(f,'a')
+  const label=name=>'[aria-label="'+name+' Hero a · 1"]'
+  await selectValue(label('Действие со средой'),'heat')
+  await input(label('Изменение тепловой энергии, кДж'),'-334,5')
+  assert(!enabledButton('Рассчитать последствия раунда'))
+  await flush(()=>document.querySelector(label('Пространство подтверждено')).click())
+  await flush(()=>document.querySelector(label('Правила подтверждены')).click())
+  await click('Рассчитать последствия раунда')
+  assert.deepEqual(f.executions[0].input.rules[0].physics,{kind:'heat',energyKJ:-334.5})
+  assert.match(document.querySelector('[aria-label="Тепло и воздух"]').textContent,/Ледяная лужа.*лёд/)
+  assert.equal(scene.objects[0].water.enthalpyJKg,334000)
+ }finally{await f.close()}
+})
 test('Пространство UI: индивидуальный неверный ввод сохраняется и не смешивается между лобби',async()=>{
  const f=await fixture()
  try {

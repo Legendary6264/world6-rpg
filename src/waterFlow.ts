@@ -1,7 +1,7 @@
 import { objectBounds, overlapLength } from './sceneGeometry'
 import type { ObjectBounds } from './sceneGeometry'
 import type { Scene, SceneObject, SceneSupport } from './sceneTypes'
-import { isWaterComposition, supportsSceneTokens, waterVolumeM3, WATER_EDGE_TOLERANCE_M } from './waterPhysics'
+import { BOILING_ENTHALPY_J_KG, FUSION_J_KG, isVariableWater, isWaterComposition, liquidWaterHeight, supportsSceneTokens, validWaterHeight, waterEnthalpy, waterVolumeM3, WATER_EDGE_TOLERANCE_M } from './waterPhysics'
 import type { WaterComposition } from './waterPhysics'
 
 type Cell = ObjectBounds & {
@@ -11,11 +11,13 @@ type Cell = ObjectBounds & {
   saltKg: number
   sedimentKg: number
   unknown: boolean
+  energy: number // enthalpy times volume; density cancels during exchange
+  thermal: boolean
 }
 type Spillway = { widthM: number; sillZ: number }
 type Connection = { a: number; b: number; spillways: Spillway[] }
 const EPS = WATER_EDGE_TOLERANCE_M
-const MAX_STEPS = 64
+export const MAX_WATER_FLOW_STEPS = 64
 const STEP_SECONDS = .25
 
 function spillways(a: Cell, b: Cell, barriers: ObjectBounds[]): Spillway[] {
@@ -47,7 +49,7 @@ function spillways(a: Cell, b: Cell, barriers: ObjectBounds[]): Spillway[] {
 const surface = (cell: Cell) => cell.min.z + cell.volumeM3 / cell.areaM2
 
 function exchange(cells: Cell[], connections: Connection[], neighbours: number[], factor: number): boolean {
-  const changes = cells.map(() => ({ volumeM3: 0, saltKg: 0, sedimentKg: 0, unknown: false }))
+  const changes = cells.map(() => ({ volumeM3: 0, saltKg: 0, sedimentKg: 0, unknown: false, energy: 0, thermal: false }))
   let moved = false
   for (const { a, b, spillways } of connections) {
     const aZ = surface(cells[a]), bZ = surface(cells[b])
@@ -74,9 +76,12 @@ function exchange(cells: Cell[], connections: Connection[], neighbours: number[]
     changes[from].volumeM3 -= volumeM3
     changes[from].saltKg -= saltKg
     changes[from].sedimentKg -= sedimentKg
+    changes[from].energy -= source.energy * ratio
     changes[to].volumeM3 += volumeM3
     changes[to].saltKg += saltKg
     changes[to].sedimentKg += sedimentKg
+    changes[to].energy += source.energy * ratio
+    changes[to].thermal ||= source.thermal
     changes[to].unknown ||= source.unknown
     moved = true
   }
@@ -86,6 +91,8 @@ function exchange(cells: Cell[], connections: Connection[], neighbours: number[]
     cell.saltKg = Math.max(0, cell.saltKg + change.saltKg)
     cell.sedimentKg = Math.max(0, cell.sedimentKg + change.sedimentKg)
     cell.unknown = cell.volumeM3 > 0 && (cell.unknown || change.unknown)
+    cell.energy += change.energy
+    cell.thermal ||= change.thermal
   }
   return moved
 }
@@ -118,19 +125,30 @@ function wetObjects(scene: Scene, water: ObjectBounds[]) {
 // Advances only configured cells of the round's scene. Spillways approximate
 // a shallow sheet using surface height, a head-dependent rate and a bounded
 // conservative exchange. Salt and suspended sediment move with the water.
-export function advanceWaterFlow(scene: Scene, seconds: number) {
+export function advanceWaterFlow(scene: Scene, seconds: number, stepLimit = MAX_WATER_FLOW_STEPS) {
   const cells: Cell[] = scene.objects.flatMap(object => {
     const water = object.water
-    return water?.flow ? [{
-      ...objectBounds(object), object, areaM2: object.width * object.depth, volumeM3: waterVolumeM3(object),
+    if (!water?.flow) return []
+    const h = waterEnthalpy(water, scene.physics?.ambientTemperatureK)
+    const volumeM3 = waterVolumeM3(object)
+    // An ice crust holds a shallow flow cell in place until it thaws.
+    return (!volumeM3 || h >= FUSION_J_KG) ? [{
+      ...objectBounds(object), object, areaM2: object.width * object.depth, volumeM3,
       saltKg: water.saltKg, sedimentKg: water.sedimentKg, unknown: object.height > 0 && water.base === 'unknown',
+      energy: h * volumeM3, thermal: water.enthalpyJKg != null || !!scene.physics?.atmosphere,
     }] : []
   })
-  if (!cells.length) return
+  // In a thermal room, liquid in stationary pools can quench a fire too.
+  const stationary = scene.physics?.atmosphere ? scene.objects.flatMap(o => {
+    if (!o.water || !o.height || o.water.flow && liquidWaterHeight(o.water, o.height) === o.height) return []
+    const height = liquidWaterHeight(o.water, o.height)
+    return height > 0 ? [objectBounds({ ...o, height })] : []
+  }) : []
+  if (!cells.length && !stationary.length) return
   const peak = cells.map(surface)
-  const wet = () => wetObjects(scene, cells.flatMap((cell, i) => peak[i] > cell.min.z ? [{
+  const wet = () => wetObjects(scene, [...stationary, ...cells.flatMap((cell, i) => peak[i] > cell.min.z ? [{
     ...cell, max: { ...cell.max, z: peak[i] },
-  }] : []))
+  }] : [])])
   const gravity = scene.physics?.gravityMs2 ?? 9.81
   if (seconds <= 0 || gravity === 0 || cells.length < 2) { wet(); return }
   const barriers = scene.objects.filter(o => o.kind !== 'water' && o.blocksMovement && o.height > EPS && !(o.kind === 'door' && o.open)).map(objectBounds)
@@ -142,7 +160,7 @@ export function advanceWaterFlow(scene: Scene, seconds: number) {
     neighbours[a]++
     neighbours[b]++
   }
-  const steps = Math.min(MAX_STEPS, Math.ceil(seconds / STEP_SECONDS))
+  const steps = Math.min(stepLimit, Math.ceil(seconds / STEP_SECONDS))
   const factor = (2 / 3) * .6 * Math.sqrt(2 * gravity) * seconds / steps
   let changed = false
   for (let step = 0; step < steps; step++) {
@@ -154,10 +172,11 @@ export function advanceWaterFlow(scene: Scene, seconds: number) {
     const previous = cell.object.water!, sameVolume = cell.volumeM3 === waterVolumeM3(cell.object)
     const height = sameVolume ? cell.object.height : cell.volumeM3 / cell.areaM2
     const base = height === 0 && sameVolume ? previous.base : cell.unknown ? 'unknown' : 'pure'
-    if (sameVolume && base === previous.base && cell.saltKg === previous.saltKg && cell.sedimentKg === previous.sedimentKg) return []
-    const water: WaterComposition = { version: 1, flow: true, base, saltKg: cell.saltKg, sedimentKg: cell.sedimentKg }
-    if (!isWaterComposition(water) || cell.min.z + height > scene.maxZ ||
-        (height === 0 && (water.saltKg > 0 || water.sedimentKg > 0))) {
+    const enthalpyJKg = cell.thermal && (height > 0 || !sameVolume) ?
+      height > 0 ? Math.max(FUSION_J_KG, Math.min(BOILING_ENTHALPY_J_KG, cell.energy / cell.volumeM3)) : 0 : previous.enthalpyJKg
+    if (sameVolume && base === previous.base && cell.saltKg === previous.saltKg && cell.sedimentKg === previous.sedimentKg && enthalpyJKg === previous.enthalpyJKg) return []
+    const water: WaterComposition = { ...previous, base, saltKg: cell.saltKg, sedimentKg: cell.sedimentKg, ...(enthalpyJKg !== undefined ? {enthalpyJKg} : {}) }
+    if (!isWaterComposition(water) || cell.min.z + height > scene.maxZ || !validWaterHeight(water, height)) {
       throw Error('Расчёт растекания вышел за пределы сцены или состава. Проверь габариты и количество примесей.')
     }
     return [{ object: cell.object, height, water }]
@@ -182,7 +201,7 @@ export function settleWaterSupports(scene: Scene): WaterSupportChange[] {
   for (const token of scene.tokens) {
     const previous = token.support
     if (previous.kind !== 'object') continue
-    const water = scene.objects.find(o => o.id === previous.objectId && o.water?.flow)
+    const water = scene.objects.find(o => o.id === previous.objectId && isVariableWater(o.water))
     if (!water) continue
     const afloat = supportsSceneTokens(water)
     const nextZ = water.z + water.height

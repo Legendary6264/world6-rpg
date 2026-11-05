@@ -28,6 +28,8 @@ const {applyAbilityPhysics}=await load('abilityPhysics')
 const {advanceWaterFlow,settleWaterSupports}=await load('waterFlow')
 const {advanceMovement}=await load('sceneMovement')
 const {perceivedMap,preparePerception,emptyPerception}=await load('scenePerception')
+const {advanceThermal,applyHeat,smokeVisibilityM}=await load('thermalPhysics')
+const {BOILING_ENTHALPY_J_KG,FUSION_J_KG,VAPORIZATION_J_KG,waterVolumeM3,liquidEnthalpy}=await load('waterPhysics')
 const environment=()=>({version:1,gravityMs2:9.81,ambientTemperatureK:293.15})
 const body=(id='water-pure')=>({version:1,material:physicsMaterialPreset(id),massKg:2,temperatureK:298.15,wetnessFraction:0})
 function sceneState(physical=true){const state=createScene(emptyScenes(),'scene','Физический полигон','top'),scene=state.scenes[0];scene.objects=[{...sceneObject('crate','object',{x:5,y:5,z:0}),width:1,depth:1,height:1,...(physical?{physics:body()}: {})}];if(physical)scene.physics=environment();return state}
@@ -116,6 +118,117 @@ const discharge=(x,y=5,z=.05)=>({kind:'discharge',returnContact:{x,y,z},voltageV
 const flowCell=(id,x,height=.2,z=0)=>({...pool(id,x),z,height,water:{...pureWater(),flow:true}})
 const totals=cells=>['volume','saltKg','sedimentKg'].map(key=>cells.reduce((sum,c)=>sum+(key==='volume'?c.width*c.depth*c.height:c.water[key]),0))
 const closeTo=(actual,expected)=>assert(Math.abs(actual-expected)<1e-10,`${actual} differs from ${expected}`)
+
+function thermalRoom() {
+ const state=sceneState(),scene=state.scenes[0]
+ Object.assign(scene,{width:8,depth:6,minZ:0,maxZ:3,objects:[]})
+ scene.physics.atmosphere={oxygenFraction:.2095,smokeKg:0,steamKg:0,outsideTemperatureK:293.15,doorVentilation:true}
+ return {state,scene,air:scene.physics.atmosphere}
+}
+
+test('Тепло: скрытая теплота удерживает 0 °C при таянии, замерзание размыкает цепь',()=>{
+ const {scene}=thermalRoom(),water={...pool('ice',4),height:.001,water:{...pureWater(),saltKg:.001,enthalpyJKg:0}}
+ scene.objects=[water]
+ const aim={x:3.5,y:5,z:.0001},settings=discharge(4.5,5,.0001)
+ assert.equal(calculateCircuit(scene,aim,settings).status,'open')
+ let heat=applyAbilityPhysics(scene,aim,'unused',{kind:'heat',energyKJ:334})
+ closeTo(heat.iceFraction,.5);closeTo(heat.temperatureK,273.15)
+ assert.equal(calculateCircuit(scene,aim,settings).status,'closed')
+ heat=applyAbilityPhysics(scene,aim,'unused',{kind:'heat',energyKJ:-334})
+ assert.equal(heat.iceFraction,1);assert.equal(water.water.saltKg,.001)
+ assert.equal(calculateCircuit(scene,aim,settings).status,'open')
+ const before=structuredClone(scene)
+ assert.throws(()=>applyHeat(scene,water,-2000),/недостаточно/)
+ assert.deepEqual(scene,before)
+})
+
+test('Тепло: при кипении сохраняются вода с паром, энергия и масса осадка',()=>{
+ const {state,scene,air}=thermalRoom(),water={...pool('boil',4),height:.001,water:{...pureWater(),saltKg:.003,sedimentKg:.007,enthalpyJKg:BOILING_ENTHALPY_J_KG}}
+ scene.objects=[water]
+ const capacity=1.2*8*6*3*1005
+ const ledger=()=>waterVolumeM3(water)*1000*water.water.enthalpyJKg+
+   air.steamKg*(BOILING_ENTHALPY_J_KG+VAPORIZATION_J_KG)+(scene.physics.ambientTemperatureK-373.15)*(capacity+1850*air.steamKg)
+ const before=ledger(),half=applyHeat(scene,water,VAPORIZATION_J_KG/1000)
+ closeTo(half.evaporatedKg,1);closeTo(waterVolumeM3(water)*1000+air.steamKg,2)
+ assert(Math.abs(ledger()-before-VAPORIZATION_J_KG)<1e-7)
+ applyHeat(scene,water,VAPORIZATION_J_KG/1000+10)
+ closeTo(water.height,0);closeTo(air.steamKg,2);assert(isSceneState(state))
+ assert(Math.abs(ledger()-before-2*VAPORIZATION_J_KG-10000)<1e-7)
+ assert.throws(()=>applyAbilityPhysics(scene,{x:4,y:5,z:0},'overlap',{kind:'create-water',widthM:1,depthM:.5,heightM:.01}),/свободное место/)
+ applyAbilityPhysics(scene,{x:4,y:5,z:0},'unused',{kind:'fill-water',volumeL:2})
+ assert.equal(water.water.saltKg,.003);assert.equal(water.water.sedimentKg,.007)
+ assert.equal(water.water.enthalpyJKg,liquidEnthalpy(scene.physics.ambientTemperatureK))
+})
+
+test('Тепло: закрытая сцена сохраняет тепло при обмене, поток переносит его вместе с водой',()=>{
+ const {scene}=thermalRoom(),source=flowCell('hot',4,.2),other=flowCell('cold',6,.03)
+ source.water.enthalpyJKg=liquidEnthalpy(350);other.water.enthalpyJKg=liquidEnthalpy(275)
+ scene.objects=[source,other]
+ const energy=()=>scene.objects.reduce((total,o)=>total+waterVolumeM3(o)*1000*o.water.enthalpyJKg,0)+
+   (scene.physics.ambientTemperatureK-373.15)*8*6*3*1.2*1005
+ const initial=energy()
+ advanceWaterFlow(scene,2)
+ assert(other.height>.03);assert(other.water.enthalpyJKg>liquidEnthalpy(275))
+ assert(Math.abs(energy()-initial)<1e-6)
+ advanceThermal(scene,2)
+ assert(scene.physics.ambientTemperatureK>293.15);assert(Math.abs(energy()-initial)<1e-6)
+ source.water.enthalpyJKg=FUSION_J_KG/2
+ const levels=scene.objects.map(o=>o.height)
+ advanceWaterFlow(scene,2)
+ assert.deepEqual(scene.objects.map(o=>o.height),levels)
+})
+
+test('Тепло: участок оттаивает и начинает течь до следующего действия',()=>{
+ const {scene}=thermalRoom(),source=flowCell('thaw',4,.01),receiver=flowCell('dry',6,0)
+ source.water.enthalpyJKg=FUSION_J_KG-.1
+ scene.objects=[source,receiver]
+ advanceThermal(scene,2)
+ assert(source.water.enthalpyJKg>=FUSION_J_KG)
+ assert(receiver.height>0)
+ closeTo(waterVolumeM3(source)+waterVolumeM3(receiver),.02)
+})
+
+test('Горение: влажность замедляет расход, вода гасит, кислород ограничивает огонь, дверь выпускает дым',()=>{
+ const {scene,air}=thermalRoom()
+ const flame=(id,x,wetnessFraction)=>({...sceneObject('lamp',id,{x,y:4,z:0}),width:.3,depth:.3,height:.1,active:true,
+   physics:{...body('wood'),wetnessFraction,combustion:{fuelKg:1,burnRateKgS:.01,ignitionTemperatureK:600}}})
+ const dry=flame('dry',2,0),damp=flame('damp',3,.5),soaked=flame('soaked',5,0)
+ const gate={...sceneObject('door','door',{x:7,y:2,z:0}),height:2,width:1,depth:.2}
+ scene.objects=[dry,damp,soaked,{...pool('pool',5),y:4,height:.2},gate]
+ advanceWaterFlow(scene,0)
+ advanceThermal(scene,1)
+ closeTo(dry.physics.combustion.fuelKg,.99);closeTo(damp.physics.combustion.fuelKg,.9975)
+ assert.equal(soaked.active,false);assert.equal(soaked.physics.combustion.fuelKg,1)
+ assert(air.oxygenFraction<.2095);assert(air.smokeKg>0);assert(scene.physics.ambientTemperatureK>293.15)
+ air.oxygenFraction=.15001;advanceThermal(scene,1)
+ assert.equal(dry.active,false);assert.equal(damp.active,false)
+ const smoke=air.smokeKg;air.steamKg=.1;gate.open=true;advanceThermal(scene,60)
+ assert(air.smokeKg<smoke&&air.oxygenFraction>.15&&air.steamKg<.1)
+ assert.equal(dry.active,false)
+ const ignition=applyHeat(scene,dry,2*(600-dry.physics.temperatureK+1)*1.7)
+ assert.equal(ignition.ignited,true)
+})
+
+test('Дым: проекция скрывает далёкую цель, сохраняет память и слух, не выдаёт физический профиль',()=>{
+ const {state,scene,air}=thermalRoom(),self={id:'viewer',name:'Герой',profile:{}},other={id:'npc',name:'Дозорный',profile:{}}
+ scene.tokens=[{actorId:self.id,x:1,y:1,z:0},{actorId:other.id,x:6,y:4,z:0}].map(t=>({...t,diameter:1,support:{kind:'ground'}}))
+ const near={...pool('near',2),y:1,water:{...pureWater(),enthalpyJKg:0}},far={...sceneObject('crate','far',{x:6,y:4,z:0})}
+ scene.objects=[near,far]
+ const projection=(kind,visible=true)=>preparePerception({activeSceneId:scene.id,scenes:[{sceneId:scene.id,title:'Зал',description:'',
+   areas:[{id:'area',x:0,y:0,z:0,width:8,depth:6,height:3,visible:true}],objects:[{objectId:near.id,visible:true},{objectId:far.id,visible}],
+   contacts:[{actorId:other.id,kind,label:'Дозорный',signs:'',showHeight:true,point:{x:6,y:4,z:0},radius:1}]}]},emptyPerception(self.id),state,[self.id,other.id])
+ const sight=projection('identified'),memory=projection('sound',false)
+ air.smokeKg=.014
+ assert(smokeVisibilityM(scene)>1&&smokeVisibilityM(scene)<4)
+ const map=perceivedMap(sight,state,[self,other])
+ assert.deepEqual(map.objects.map(o=>o.id),['near']);assert.equal(map.objects[0].iceCover,'ice')
+ assert.deepEqual(map.contacts.map(c=>c.kind),['self']);assert.equal(Object.hasOwn(map.objects[0],'water'),false)
+ assert.equal(Object.hasOwn(map,'atmosphere'),false)
+ const remembered=perceivedMap(memory,state,[self,other])
+ assert(remembered.objects.some(o=>o.id==='far'&&!o.visible));assert(remembered.contacts.some(c=>c.kind==='sound'))
+ air.smokeKg=0
+ assert(perceivedMap(sight,state,[self,other]).contacts.some(c=>c.kind==='identified'))
+})
 
 test('Растекание: дверь меняет путь воды, переносит соль и песок, смачивает предмет и замыкает контакт',()=>{
  const state=sceneState(),scene=state.scenes[0],source=flowCell('source',4),receiver=flowCell('receiver',6,0)

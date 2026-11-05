@@ -20,6 +20,7 @@ export function populateEntityModel(e:RenderEntity,mesh:ModelMesh,low=false){
   mesh(area,'#6397a5',0,.004,0,{opacity:.28,castShadow:false,doubleSided:true})
   return
  }
+ if(e.geometry.iceCover&&populateWater(e,mesh))return
  if(populateLegacyEntity(e,mesh,low))return
  if(populateTabletopEntity(e,mesh,low))return
  if(populateCraftedEntity(e,mesh,low))return

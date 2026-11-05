@@ -84,3 +84,4 @@
 .gb-aim-counts strong{font-variant-numeric:tabular-nums;margin-left:5px}
 .gb-aim-counts .gb-aim-caster{color:#f4cc80;border-color:#7b6842;background:#342f23}
 .gb-aim-contents li[data-kind=object]{color:#a4d5ee}
+.gb-smoke-notice{display:flex;align-items:baseline;flex-wrap:wrap;gap:.5rem .8rem;margin:.5rem 0;padding:.55rem .8rem;border:1px solid #71656c;border-radius:6px;background:#302b34;color:#ebe3e6;font-size:.85rem}.gb-smoke-notice strong{color:#eac6a7}

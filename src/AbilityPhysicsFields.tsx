@@ -3,22 +3,24 @@ import type { AbilityPhysicsForm } from './roundRuleForms'
 
 const modeLabels = {
   'create-water': 'Создать чистую воду',
-  'fill-water': 'Долить воду в участок растекания',
+  'fill-water': 'Долить чистую воду',
   'add-substance': 'Добавить примесь',
   discharge: 'Подать разряд на контакты',
+  heat: 'Нагреть или охладить',
 } satisfies Record<AbilityPhysicsForm['kind'], string>
 const hints = {
   'create-water': 'Точка выпуска станет центром основания нового объёма. Укажи его размеры.',
-  'fill-water': 'Выбери точку внутри подготовленного участка. Для сухого участка укажи высоту его основания.',
+  'fill-water': 'Выбери участок растекания или водный слой в тепловой сцене. Для сухого слоя укажи высоту его основания.',
   'add-substance': 'Направь выпуск в существующий объём воды. Соль растворится, песок будет учтён как осадок.',
   discharge: 'Точка выпуска задаёт первый контакт. Укажи положение обратной клеммы. Импульс должен помещаться во время выпуска, порог операций — в предел тока источника.',
+  heat: 'Выбери точку внутри воды или объекта с теплоёмкостью. Плюс добавляет тепло, минус отнимает. Для этого действия включи тепло и воздух в настройках сцены.',
 } satisfies Record<AbilityPhysicsForm['kind'], string>
 
 export default function AbilityPhysicsFields({ title, value, onChange }: {
   title: string; value?: AbilityPhysicsForm; onChange: (value?: AbilityPhysicsForm) => void
 }) {
   return <details className="gb-scene-details">
-    <summary>Вода и электричество{value ? ' · ' + modeLabels[value.kind] : ''}</summary>
+    <summary>Физическое действие{value ? ' · ' + modeLabels[value.kind] : ''}</summary>
     <label className="w6-field"><span>Действие со средой</span>
       <select aria-label={'Действие со средой ' + title} value={value?.kind ?? ''} onChange={event => {
         const kind = event.currentTarget.value

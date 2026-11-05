@@ -3,7 +3,7 @@ import type { ExactAmount } from './exactWork'
 import type { RoundWorkEntry } from './roundWork'
 import type { Scene, SceneObject, ScenePosition, SceneSupport, SceneToken } from './sceneTypes'
 import { segmentSlab as slab } from './sceneGeometry'
-import { supportsSceneTokens } from './waterPhysics'
+import { liquidWaterHeight, supportsSceneTokens } from './waterPhysics'
 export type MovementBody = { actorId: string; heightM: number; flightReason?: string }
 export type MovementPlan = { work: RoundWorkEntry; startMs: ExactAmount; endMs: ExactAmount; points: ScenePosition[]; lengths: number[]; distance: number }
 export type MovementChange = { workId: string; actorId: string; from: ScenePosition; to: ScenePosition; support: SceneSupport; atMs: ExactAmount; completed: boolean }
@@ -136,7 +136,8 @@ export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: Mov
         for (const o of scene.objects) {
           check()
           if (wetContact && walking) {
-            const water = o.water?.flow && o.height > 0 && p.a.z >= o.z - EPS && p.a.z <= o.z + o.height + EPS
+            const depth = o.water && (o.water.flow || scene.physics?.atmosphere) ? liquidWaterHeight(o.water, o.height) : 0
+            const water = depth > 0 && p.a.z >= o.z - EPS && p.a.z <= o.z + depth + EPS
             const wetSupport = o.physics && o.physics.wetnessFraction > 0 && supportsSceneTokens(o) && Math.abs(p.a.z - o.z - o.height) < EPS
             if ((water || wetSupport) && rectangle(p.a, p.b, o.x, o.y, o.width, o.depth)) {
               wetContact(t.token.actorId, o, water ? 'water' : 'support')

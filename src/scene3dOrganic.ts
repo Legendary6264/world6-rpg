@@ -7,9 +7,20 @@ export function populateWater(e:RenderEntity,mesh:ModelMesh){
  if(e.geometry.kind!=='water')return false
  const volumeHeight=e.geometry.height
  if(e.geometry.waterVolume&&volumeHeight>0){
-  const {width,depth}=e.geometry
-  mesh(new THREE.BoxGeometry(width,volumeHeight,depth),'#367f89',0,volumeHeight/2,0,
-   {opacity:.67,roughness:.13,metalness:.08,clearcoat:1,castShadow:false})
+  const {width,depth,iceCover}=e.geometry
+  mesh(new THREE.BoxGeometry(width,volumeHeight,depth),iceCover==='ice'?'#a9d8ee':iceCover==='slush'?'#78afb9':'#367f89',0,volumeHeight/2,0,
+   {opacity:iceCover==='ice' ? .92 : .67,roughness:iceCover ? .33 : .13,metalness:.08,clearcoat:1,castShadow:false})
+  if(iceCover){
+   // A few flat facets make the frozen surface readable from the tabletop camera.
+   const facets=new THREE.BufferGeometry(), vertices:number[]=[]
+   for(let i=0;i<12;i++){
+    const x=Math.sin(i*13.2)*width*.42,z=Math.cos(i*7.37)*depth*.41,y=volumeHeight+.001
+    vertices.push(x,y,z,x+width*.065,y,z+depth*.026,x-width*.038,y,z+depth*.053)
+   }
+   facets.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3))
+   facets.computeVertexNormals()
+   mesh(facets,'#def4f6',0,0,0,{opacity:.75,roughness:.5,doubleSided:true,castShadow:false})
+  }
   return true
  }
  const w=e.geometry.width,d=e.geometry.depth,h=Math.max(.035,e.geometry.height),sectors=72,rings=22,positions:number[]=[],uv:number[]=[],indices:number[]=[]

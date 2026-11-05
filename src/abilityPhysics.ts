@@ -3,7 +3,9 @@ import type { CircuitResult, DischargeSettings } from './electricalCircuit'
 import { physicsId, physicsKeys, physicsNumber, physicsRecord, cubicMetresToLitres, litresToCubicMetres } from './physicsUnits'
 import { MAX_SCENE_OBJECTS, sceneObject } from './scenes'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
-import { isWaterComposition, MAX_WATER_ADDITIVE_KG, MIN_WATER_HEIGHT_M, pureWater, waterConductivitySM, waterVolumeM3 } from './waterPhysics'
+import { applyHeat, MAX_ABILITY_HEAT_KJ, thermalTarget } from './thermalPhysics'
+import type { HeatOutcome } from './thermalPhysics'
+import { isVariableWater, isWaterComposition, liquidEnthalpy, liquidWaterHeight, MAX_WATER_ADDITIVE_KG, MIN_WATER_HEIGHT_M, pureWater, waterConductivitySM, waterEnthalpy, waterVolumeM3 } from './waterPhysics'
 import type { WaterComposition } from './waterPhysics'
 
 export type AbilityPhysicsEffect =
@@ -11,9 +13,11 @@ export type AbilityPhysicsEffect =
   | { kind: 'fill-water'; volumeL: number }
   | { kind: 'add-substance'; substance: 'salt' | 'sediment'; massKg: number }
   | ({ kind: 'discharge' } & DischargeSettings)
+  | { kind: 'heat'; energyKJ: number }
 export type AbilityPhysicsOutcome =
   | { kind: 'water'; change: 'created' | 'filled' | 'salt' | 'sediment'; objectId: string; volumeL: number; composition: WaterComposition; conductivitySM: number | null }
   | { kind: 'discharge'; circuit: CircuitResult; thresholdA: number }
+  | HeatOutcome
 
 const isPoint = (point: unknown): point is ScenePosition =>
   physicsRecord(point) && physicsKeys(point, ['x', 'y', 'z']) && Object.values(point).every(v => physicsNumber(v, -1e6, 1e6))
@@ -35,6 +39,9 @@ export function isAbilityPhysicsEffect(value: unknown): value is AbilityPhysicsE
       return physicsKeys(value, ['kind', 'returnContact', 'voltageV', 'limitA', 'durationMs', 'thresholdA']) && isPoint(value.returnContact) &&
         physicsNumber(value.voltageV, 1e-6, 1e6) && physicsNumber(value.limitA, 1e-9, 1e6) &&
         physicsNumber(value.durationMs, .001, 86400000) && physicsNumber(value.thresholdA, 1e-9, value.limitA)
+    case 'heat':
+      return physicsKeys(value, ['kind', 'energyKJ']) && physicsNumber(value.energyKJ, -MAX_ABILITY_HEAT_KJ, MAX_ABILITY_HEAT_KJ) &&
+        Math.abs(value.energyKJ) >= .001
     default: return false
   }
 }
@@ -60,7 +67,7 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
       }
       if (scene.objects.some(o => o.water && Math.abs(o.x - aim.x) < (o.width + widthM) / 2 - 1e-8 &&
           Math.abs(o.y - aim.y) < (o.depth + depthM) / 2 - 1e-8 &&
-          (o.water.flow && aim.z <= o.z && aim.z + heightM >= o.z ||
+          ((o.water.flow || o.height === 0 && o.water.enthalpyJKg != null) && aim.z <= o.z && aim.z + heightM >= o.z ||
             Math.min(o.z + o.height, aim.z + heightM) - Math.max(o.z, aim.z) > 1e-8))) {
         throw Error('Выбери свободное место для отдельного объёма воды.')
       }
@@ -70,17 +77,23 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
       return waterOutcome(object, water, 'created')
     }
     case 'fill-water': {
-      const cells = scene.objects.filter(o => o.water?.flow && pointInObject(o, aim)), cell = cells[0]
-      if (cells.length !== 1 || !cell.water) throw Error('Выбери точку внутри одного участка растекания.')
+      const cells = scene.objects.filter(o => o.water && (isVariableWater(o.water) || scene.physics?.atmosphere) && pointInObject(o, aim)), cell = cells[0]
+      if (cells.length !== 1 || !cell.water) throw Error('Выбери один участок растекания или водный слой в тепловой сцене.')
       const height = cell.height + litresToCubicMetres(effect.volumeL) / (cell.width * cell.depth)
       if (height === cell.height || cell.z + height > scene.maxZ) throw Error('Проверь объём и верхнюю границу сцены.')
-      cell.water = cell.height > 0 ? { ...cell.water } : { ...pureWater(), flow: true }
+      const current = cell.water, ambient = scene.physics?.ambientTemperatureK ?? 293.15
+      if (current.enthalpyJKg != null || scene.physics?.atmosphere) {
+        const oldFraction = cell.height / height
+        const incoming = liquidEnthalpy(ambient)
+        cell.water = { ...current, base:cell.height > 0 ? current.base : 'pure', enthalpyJKg:incoming + (waterEnthalpy(current, ambient) - incoming) * oldFraction }
+      } else cell.water = cell.height > 0 ? { ...current } : { ...pureWater(), flow: true }
       cell.height = height
       return waterOutcome(cell, cell.water, 'filled')
     }
     case 'add-substance': {
-      const volumes = scene.objects.filter(o => o.water && o.height > 0 && pointInObject(o, aim)), volume = volumes[0]
-      if (volumes.length !== 1 || !volume.water) throw Error('Выбери точку внутри одного объёма воды с заданным составом.')
+      const volumes = scene.objects.filter(o => o.water && liquidWaterHeight(o.water, o.height) > 0 &&
+        pointInObject({ ...o, height:liquidWaterHeight(o.water, o.height) }, aim)), volume = volumes[0]
+      if (volumes.length !== 1 || !volume.water) throw Error('Выбери точку внутри одного жидкого объёма воды с заданным составом.')
       const field = effect.substance === 'salt' ? 'saltKg' : 'sedimentKg'
       const water = { ...volume.water, [field]: volume.water[field] + effect.massKg }
       if (!isWaterComposition(water) || water[field] === volume.water[field]) throw Error('Масса примеси выходит за пределы учёта.')
@@ -90,6 +103,11 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
     case 'discharge':
       if (!inFrame(effect.returnContact, scene)) throw Error('Обратная клемма выходит за пределы сцены.')
       return { kind: 'discharge', circuit: calculateCircuit(scene, aim, effect), thresholdA: effect.thresholdA }
+    case 'heat': {
+      const targets = scene.objects.filter(o => thermalTarget(o) && pointInObject(o, aim))
+      if (targets.length !== 1) throw Error('Выбери точку внутри одного объёма воды или одного объекта с теплоёмкостью.')
+      return applyHeat(scene, targets[0], effect.energyKJ)
+    }
   }
 }
 
@@ -100,6 +118,13 @@ export function physicsOutcomeDetails(outcome: AbilityPhysicsOutcome): string {
     const { volumeL, composition, conductivitySM } = outcome
     return change + ' · ' + number(volumeL) + ' л · соль ' + number(composition.saltKg) + ' кг · песок ' + number(composition.sedimentKg) +
       ' кг · проводимость ' + (conductivitySM === null ? 'не определена' : number(conductivitySM) + ' См/м')
+  }
+  if (outcome.kind === 'heat') {
+    return (outcome.energyKJ > 0 ? 'Нагрев' : 'Охлаждение') + ' · ' + number(Math.abs(outcome.energyKJ)) + ' кДж · ' +
+      number(outcome.temperatureK - 273.15) + ' °C' +
+      (outcome.iceFraction !== undefined ? ' · лёд ' + number(outcome.iceFraction * 100) + ' %' : '') +
+      (outcome.evaporatedKg ? ' · в пар ' + number(outcome.evaporatedKg) + ' кг' : '') +
+      (outcome.ignited ? ' · объект загорелся' : '')
   }
   const { circuit, thresholdA } = outcome
   if (circuit.status === 'open') return 'Разряд · между клеммами нет непрерывного проводящего пути.'

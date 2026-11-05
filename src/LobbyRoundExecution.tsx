@@ -229,6 +229,16 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         {visible.summary.water.supports.map(change => <p key={change.actorId}>{name(change.actorId)} · {change.lostSupport ? 'покинул водную опору' : 'сместился вместе с водной опорой'} · {quantity(change.fromZ)} → {quantity(change.toZ)} м по Z</p>)}
         {visible.summary.water.routes.map(contact => <p key={JSON.stringify([contact.actorId, contact.objectId])}>{name(contact.actorId)} · на маршруте {contact.kind === 'water' ? 'вода' : 'мокрая опора'} «{contact.name}»</p>)}
       </section>}
+      {visible.summary.thermal && (() => {
+        const thermal = visible.summary.thermal
+        return <section aria-label="Тепло и воздух">
+          <h4>Тепло и воздух</h4>
+          <p>{quantity(thermal.fromK - 273.15)} → {quantity(thermal.toK - 273.15)} °C · кислород {quantity(thermal.oxygenFraction * 100)} % · дым {quantity(thermal.smokeKg)} кг · пар {quantity(thermal.steamKg)} кг</p>
+          {thermal.visibilityM !== undefined && <p>Видимость в дыму ≈ {quantity(thermal.visibilityM)} м</p>}
+          {thermal.fires.map(fire => <p key={fire.id}>{fire.name} · {fire.lit ? 'горит' : 'погас'} · осталось топлива {quantity(fire.fuelKg)} кг</p>)}
+          {thermal.water.map(layer => <p key={layer.id}>{layer.name} · {layer.volumeL > 0 ? quantity(layer.temperatureK - 273.15) + ' °C · лёд ' + quantity(layer.iceFraction * 100) + ' % · ' + quantity(layer.volumeL) + ' л' : 'вода испарилась'}</p>)}
+        </section>
+      })()}
       {visible.summary.movementApprovals?.map(a=><p key={a.actorId}>{name(a.actorId)} · основание полёта: {a.reason}</p>)}
       {visible.summary.carried.map(e => <p key={e.id}>{name(e.actorId)} · остаток {e.remaining.numerator}/{e.remaining.denominator} {e.unit === 'world-ms' ? 'мировых мс' : 'личных мс'}</p>)}
       {visible.summary.warnings.map(w => <p key={w}>{w}</p>)}

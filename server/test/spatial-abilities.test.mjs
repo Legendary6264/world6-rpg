@@ -248,3 +248,88 @@ for (const dialect of ['sqlite','postgres']) test('Растекание в ра�
  assert.deepEqual((await world()).campaign.scenes.scenes[0].objects,objects)
  assert.deepEqual((await world()).campaign.scenes.scenes[0].tokens,after.campaign.scenes.scenes[0].tokens)
 })
+
+for (const dialect of ['sqlite','postgres']) test('Тепло в раунде: лёд размыкает цепь, дверь проветривает, повтор сохраняет результат · '+dialect,async t=>{
+ const f=await fixture(t,dialect),{api}=f,gm=await f.register('thermal-owner'),player=await f.register('thermal-player')
+ const {id}=await api('/lobbies',gm.token,'POST',lobbyBody,201),root='/lobbies/'+id
+ await api(root+'/join',player.token,'POST')
+ const character={...createDefaultCharacter(),id:'thermal-source',name:'Маг'}
+ await api('/characters/'+character.id,player.token,'PUT',{character,revision:-1})
+ const {id:actorId}=await api(root+'/characters',player.token,'POST',{characterId:character.id},201)
+ const route=root+'/characters/'+actorId,world=()=>api(root+'/world',gm.token)
+ await api(route+'/review',gm.token,'POST',{revision:(await world()).revision,decision:'approve',note:''})
+ const initial=await world(),actor=initial.characters[0]
+ actor.rpg.formulas=[];actor.statistics.energyRegeneration='0';actor.resources.mana={maximum:'50',current:'50'}
+ actor.rpg.abilities=[{...emptyAbility(),id:'spell',templateId:'thermal-spell',name:'Физический выпуск',approved:true,
+   spatial:{shape:'sphere',includeCaster:false,radiusM:.2},rangeM:10,mechanism:'effect',cost:{mana:7,shadow:0,stamina:0}}]
+ initial.campaign.scenes=createScene(emptyScenes(),'thermal-scene','Дымный зал','top')
+ const scene=initial.campaign.scenes.scenes[0]
+ Object.assign(scene,{width:8,depth:6,minZ:0,maxZ:3})
+ scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:273.15,atmosphere:{
+   oxygenFraction:.18,smokeKg:.014,steamKg:.02,outsideTemperatureK:280,doorVentilation:true,
+ }}
+ scene.tokens=[{actorId,x:1,y:1,z:0,diameter:.5,support:{kind:'ground'}}]
+ const gate={...sceneObject('door','gate',{x:.2,y:1.2,z:0}),width:.2,depth:2,height:2.5}
+ const water={...sceneObject('water','pool',{x:3,y:2,z:0}),width:1,depth:.5,height:.002,
+   water:{version:1,base:'pure',saltKg:.001,sedimentKg:0,enthalpyJKg:334000}}
+ const fire={...sceneObject('lamp','fire',{x:2,y:4,z:0}),height:.3,active:true,physics:{
+   version:1,material:physicsMaterialPreset('wood'),massKg:2,temperatureK:273.15,wetnessFraction:0,
+   combustion:{fuelKg:.003,burnRateKgS:.006,ignitionTemperatureK:600},
+ }}
+ const distant=sceneObject('crate','distant',{x:4.65,y:1,z:0})
+ scene.objects=[gate,water,fire,distant]
+ await api(root+'/world',gm.token,'PUT',{world:initial,revision:initial.revision})
+ await api(route+'/disclosure',gm.token,'PUT',{revision:(await world()).revision,draft:{activeSceneId:scene.id,scenes:[{sceneId:scene.id,
+   title:scene.name,description:'',areas:[{id:'hall',x:0,y:0,z:0,width:8,depth:6,height:3,visible:true}],
+   objects:scene.objects.map(o=>({objectId:o.id,visible:true})),contacts:[]}]}})
+ const playerMap=async()=>(await api(route+'/perception',player.token)).map
+ const smoky=await playerMap();assert(!smoky.objects.some(o=>o.id==='distant'))
+ await api(root+'/declarations',gm.token,'POST',{sceneId:scene.id,participantIds:[actorId],durationSeconds:12,allowReplace:true,revision:(await world()).revision},201)
+ const view=await api(route+'/declarations',player.token),point={x:3,y:2,z:.001}
+ const prepare=()=>({kind:'ability',abilityId:'spell',stage:'prepare',target:{kind:'none'},note:''})
+ const release=()=>({kind:'ability',abilityId:'spell',stage:'release',target:{kind:'area',point},note:''})
+ const actions=[prepare(),release(),prepare(),release(),{kind:'interact',operation:'open',target:{kind:'object',id:'gate'},note:''}]
+ await api(route+'/declarations',player.token,'PUT',{collectionId:view.collection.id,epoch:view.collection.epoch,
+   baseVersion:0,controlStamp:view.controlStamp,actions})
+ await api(root+'/declarations',gm.token,'PATCH',{collectionId:view.collection.id,epoch:view.collection.epoch,operation:'close'})
+ const before=await world(),collection=before.campaign.declarations.active,key=i=>'new:'+actorId+':'+i
+ const request={revision:before.revision,collectionId:collection.id,epoch:collection.epoch,input:{
+   timings:[{actorId,entryRevision:1,budgetMs:12000,costs:actions.map((_,index)=>({index,personalMs:1000}))}],
+   continuations:[],missingDecisions:[],interactionsConfirmed:true,rules:[
+     {key:key(0),kind:'ability',confirmed:true,binding:'unbound',charge:'',input:fields},
+     {key:key(1),kind:'ability',confirmed:true,binding:'unbound',charge:'prepare:'+key(0),input:fields,spatialConfirmed:true,physics:{kind:'heat',energyKJ:-340}},
+     {key:key(2),kind:'ability',confirmed:true,binding:'unbound',charge:'',input:fields},
+     {key:key(3),kind:'ability',confirmed:true,binding:'unbound',charge:'prepare:'+key(2),input:fields,spatialConfirmed:true,
+       physics:{kind:'discharge',returnContact:{x:3.4,y:2,z:.001},voltageV:24,limitA:.5,durationMs:100,thresholdA:.02}},
+   ],
+ }}
+ const preview=await api(root+'/rounds/calculate',gm.token,'POST',request)
+ assert.deepEqual(await world(),before)
+ const releases=preview.summary.rules.filter(r=>r.kind==='release'),thermal=preview.summary.thermal
+ assert.equal(releases[0].physics.iceFraction,1)
+ assert.equal(releases[1].physics.circuit.status,'open')
+ assert.equal(thermal.water[0].iceFraction,1);assert.equal(thermal.fires[0].lit,false)
+ const opened=preview.summary.events.find(e=>e.kind==='open').atMs
+ const ventSeconds=12-Number(opened.numerator)/Number(opened.denominator)/1000
+ const smokeAfter=(.014+.003*.025)*Math.exp(-.3*5*ventSeconds/144)
+ assert(Math.abs(thermal.smokeKg-smokeAfter)<1e-10)
+ const command={previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()}
+ const apply=body=>api(root+'/rounds/apply',gm.token,'POST',body)
+ const {receipt}=await apply(command),after=await world(),result=after.campaign.scenes.scenes[0]
+ assert(result.objects[0].open);assert.equal(result.objects[2].active,false)
+ const viewAfter=await playerMap()
+ assert(viewAfter.smokeVisibilityM>smoky.smokeVisibilityM)
+ assert(viewAfter.objects.some(o=>o.id==='distant'))
+ assert.equal(viewAfter.objects.find(o=>o.id==='pool').iceCover,'ice')
+ assert(!JSON.stringify(viewAfter).includes('enthalpyJKg'));assert(!JSON.stringify(viewAfter).includes('oxygenFraction'))
+ await f.restart()
+ assert.equal((await apply(command)).duplicate,true);assert.deepEqual(await world(),after)
+ const history=await api(root+'/rounds/history',gm.token)
+ const rollback=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:history.revision,receiptId:receipt.id,reason:'Проверить расчёт тепла'})
+ await api(root+'/rounds/change/apply',gm.token,'POST',{previewId:rollback.id,generation:rollback.generation,commandKey:crypto.randomUUID()})
+ assert.deepEqual((await world()).campaign.scenes.scenes[0],before.campaign.scenes.scenes[0])
+ const rolledBack=await api(root+'/rounds/history',gm.token)
+ const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:rolledBack.revision,receiptId:receipt.id})
+ await apply({previewId:replay.id,generation:replay.generation,commandKey:crypto.randomUUID()})
+ assert.deepEqual((await world()).campaign.scenes.scenes[0],result)
+})

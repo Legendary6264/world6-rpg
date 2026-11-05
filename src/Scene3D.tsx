@@ -265,7 +265,7 @@ export default function Scene3D(props: Props) {
       for(const part of group.children)if(part instanceof THREE.Mesh&&part.userData.surfaceTexture){part.updateMatrix();surfaceUV(part.geometry,new THREE.Vector3(),characterSurface(part.userData.surfaceTexture)?.18:2,part.matrix)}
       const characterPoints=e.geometry.kind==='actor'&&e.appearance.heightKnown?sceneCharacterLandmarks(e):null
       if(characterPoints)prepareCharacterSkin(group,characterPoints)
-      if(e.geometry.kind==='actor'||legacyAsset(e.geometry)||quality!=='low'&&['wall','door','crate','platform','lamp','water'].includes(e.geometry.kind)){
+      if(e.geometry.kind==='actor'||e.geometry.iceCover||legacyAsset(e.geometry)||quality!=='low'&&['wall','door','crate','platform','lamp','water'].includes(e.geometry.kind)){
         batchEntityParts(group,g=>{resources.delete(g);g.dispose()},keep)
         group.traverse(part=>{if(part instanceof THREE.Mesh)part.castShadow=part.castShadow&&!model.restricted})
       }

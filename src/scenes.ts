@@ -5,7 +5,7 @@ import type { Scene, SceneObject, SceneState, SceneToken } from './sceneTypes'
 import {sceneObjectLabels} from './sceneObjectDefaults'
 import {validSceneEnvironment} from './sceneEnvironment'
 import {copyPhysicsBody,copyPhysicsEnvironment,isPhysicsBody,isPhysicsEnvironment} from './physicsState'
-import { copyWaterComposition, isWaterComposition, MAX_FLOW_CELLS, MIN_WATER_HEIGHT_M, supportsSceneTokens, WATER_EDGE_TOLERANCE_M } from './waterPhysics'
+import { copyWaterComposition, isWaterComposition, MAX_FLOW_CELLS, supportsSceneTokens, validWaterHeight, WATER_EDGE_TOLERANCE_M } from './waterPhysics'
 import { objectBounds, overlapLength } from './sceneGeometry'
 export {sceneObject,sceneObjectLabels} from './sceneObjectDefaults'
 
@@ -41,7 +41,7 @@ function validScene(v: unknown): v is Scene {
       (o.physics === undefined || o.physics === null || isPhysicsBody(o.physics)) &&
       size(o.width) && size(o.depth) && finite(o.height) && o.height >= 0 && Number(o.z) + o.height <= Number(v.maxZ) &&
       (o.water === undefined || o.kind === 'water' && (o.water === null || isWaterComposition(o.water) &&
-        (o.water.flow ? o.height > 0 || o.water.saltKg === 0 && o.water.sedimentKg === 0 : o.height >= MIN_WATER_HEIGHT_M))) &&
+        validWaterHeight(o.water, o.height))) &&
       o.width <= Number(v.width) && o.depth <= Number(v.depth) &&
       ['blocksMovement', 'blocksSight', 'canSupport', 'open'].every(k => typeof o[k] === 'boolean'))) return false
   const objects = v.objects as SceneObject[]

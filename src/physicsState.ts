@@ -6,33 +6,52 @@ import { copyWaterComposition } from './waterPhysics'
 
 export const DEFAULT_BACKGROUND_NOISE_DB = 30
 export const MAX_SOUND_LEVEL_DB = 160
-export type PhysicsEnvironment = {version:1;gravityMs2:number;ambientTemperatureK:number;backgroundNoiseDb?:number|null}
-export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temperatureK:number;wetnessFraction:number;noiseLevelDbAt1m?:number|null}
+export const OUTSIDE_OXYGEN_FRACTION = .2095
+export const MAX_AEROSOL_KG = 1e15
+export type RoomAtmosphere = {oxygenFraction:number;smokeKg:number;steamKg:number;outsideTemperatureK:number;doorVentilation:boolean}
+export type Combustion = {fuelKg:number;burnRateKgS:number;ignitionTemperatureK:number}
+export type PhysicsEnvironment = {version:1;gravityMs2:number;ambientTemperatureK:number;backgroundNoiseDb?:number|null;atmosphere?:RoomAtmosphere|null}
+export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temperatureK:number;wetnessFraction:number;noiseLevelDbAt1m?:number|null;combustion?:Combustion|null}
 
-function withOptionalSoundLevel(value: Record<string,unknown>, keys: string[], key: string): boolean {
-  return Object.hasOwn(value, key)
-    ? physicsKeys(value, [...keys, key]) && (value[key] === null || physicsNumber(value[key], 0, MAX_SOUND_LEVEL_DB))
-    : physicsKeys(value, keys)
+export function isRoomAtmosphere(value: unknown): value is RoomAtmosphere {
+  return physicsRecord(value) && physicsKeys(value, ['oxygenFraction','smokeKg','steamKg','outsideTemperatureK','doorVentilation']) &&
+    physicsNumber(value.oxygenFraction, 0, 1) && physicsNumber(value.smokeKg, 0, MAX_AEROSOL_KG) &&
+    physicsNumber(value.steamKg, 0, MAX_AEROSOL_KG) && physicsNumber(value.outsideTemperatureK, 0, MAX_TEMPERATURE_K) &&
+    typeof value.doorVentilation === 'boolean'
 }
+export function isCombustion(value: unknown): value is Combustion {
+  return physicsRecord(value) && physicsKeys(value, ['fuelKg','burnRateKgS','ignitionTemperatureK']) &&
+    physicsNumber(value.fuelKg, 0, 1e12) && physicsNumber(value.burnRateKgS, 1e-12, 1e6) &&
+    physicsNumber(value.ignitionTemperatureK, 1, MAX_TEMPERATURE_K)
+}
+function withOptionalProfiles(value: Record<string,unknown>, keys: string[], optional: Record<string,(v:unknown)=>boolean>) {
+  for (const [key, check] of Object.entries(optional)) {
+    if (!Object.hasOwn(value, key)) continue
+    if (value[key] !== null && !check(value[key])) return false
+    keys.push(key)
+  }
+  return physicsKeys(value, keys)
+}
+const isSoundLevel = (v: unknown) => physicsNumber(v, 0, MAX_SOUND_LEVEL_DB)
 
 export function isPhysicsEnvironment(value: unknown): value is PhysicsEnvironment {
-  return physicsRecord(value) && withOptionalSoundLevel(value, ['version','gravityMs2','ambientTemperatureK'], 'backgroundNoiseDb') && value.version === 1 &&
+  return physicsRecord(value) && withOptionalProfiles(value, ['version','gravityMs2','ambientTemperatureK'], {backgroundNoiseDb:isSoundLevel,atmosphere:isRoomAtmosphere}) && value.version === 1 &&
     physicsNumber(value.gravityMs2, 0, 1e6) && physicsNumber(value.ambientTemperatureK, 0, MAX_TEMPERATURE_K)
 }
 export function isPhysicsBody(value: unknown): value is PhysicsBody {
-  return physicsRecord(value) && withOptionalSoundLevel(value, ['version','material','massKg','temperatureK','wetnessFraction'], 'noiseLevelDbAt1m') && value.version === 1 &&
+  return physicsRecord(value) && withOptionalProfiles(value, ['version','material','massKg','temperatureK','wetnessFraction'], {noiseLevelDbAt1m:isSoundLevel,combustion:isCombustion}) && value.version === 1 &&
     isPhysicsMaterial(value.material) && physicsNumber(value.massKg, 1e-12, 1e12) &&
     physicsNumber(value.temperatureK, 0, MAX_TEMPERATURE_K) && physicsNumber(value.wetnessFraction, 0, 1)
 }
 export function copyPhysicsEnvironment(value: PhysicsEnvironment | null): PhysicsEnvironment | null {
   if (value === null) return null
   if (!isPhysicsEnvironment(value)) throw Error('Проверь физические условия сцены.')
-  return {...value}
+  return {...value, ...(value.atmosphere ? {atmosphere:{...value.atmosphere}} : {})}
 }
 export function copyPhysicsBody(value: PhysicsBody | null): PhysicsBody | null {
   if (value === null) return null
   if (!isPhysicsBody(value)) throw Error('Проверь физические свойства объекта.')
-  return {...value,material:copyPhysicsMaterial(value.material)}
+  return {...value,material:copyPhysicsMaterial(value.material), ...(value.combustion ? {combustion:{...value.combustion}} : {})}
 }
 
 // Old clients may omit unknown fields. Explicit null is the new client's clear
@@ -42,19 +61,26 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
     const previous = current?.scenes.find(value => value.id === scene.id)
     if (!previous) continue
     if (scene.physics === undefined && previous.physics !== undefined) scene.physics = copyPhysicsEnvironment(previous.physics)
-    else if (scene.physics && scene.physics.backgroundNoiseDb === undefined && previous.physics?.backgroundNoiseDb !== undefined) {
-      scene.physics = {...scene.physics, backgroundNoiseDb:previous.physics.backgroundNoiseDb}
+    else if (scene.physics && previous.physics) {
+      if (scene.physics.backgroundNoiseDb === undefined && previous.physics.backgroundNoiseDb !== undefined) scene.physics.backgroundNoiseDb = previous.physics.backgroundNoiseDb
+      if (scene.physics.atmosphere === undefined && previous.physics.atmosphere !== undefined) {
+        scene.physics.atmosphere = previous.physics.atmosphere && {...previous.physics.atmosphere}
+      }
     }
     const objects = new Map(previous.objects.map(object => [object.id,object]))
     for (const object of scene.objects) {
       const before = objects.get(object.id)
       if (object.kind === 'water' && object.water === undefined && before?.water !== undefined) object.water = copyWaterComposition(before.water)
-      else if (object.water && object.water.flow === undefined && before?.water?.flow !== undefined) {
-        object.water = {...object.water, flow:before.water.flow}
+      else if (object.water && before?.water) {
+        if (object.water.flow === undefined && before.water.flow !== undefined) object.water.flow = before.water.flow
+        if (object.water.enthalpyJKg === undefined && before.water.enthalpyJKg !== undefined) object.water.enthalpyJKg = before.water.enthalpyJKg
       }
       if (object.physics === undefined && before?.physics !== undefined) object.physics = copyPhysicsBody(before.physics)
-      else if (object.physics && object.physics.noiseLevelDbAt1m === undefined && before?.physics?.noiseLevelDbAt1m !== undefined) {
-        object.physics = {...object.physics, noiseLevelDbAt1m:before.physics.noiseLevelDbAt1m}
+      else if (object.physics && before?.physics) {
+        if (object.physics.noiseLevelDbAt1m === undefined && before.physics.noiseLevelDbAt1m !== undefined) object.physics.noiseLevelDbAt1m = before.physics.noiseLevelDbAt1m
+        if (object.physics.combustion === undefined && before.physics.combustion !== undefined) {
+          object.physics.combustion = before.physics.combustion && {...before.physics.combustion}
+        }
       }
     }
   }

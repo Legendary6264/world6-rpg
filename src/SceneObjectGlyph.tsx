@@ -1,8 +1,9 @@
 import type {SceneObject,Scene} from './sceneTypes'
 import {tabletopAsset,isFloorAsset} from './tabletopCatalog'
 import SceneGlyph from './SceneGlyph'
+import {waterIceCover} from './waterPhysics'
 
-type Appearance=Pick<SceneObject,'kind'|'asset'|'facing'|'open'|'active'|'height'>
+type Appearance=Pick<SceneObject,'kind'|'asset'|'facing'|'open'|'active'|'height'|'water'> & {iceCover?:'ice'|'slush'}
 type Sketch={asset:string;open:boolean;lit:boolean;edge?:boolean;rear?:boolean}
 const wood='#b58b58',lightWood='#d6b47c',darkWood='#6b4d35',iron='#6e817e',stone='#8b9692',clay='#cf9a69',ink='#382d25'
 function Flame({x=8,y=9,scale=1}:{x?:number;y?:number;scale?:number}){
@@ -82,6 +83,8 @@ function Side({asset,open,lit,edge,rear}:Sketch){
 }
 
 export default function SceneObjectGlyph({object,view}:{object:Appearance;view:Scene['view']}){
+ const ice=object.kind==='water'&&(object.iceCover??waterIceCover(object))
+ if(ice)return <svg viewBox="0 0 16 16" preserveAspectRatio="none" aria-hidden="true"><rect x=".4" y=".4" width="15.2" height="15.2" rx="1.5" fill={ice==='ice'?'#97c3d5':'#6198a9'} stroke="#d4e8eb" strokeWidth=".5"/><path d="M.7 5.5 6.5 7.5 9 2M6.5 7.5l1 4L3 15.5m4.5-4 4-1.5 3.6 2" fill="none" stroke="#e1f1f2" strokeWidth=".45"/></svg>
  const asset=tabletopAsset(object.asset)
  if(!asset||asset.kind!==object.kind||isFloorAsset(asset.id))return <SceneGlyph kind={object.kind} open={object.open}/>
  const facing=[0,90,180,270].includes(object.facing??0)?object.facing??0:0,lit=object.active!==false
