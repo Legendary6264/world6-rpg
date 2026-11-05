@@ -149,3 +149,12 @@ test('VFX v2 SVG: large areas retain true contour radius and bound the central g
  const scaled=doc.querySelector('.w6-vfx-glyph').parentElement;assert.equal(scaled.getAttribute('transform'),'scale(8.2)')
  const preview=documentOf(render({glyphRadius:27}));assert(Math.abs(Number(preview.querySelector('.w6-vfx-glyph').parentElement.getAttribute('transform').slice(6,-1))-22.14)<1e-10)
 })
+
+test('VFX v3 SVG: impacts have twelve distinct elemental silhouettes and residue fades to completion',()=>{
+ const signatures=new Set()
+ for(const familyId of ['fire','water','electricity','wind','earth','frost','vegetation','healing','light','void','runes','resonance']){
+  const impact=documentOf(render({familyId,phase:'impact',progress:.45})).querySelector('[data-vfx-layer="elemental-impact"]');assert(impact);signatures.add(impact.innerHTML);assert(impact.querySelectorAll('*').length<35)
+  const residue=documentOf(render({familyId,phase:'residue',progress:1})).querySelector('[data-vfx-layer="elemental-impact"]');assert.equal(residue.getAttribute('opacity'),'0')
+ }
+ assert.equal(signatures.size,12)
+})

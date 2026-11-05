@@ -4,7 +4,7 @@ import type {SceneAbilitySample} from './scene3dAbilityEffects'
 
 // Crossed tapered sheets carry a dense head and a broad, feathered wake. Their
 // buffers are retained; all positions can be reproduced from a single sample.
-export function createAbilityStreamGeometry(style:AbilityVisualStyle,low:boolean){
+export function createAbilityStreamGeometry(style:AbilityVisualStyle,low:boolean,channel=false){
  const segments=low?12:28,sheets=low?2:3,positions=new Float32Array(sheets*(segments+1)*6),uv=new Float32Array(sheets*(segments+1)*4),indices:number[]=[]
  for(let sheet=0;sheet<sheets;sheet++)for(let i=0;i<=segments;i++)for(let edge=0;edge<2;edge++){
   const n=(sheet*(segments+1)+i)*2+edge;uv[n*2]=edge;uv[n*2+1]=1-i/segments
@@ -16,7 +16,7 @@ export function createAbilityStreamGeometry(style:AbilityVisualStyle,low:boolean
  function update(sample:SceneAbilitySample,time:number,scale:number,start:THREE.Vector3,end:THREE.Vector3,anchor:THREE.Vector3,seed:number){
   direction.copy(end).sub(start);const length=direction.length();if(length>1e-8)direction.divideScalar(length);else direction.set(0,1,0)
   side.crossVectors(direction,Math.abs(direction.y)>.95?axis.set(1,0,0):axis.set(0,1,0)).normalize();up.crossVectors(side,direction).normalize()
-  const reach=sample.phase==='travel'?sample.progress:1,continuous=style.archetype==='storm'||style.archetype==='fluid'||style.archetype==='vortex'||style.archetype==='renewal'
+  const reach=sample.phase==='travel'?sample.progress:1,continuous=channel||style.archetype==='storm'||style.archetype==='fluid'||style.archetype==='vortex'||style.archetype==='renewal'
   const tail=continuous?length*reach:Math.min(length*reach,3.6*scale),tip=sample.phase==='travel'?start.clone().lerp(end,reach):end
   for(let sheet=0;sheet<sheets;sheet++)for(let i=0;i<=segments;i++){
    const t=i/segments,angle=sheet/sheets*Math.PI,span=Math.sin(t*Math.PI),wave=Math.sin(t*14-time*6+seed)*span*scale*.045

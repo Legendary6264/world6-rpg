@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import {createSceneAbilityEffect} from '../src/scene3dAbilityEffects.ts'
 import {abilityVisualStyle} from '../src/abilityVisualStyles.ts'
 import {abilityVisualFamilies,abilityVisualPhases} from '../src/abilityVisuals.ts'
+import {abilityBurstParticle} from '../src/sceneAbilityDynamics.ts'
 
 const example={id:'mesh-effect',spec:{familyId:'fire',scale:1,intensity:1},start:{x:1,y:2,z:3},end:{x:9,y:2,z:3},phase:'sequence',shape:'point',radius:2,coneAngleDeg:60}
 const build=(patch={},low=false,clippingPlanes=[])=>createSceneAbilityEffect({...example,...patch},{low,clippingPlanes})
@@ -181,4 +182,59 @@ test('Ability VFX v2: filled sphere/beam/cone surfaces match authoritative bound
   const field=effect.group.getObjectByName('ability-field:'+shape),wire=effect.group.getObjectByName('ability-volume:'+shape),a=new THREE.Box3().setFromObject(field,true),b=new THREE.Box3().setFromObject(wire,true)
   assert(field.visible);assert(a.min.distanceTo(b.min)<1e-5,shape+' field min');assert(a.max.distanceTo(b.max)<1e-5,shape+' field max');assert(field.material.opacity<=.16);effect.dispose()
  }
+})
+
+test('Ability VFX v3: soft atmosphere preserves final billboard positions for clipping and keeps its instance buffers',()=>{
+ const plane=new THREE.Plane(new THREE.Vector3(1,0,0),-5),effect=build({},false,[plane]),cloud=effect.group.getObjectByName('ability-atmosphere'),geometry=cloud.geometry,life=geometry.attributes.fxLife.array,matrix=cloud.instanceMatrix.array
+ const shader={vertexShader:THREE.ShaderLib.basic.vertexShader,fragmentShader:THREE.ShaderLib.basic.fragmentShader,uniforms:{}}
+ cloud.material.onBeforeCompile(shader,{});assert(shader.vertexShader.includes('mvPosition.xy+=position.xy*fxSize'));assert(shader.vertexShader.includes('#include <clipping_planes_vertex>'));assert(shader.fragmentShader.includes('#include <clipping_planes_fragment>'));assert(shader.fragmentShader.includes('vFxLife'));assert.equal(geometry.attributes.fxSeed.count,cloud.count)
+ sample(effect,'impact',.3,1);const first=Array.from(matrix);assert(life.every(n=>n>=0&&n<=1));assert(life.some(n=>n>0));sample(effect,'impact',.3,1);assert.deepEqual(Array.from(matrix),first)
+ sample(effect,'impact',.6,2);assert.equal(cloud.geometry,geometry);assert.equal(geometry.attributes.fxLife.array,life);assert.equal(cloud.instanceMatrix.array,matrix);assert.notDeepEqual(Array.from(matrix),first);effect.dispose()
+})
+
+test('Ability VFX v3: ice and metal use physical highlights without transmission or external textures',()=>{
+ for(const familyId of ['earth','metal','frost','crystal']){
+  const effect=build({spec:{familyId}}),core=effect.group.children[0],material=core.material,shader={vertexShader:THREE.ShaderLib.physical.vertexShader,fragmentShader:THREE.ShaderLib.physical.fragmentShader,uniforms:{}}
+  assert(material.isMeshPhysicalMaterial);assert.equal(material.transmission,0);assert.equal(material.map,null);assert(material.roughness>=0&&material.roughness<=1);assert(!material.depthWrite)
+  material.onBeforeCompile(shader,{});assert(shader.fragmentShader.includes('#include <lights_physical_fragment>'));assert(shader.fragmentShader.includes('totalEmissiveRadiance+=fxHighlight'));assert(shader.vertexShader.includes('USE_INSTANCING'))
+  if(familyId==='metal')assert(material.metalness>.5);if(familyId==='frost')assert.equal(material.clearcoat,1)
+  effect.dispose()
+ }
+})
+
+test('Ability VFX v3: impact fragments are deterministic and continuous into residue for all sixty styles',()=>{
+ for(const family of abilityVisualFamilies){const style=abilityVisualStyle(family.id)
+  for(let i=0;i<12;i++){
+   const a=new THREE.Vector3(),b=new THREE.Vector3();const end=abilityBurstParticle(style,i,12,'impact',1,.37,a,true),start=abilityBurstParticle(style,i,12,'residue',0,.37,b,true)
+   assert(a.distanceTo(b)<1e-9,family.id+' continuous burst');assert.equal(end,start)
+   for(const phase of ['impact','residue'])for(const progress of [0,.3,.8,1,NaN]){const opacity=abilityBurstParticle(style,i,12,phase,progress,.37,a,false);assert(a.toArray().every(Number.isFinite));assert(opacity>=0&&opacity<=1)}
+  }
+ }
+})
+
+test('Ability VFX v3: every beam stream spans source to current head without overshooting or replacing buffers',()=>{
+ for(const familyId of ['fire','water','earth','healing'])for(const low of [false,true]){
+  const effect=build({shape:'beam',spec:{familyId},start:{x:0,y:0,z:0},end:{x:15,y:0,z:0}},low);sample(effect,'travel',.25,1)
+  const stream=effect.group.getObjectByName('ability-stream:'+abilityVisualStyle(familyId).archetype),buffer=stream.geometry.attributes.position.array,geometry=stream.geometry,bounds=new THREE.Box3().setFromObject(stream,true)
+  assert(stream.visible);assert(Math.abs(bounds.min.x)<1e-6);assert(Math.abs(bounds.max.x-3.75)<1e-6);const before=Array.from(buffer)
+  sample(effect,'travel',.25,1);assert.deepEqual(Array.from(buffer),before);sample(effect,'travel',.5,2);assert.equal(stream.geometry,geometry);assert.equal(geometry.attributes.position.array,buffer);assert(buffer.every(Number.isFinite));effect.dispose()
+ }
+})
+
+test('Ability VFX v3: forked lightning has actual finite surfaces in both qualities and preserves frozen frames',()=>{
+ for(const low of [false,true]){
+  const effect=build({spec:{familyId:'electricity'}},low);sample(effect,'travel',.6,1);const bolt=effect.group.getObjectByName('ability-ribbons:storm'),buffer=bolt.geometry.attributes.position.array,before=Array.from(buffer)
+  assert(bolt.isMesh&&bolt.geometry.index.count>100);assert(before.every(Number.isFinite));assert(before.some((n,i)=>i%3===1&&Math.abs(n)>.3));sample(effect,'travel',.6,1);assert.deepEqual(Array.from(buffer),before);sample(effect,'travel',.6,1.1);assert.notDeepEqual(Array.from(buffer),before);effect.dispose()
+ }
+})
+
+test('Ability VFX v3: elemental ground paint has twelve profiles and invalid samples cannot poison GPU attributes',()=>{
+ const contacts=new Set()
+ for(const familyId of ['fire','water','electricity','wind','earth','frost','vegetation','healing','light','void','runes','resonance']){
+  const effect=createSceneAbilityEffect({...example,spec:{familyId},end:{...example.end,z:0}},{low:false,groundZ:0}),contact=effect.group.getObjectByName('ability-ground-contact'),shader={vertexShader:THREE.ShaderLib.basic.vertexShader,fragmentShader:THREE.ShaderLib.basic.fragmentShader,uniforms:{}}
+  contacts.add(contact.material.userData.elementalContact);contact.material.onBeforeCompile(shader,{});assert(shader.fragmentShader.includes('#include <clipping_planes_fragment>'));assert(shader.fragmentShader.includes('fxProgress'));assert(!/https?:|sampler2D/.test(shader.fragmentShader))
+  effect.update({phase:'impact',progress:NaN,visible:true},NaN);effect.group.traverse(o=>{if(o.geometry)for(const a of Object.values(o.geometry.attributes))assert(a.array.every(Number.isFinite),familyId+' finite '+o.name);if(o.material)assert(o.material.opacity>=0&&o.material.opacity<=1)})
+  effect.dispose()
+ }
+ assert.equal(contacts.size,12)
 })
