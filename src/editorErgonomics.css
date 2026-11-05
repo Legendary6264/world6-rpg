@@ -1,4 +1,5 @@
 /* Existing editor brand, with controls sized for a desktop workspace. */
+.gb-physics-properties{margin:0;padding:0;border:0;min-width:0}
 .gb-tabletop-workspace{--gb-library-width:280px;--gb-inspector-width:304px;--gb-panel-line:#3c4d42;font-variant-numeric:tabular-nums}
 .gb-workspace-body,.gb-workspace-body.gb-library-closed,.gb-workspace-play .gb-workspace-body{--gb-tools-col:48px;--gb-library-col:var(--gb-library-width);--gb-left-split:5px;--gb-right-split:5px;--gb-inspector-col:var(--gb-inspector-width);grid-template-columns:var(--gb-tools-col) var(--gb-library-col) var(--gb-left-split) minmax(0,1fr) var(--gb-right-split) var(--gb-inspector-col)}
 .gb-workspace-body.gb-library-closed{--gb-library-col:0px;--gb-left-split:0px}.gb-workspace-play .gb-workspace-body{--gb-tools-col:0px;--gb-library-col:0px;--gb-left-split:0px}.gb-workspace-body.gb-inspector-closed{--gb-inspector-col:0px;--gb-right-split:0px}

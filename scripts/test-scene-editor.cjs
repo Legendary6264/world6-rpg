@@ -34,6 +34,18 @@ function arrangementFixture(){
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
 
+test('Физика в редакторе: профили объекта и среды сохраняются, отменяются и повторяются вместе со сценой',async()=>{
+ await fixture();const object=active().objects[0],before=structuredClone(current);await flush(()=>viewport.onSelect({kind:'object',id:object.id}))
+ await flush(()=>{const select=document.querySelector('[aria-label="Физический материал объекта"]');select.value='wood';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+ await flush(()=>{document.querySelector('[name=physicsMassKg]').value='4.5';document.querySelector('[name=physicsTemperatureC]').value='30';document.querySelector('[aria-label="Физический профиль объекта"]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}))})
+ assert.equal(active().objects.find(o=>o.id===object.id).physics.massKg,4.5);assert.equal(active().objects.find(o=>o.id===object.id).physics.temperatureK,303.15)
+ await flush(()=>[...document.querySelectorAll('.gb-inspector-tabs button')].find(b=>b.textContent==='Сцена').click())
+ await flush(()=>{document.querySelector('[name=physicsGravityMs2]').value='0';document.querySelector('[aria-label="Физические условия сцены"]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}))});assert.equal(active().physics.gravityMs2,0)
+ await key('z',{ctrlKey:true});assert.equal(active().physics,undefined);assert.equal(active().objects.find(o=>o.id===object.id).physics.massKg,4.5)
+ await key('z',{ctrlKey:true});assert.deepEqual(current,before)
+ await key('z',{ctrlKey:true,shiftKey:true});await key('z',{ctrlKey:true,shiftKey:true});assert.equal(active().physics.gravityMs2,0);assert.equal(active().objects.find(o=>o.id===object.id).physics.massKg,4.5)
+})
+
 test('Панели узкого экрана сохраняют черновик свойств и не меняют сцену при переключении',async()=>{
  await fixture();const object=active().objects[0];assert(object);await flush(()=>viewport.onSelect({kind:'object',id:object.id}))
  const tabs=[...document.querySelectorAll('[aria-label="Области редактора"] button')],choose=text=>tabs.find(b=>b.textContent===text)

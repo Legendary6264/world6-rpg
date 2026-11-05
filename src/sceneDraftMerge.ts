@@ -19,7 +19,7 @@ const names: Record<string, string> = {
   x: 'X', y: 'Y', z: 'Z', width: 'ширина', depth: 'глубина', height: 'высота', facing: 'поворот',
   groundZ: 'земля Z', minZ: 'низ Z', maxZ: 'верх Z', name: 'название', description: 'описание', view: 'вид',
   roundDurationSeconds: 'длительность раунда', palette: 'палитра', environment: 'окружение',
-  background: 'фон', backgroundTileSizeM: 'размер рисунка фона', artwork: 'изображение', asset: 'модель', kind: 'тип',
+  background: 'фон', backgroundTileSizeM: 'размер рисунка фона', artwork: 'изображение', asset: 'модель', kind: 'тип', physics: 'физический профиль',
   open: 'открыт', locked: 'заперт', active: 'включён', blocksMovement: 'преграда движению', blocksSight: 'преграда обзору', canSupport: 'опора',
 }
 function summary(value: unknown): string {

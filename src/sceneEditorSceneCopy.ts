@@ -29,5 +29,5 @@ export function copyEditorScene(state:SceneState,sourceId:string,name:string,id:
  const copy:Scene={...source,id:freshId(),name:trimmed,objects:source.objects.map(o=>({...o,id:freshId()})),tokens:[]}
  next.scenes.splice(sourceIndex+1,0,copy);next.activeSceneId=copy.id
  if(!isSceneState(next))throw Error('Проверь параметры копии сцены.')
- return next
+ return copySceneState(next)
 }

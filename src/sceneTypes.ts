@@ -1,3 +1,4 @@
+import type {PhysicsBody,PhysicsEnvironment} from './physicsState'
 export type SceneObjectKind = 'wall' | 'door' | 'tree' | 'rock' | 'crate' | 'platform' | 'lamp' | 'water'
 export type ScenePosition = { x: number; y: number; z: number }
 export type SceneObject = ScenePosition & {
@@ -6,6 +7,7 @@ export type SceneObject = ScenePosition & {
   blocksMovement: boolean; blocksSight: boolean; canSupport: boolean; open: boolean
   artwork?: string
   asset?: string; facing?: number; active?: boolean; locked?: boolean
+  physics?: PhysicsBody | null
 }
 export type SceneSupport = { kind: 'ground' } | { kind: 'air' } | { kind: 'object'; objectId: string }
 export type SceneToken = ScenePosition & { actorId: string; diameter: number; support: SceneSupport; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
@@ -15,6 +17,7 @@ export type Scene = {
   width: number; depth: number; groundZ: number; minZ: number; maxZ: number
   palette: 'forest' | 'stone' | 'neon'; background?: string; backgroundTileSizeM?: number
   environment?: 'surface' | 'underground'
+  physics?: PhysicsEnvironment | null
   objects: SceneObject[]; tokens: SceneToken[]
 }
 export type SceneState = { version: 1; activeSceneId: string | null; scenes: Scene[] }
