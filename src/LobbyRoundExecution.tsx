@@ -5,6 +5,7 @@ import { listeningRows, listeningPlanLabel, listeningFocusLabel } from './roundL
 import LobbyRoundSpeech from './LobbyRoundSpeech'
 import { speechRows, emptySpeechDecision, isSpeechDecision, speechDecisionReady } from './roundSpeech'
 import type { SpeechDecision } from './roundSpeech'
+import type { AcousticScene } from './acoustics'
 import { isChargeDecision, isChargeForm } from './roundCharges'
 import LobbyRoundCharges from './LobbyRoundCharges'
 import type { ChargeForm } from './roundCharges'
@@ -51,10 +52,10 @@ const ms = (v: string) => { const n = Number(v.trim()); return v.trim() && Numbe
 const height = (v: string) => { const n = Number(v.trim().replace(',', '.')); return Number.isFinite(n) && n > 1e-6 && n <= 1e6 ? n : 0 }
 const coords = (p: {x:number;y:number;z:number}) => [p.x, p.y, p.z].map(n => n.toLocaleString('ru-RU', {maximumFractionDigits:6})).join('; ')
 
-export default function LobbyRoundExecution({ accountId, lobbyId, collection, revision, checkingAccess, timings, timingReady, roundWork, executed, actors, objects, movementBodies }: {
+export default function LobbyRoundExecution({ accountId, lobbyId, collection, revision, checkingAccess, timings, timingReady, roundWork, executed, actors, objects, movementBodies, acoustics }: {
   accountId: string; lobbyId: string; collection: DeclarationCollection; revision: number; checkingAccess: boolean;
   timings: ActorTiming[]; timingReady: boolean; roundWork: RoundWork; executed: boolean; actors: RuleActor[];
-  objects: (RuleSceneObject & {sceneId:string})[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]
+  objects: (RuleSceneObject & {sceneId:string})[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]; acoustics?: AcousticScene
 }) {
   const { request, refresh } = useOnline(), key = lobbyFormKey('round-execution', accountId, lobbyId, collection.id)
   const heightsKey = lobbyFormKey('movement-bodies', accountId, lobbyId, collection.sceneId)
@@ -165,7 +166,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
     {executed && !checkingAccess && <p role="status">Этот сбор уже исполнен. Сохрани его в истории для следующего раунда.</p>}
     <fieldset disabled={disabled || !!draft.command || executed}><legend>Решения мастера</legend>
       <LobbyListeningPlans rows={listeningEntries} actors={actors} objects={objects.filter(o=>o.sceneId===collection.sceneId)}/>
-      <LobbyRoundSpeech listening={listeningEntries} rows={speechEntries} form={speech} actors={actors} locations={movementBodies} sceneId={collection.sceneId} onChange={f=>change({...draft,speech:[...(draft.speech??[]).filter(d=>d.key!==f.key&&speechEntries.some(r=>r.key===d.key)),f]})}/>
+      <LobbyRoundSpeech listening={listeningEntries} rows={speechEntries} form={speech} actors={actors} locations={movementBodies} sceneId={collection.sceneId} acoustics={checkingAccess||executed?undefined:acoustics} onChange={f=>change({...draft,speech:[...(draft.speech??[]).filter(d=>d.key!==f.key&&speechEntries.some(r=>r.key===d.key)),f]})}/>
       <LobbyRoundCharges actors={actors} form={chargeForm} onChange={f=>change({...draft,charges:[...(draft.charges??[]).filter(x=>x.actorId!==f.actorId||x.castId!==f.castId),f]})}/>
       {workActors.map(id => <div key={id}><h4>Прежняя работа · {name(id)}</h4>
         <p>Сохраняется очередь из {effectiveWork.entries.filter(e => e.actorId === id).length} действий. Продолжение идёт перед новым заявлением.</p>

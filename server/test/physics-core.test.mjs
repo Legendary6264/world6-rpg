@@ -9,8 +9,8 @@ for(const dialect of ['sqlite','postgres'])test('Физические профи
   const lobby=await api('/lobbies',gm.token,'POST',lobbyBody,201),root='/lobbies/'+lobby.id
   await api(root+'/join',player.token,'POST');await api(root+'/join',helper.token,'POST')
   const scenes=createScene(emptyScenes(),'physical-scene','Физический полигон','top'),scene=scenes.scenes[0]
-  scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15}
-  scene.objects=[{...sceneObject('crate','physical-object',{x:5,y:5,z:0}),width:1,depth:1,height:1,physics:{version:1,material:{...physicsMaterialPreset('water-pure'),note:'PRIVATE-PHYSICS-MATERIAL'},massKg:2,temperatureK:298.15,wetnessFraction:.25}}]
+  scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,backgroundNoiseDb:35}
+  scene.objects=[{...sceneObject('crate','physical-object',{x:5,y:5,z:0}),width:1,depth:1,height:1,physics:{version:1,material:{...physicsMaterialPreset('water-pure'),note:'PRIVATE-PHYSICS-MATERIAL'},massKg:2,temperatureK:298.15,wetnessFraction:.25,noiseLevelDbAt1m:50}}]
   const revision=async()=>(await api(root,gm.token)).revision
   await api(root+'/scenes',gm.token,'PUT',{scenes,revision:await revision()})
   const stored=async()=>(await api(root+'/scenes',gm.token)).scenes.scenes[0]
@@ -35,13 +35,15 @@ for(const dialect of ['sqlite','postgres'])test('Физические профи
     await api(root+'/scenes',gm.token,'PUT',{scenes:snapshot.scenes,revision:snapshot.revision});const result=await stored()
     assert.equal(result.objects[0].x,8);assert.deepEqual(result.physics,scene.physics);assert.deepEqual(result.objects[0].physics,scene.objects[0].physics)
   })
-  await t.test('Прежний полный редактор также не стирает профили',async()=>{
-    const snapshot=await api(root+'/world',gm.token);delete snapshot.campaign.scenes.scenes[0].physics;delete snapshot.campaign.scenes.scenes[0].objects[0].physics
-    await api(root+'/world',gm.token,'PUT',{world:snapshot,revision:snapshot.revision});assert.deepEqual((await stored()).objects[0].physics,scene.objects[0].physics)
+  await t.test('Прежний полный редактор сохраняет новые поля внутри прежних профилей',async()=>{
+    const snapshot=await api(root+'/world',gm.token),previous=snapshot.campaign.scenes.scenes[0]
+    delete previous.physics.backgroundNoiseDb;delete previous.objects[0].physics.noiseLevelDbAt1m
+    await api(root+'/world',gm.token,'PUT',{world:snapshot,revision:snapshot.revision});const result=await stored()
+    assert.deepEqual(result.physics,scene.physics);assert.deepEqual(result.objects[0].physics,scene.objects[0].physics)
   })
   await t.test('Неизвестная версия, отрицательная масса и лишние свойства отвергаются атомарно',async()=>{
     const before=await api(root+'/scenes',gm.token)
-    for(const patch of [{version:2},{massKg:-1},{temperatureK:-1},{wetnessFraction:2},{hiddenFormula:'secret'}]){
+    for(const patch of [{version:2},{massKg:-1},{temperatureK:-1},{wetnessFraction:2},{noiseLevelDbAt1m:161},{hiddenFormula:'secret'}]){
       const copy=structuredClone(before.scenes);Object.assign(copy.scenes[0].objects[0].physics,patch)
       await api(root+'/scenes',gm.token,'PUT',{scenes:copy,revision:before.revision},400)
     }

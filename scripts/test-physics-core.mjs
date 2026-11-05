@@ -105,6 +105,22 @@ test('Старый клиент: явное снятие профиля и уд�
   assert(isSceneState(next));assert.equal(next.scenes[0].physics,null);assert.equal(copySceneState(next).scenes[0].objects[0].physics,null)
   next.scenes[0].objects=[];preserveScenePhysics(before,next);assert.equal(next.scenes[0].objects.length,0)
 })
+test('Акустические поля проверяются и переживают запись физического профиля старым клиентом',()=>{
+  const before=sceneState(),scene=before.scenes[0],object=scene.objects[0]
+  for (const invalid of [NaN,Infinity,-1,161,'30',undefined]) {
+    assert(!isPhysicsEnvironment({...scene.physics,backgroundNoiseDb:invalid}))
+    assert(!isPhysicsBody({...object.physics,noiseLevelDbAt1m:invalid}))
+  }
+  scene.physics.backgroundNoiseDb=0;object.physics.noiseLevelDbAt1m=95
+  const copy=copySceneState(before);assert.deepEqual(copy,before)
+  const next=sceneState();next.scenes[0].physics.gravityMs2=5;next.scenes[0].objects[0].physics.massKg=3
+  preserveScenePhysics(before,next)
+  assert.equal(next.scenes[0].physics.gravityMs2,5);assert.equal(next.scenes[0].physics.backgroundNoiseDb,0)
+  assert.equal(next.scenes[0].objects[0].physics.massKg,3);assert.equal(next.scenes[0].objects[0].physics.noiseLevelDbAt1m,95)
+  next.scenes[0].physics.backgroundNoiseDb=null;next.scenes[0].objects[0].physics.noiseLevelDbAt1m=null
+  preserveScenePhysics(before,next);assert(isSceneState(next))
+  assert.equal(next.scenes[0].physics.backgroundNoiseDb,null);assert.equal(next.scenes[0].objects[0].physics.noiseLevelDbAt1m,null)
+})
 test('Архив героя и копия кампании сохраняют физику; повреждённый архив отклоняется',()=>{
   const campaign={...emptyCampaign(),scenes:sceneState()},hero={...createDefaultCharacter(),id:'hero',name:'Герой полигона'}
   const archive=createCharacterArchive([hero],'2026-11-05T00:00:00.000Z',campaign),result=parseCharacterArchive(archive)

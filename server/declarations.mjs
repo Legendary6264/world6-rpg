@@ -13,6 +13,7 @@ import { bodyConsequences, bodyRegionDefs } from './generated/characterBody.mjs'
 import { copyConsumableEffect, copyAbility } from './generated/rpgSchema.mjs'
 import { collectionExecuted, requireCampaignRunning, campaignSession } from './round-branch.mjs'
 import { roundGeneration } from './rounds.mjs'
+import { sceneAcoustics } from './generated/acoustics.mjs'
 const requireMaster = member => { requireLobbyPermission(member, 'rounds'); requireLobbyPermission(member, 'viewSecrets') }
 const publicCollection = c => c ? { id: c.id, epoch: c.epoch, phase: c.phase, durationSeconds: c.durationSeconds, allowReplace: c.allowReplace } : null
 const publicEntry = e => e ? { revision: e.revision, status: e.status, actions: e.actions.map(copyDeclaredAction), submittedAt: e.submittedAt, submittedBy: e.submittedBy, note: e.note } : null
@@ -102,12 +103,15 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
     const value = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireMaster(member)
       const state = JSON.parse(lobby.world_json),bindings=await bindingsFor(tx,lobby)
+      const collection = state.campaign.declarations?.active
+      const scene = collection?.phase === 'closed' ? state.campaign.scenes?.scenes.find(s => s.id === collection.sceneId) : undefined
       return { revision: lobby.revision, paused:(await campaignSession(tx,lobby.id)).paused, declarations: state.campaign.declarations ?? emptyDeclarations(),
+        ...(scene ? { acoustics:sceneAcoustics(scene) } : {}),
         scenes: (state.campaign.scenes?.scenes ?? []).map(s => ({ id: s.id, name: s.name, objects: s.objects.map(o => ({ id: o.id, name: o.name, operations:objectOperations.filter(operation=>supportsObjectOperation(o,operation)) })) })),
         roundWork: state.campaign.roundWork ?? { version: 1, entries: [] },
         movementBodies: (state.campaign.scenes?.scenes ?? []).flatMap(s => s.tokens.map(t => ({ sceneId: s.id, actorId: t.actorId, diameter: t.diameter, x:t.x,y:t.y,z:t.z }))),
         executed: !!(state.campaign.declarations?.active?.id && await collectionExecuted(tx,lobby.id,await roundGeneration(tx,lobby.id),state.campaign.declarations.active.id)),
-        actors: state.characters.map(a => { const b = bindings.find(b => b.character_id === a.id); return { id: a.id, name: a.name, approved: !!b?.approved, canFly: bodyConsequences(a.body).canFly,
+        actors: state.characters.map(a => { const b = bindings.find(b => b.character_id === a.id); return { id: a.id, name: a.name, approved: !!b?.approved, canFly: bodyConsequences(a.body).canFly, speechEligible:!a.rpg.dead&&a.body.consciousness==='awake',
           regions:a?bodyRegionDefs(a.body).map(r=>({key:r.key,label:r.label})):[],
           casts:(a?.rpg.casts??[]).filter(c=>['preparing','ready'].includes(c.status)).map(c=>({id:c.id,abilityId:c.ability.id,name:c.ability.name,status:c.status,binding:c.roundPreparation?.binding??'bound',...(c.roundPreparation?{roundPreparation:true}:{}),...(c.ability.chargePolicy?{chargePolicy:copyAbility(c.ability).chargePolicy}:{}),...(c.ability.spatial?{spatial:copyAbility(c.ability).spatial}:{})})),
           items: (a?.rpg.inventory ?? []).map(i => ({ id: i.id, name: i.name, quantity:i.quantity, ...(i.consumable?{consumable:copyConsumableEffect(i.consumable)}:{}) })), abilities: (a?.rpg.abilities ?? []).map(i => ({ id: i.id, name: i.name, ...(i.spatial?{spatial:copyAbility(i).spatial}:{}) })) } }) }

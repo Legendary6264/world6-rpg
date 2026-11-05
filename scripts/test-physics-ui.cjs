@@ -16,6 +16,17 @@ async function fixture(Panel=ObjectPhysicsPanel,initial,options={}){
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
 
+test('Акустика UI: источник и фон редактируются и сбрасываются независимо',async()=>{
+  const object=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('steel'),massKg:4,temperatureK:293.15,wetnessFraction:0})
+  const noise=()=>document.querySelector('[name="noiseLevelDbAt1m"]')
+  await flush(()=>{noise().value='80'});await submit();assert.equal(object.value.noiseLevelDbAt1m,80)
+  await flush(()=>{noise().value='161'});await submit();assert.equal(object.value.noiseLevelDbAt1m,80);assert(document.querySelector('[role=alert]'))
+  await flush(()=>{noise().value=''});await submit();assert.equal(object.value.noiseLevelDbAt1m,null)
+  const environment=await fixture(EnvironmentPhysicsPanel),background=()=>document.querySelector('[name="backgroundNoiseDb"]')
+  await flush(()=>{background().value='0'});await submit();assert.equal(environment.value.backgroundNoiseDb,0)
+  await flush(()=>{background().value=''});await submit();assert.equal(environment.value.backgroundNoiseDb,null)
+})
+
 test('Физика UI: выбор материала не назначает массу или профиль автоматически',async()=>{
   const state=await fixture();assert.equal(input('Физическая масса объекта (кг)').value,'');await field('Физический материал объекта','water-pure')
   assert.equal(state.value,undefined);assert.equal(state.changes.length,1);assert.match(document.body.textContent,/Плотность/)

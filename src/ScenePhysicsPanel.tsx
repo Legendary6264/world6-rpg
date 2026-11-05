@@ -2,7 +2,7 @@ import {useState} from 'react'
 import type {FormEvent} from 'react'
 import {physicsMaterialPresets} from './physicsMaterials'
 import {copyPhysicsMaterial} from './physicsMaterials'
-import {isPhysicsBody,isPhysicsEnvironment} from './physicsState'
+import {DEFAULT_BACKGROUND_NOISE_DB,MAX_SOUND_LEVEL_DB,isPhysicsBody,isPhysicsEnvironment} from './physicsState'
 import type {PhysicsBody,PhysicsEnvironment} from './physicsState'
 import {celsiusToKelvin,kelvinToCelsius} from './physicsUnits'
 
@@ -12,6 +12,8 @@ const number = (data: FormData, key: string): number => {
   return Number(text)
 }
 const display = (value: number | null, unit: string) => value === null ? 'Не задано' : value.toLocaleString('ru-RU',{maximumSignificantDigits:5}) + ' ' + unit
+const soundLevel = (data: FormData, key: string, previous: number | null | undefined) =>
+  data.get(key) ? number(data, key) : previous === undefined ? undefined : null
 
 export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
   const [materialId,setMaterialId]=useState(value?.material.id??''),[message,setMessage]=useState(''),[failed,setFailed]=useState(false),presets=physicsMaterialPresets()
@@ -25,7 +27,9 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,disabled,on
     try {
       if (!material) throw Error('Выбери физический материал.')
       const data=new FormData(event.currentTarget),next:PhysicsBody={version:1,material:copyPhysicsMaterial(material),massKg:number(data,'physicsMassKg'),temperatureK:celsiusToKelvin(number(data,'physicsTemperatureC')),wetnessFraction:number(data,'physicsWetnessPercent')/100}
-      if (!isPhysicsBody(next)) throw Error('Проверь положительную массу, температуру и влажность от 0 до 100%.')
+      const noise = soundLevel(data, 'noiseLevelDbAt1m', value?.noiseLevelDbAt1m)
+      if (noise !== undefined) next.noiseLevelDbAt1m = noise
+      if (!isPhysicsBody(next)) throw Error('Проверь массу, температуру, влажность и уровень шума.')
       if (onChange(next)) setMessage('Физический профиль объекта сохранён.');else {setFailed(true);setMessage('Профиль не сохранён. Проверь сообщение редактора.')}
     } catch(error) {setFailed(true);setMessage((error as Error).message)}
   }
@@ -36,6 +40,7 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,disabled,on
       <label className="w6-field"><span>Масса, кг</span><input aria-label="Физическая масса объекта (кг)" name="physicsMassKg" type="number" step="any" min="0.000000000001" max="1000000000000" defaultValue={value?.massKg??''} required/></label>
       <label className="w6-field"><span>Температура, °C</span><input aria-label="Температура объекта (°C)" name="physicsTemperatureC" type="number" step="any" min="-273.15" max="999726.85" defaultValue={kelvinToCelsius(value?.temperatureK??ambientTemperatureK)} required/></label>
       <label className="w6-field gb-wide"><span>Влажность поверхности, %</span><input aria-label="Влажность поверхности (%)" name="physicsWetnessPercent" type="number" step="any" min="0" max="100" defaultValue={(value?.wetnessFraction??0)*100} required/></label>
+      <label className="w6-field gb-wide"><span>Постоянный шум на расстоянии 1 м, дБ</span><input name="noiseLevelDbAt1m" type="number" step="any" min="0" max={MAX_SOUND_LEVEL_DB} defaultValue={value?.noiseLevelDbAt1m??''} placeholder="Без источника шума"/><small>Например, шум водопада. Оставь поле пустым для тихого объекта.</small></label>
       <div className="w6-buttons gb-wide"><button className="w6-button w6-primary" type="submit">Сохранить физический профиль</button><button className="w6-button" type="button" disabled={!value} onClick={()=>{if(onChange(null)){setFailed(false);setMessage('Физический профиль объекта снят.')}}}>Снять физический профиль</button></div>
     </fieldset></form>
     {material&&<details><summary>Свойства материала и основание</summary><dl className="w6-copy"><dt>Плотность</dt><dd>{display(material.densityKgM3,'кг/м³')}</dd><dt>Удельная теплоёмкость</dt><dd>{display(material.specificHeatJKgK,'Дж/(кг·K)')}</dd><dt>Теплопроводность</dt><dd>{display(material.thermalConductivityWMK,'Вт/(м·K)')}</dd><dt>Электропроводность</dt><dd>{display(material.electricalConductivitySM,'См/м')}</dd><dt>Температура профиля</dt><dd>{display(kelvinToCelsius(material.referenceTemperatureK),'°C')}</dd></dl><p className="w6-copy">{material.note}</p><p className="w6-copy">Неизвестная проводимость не означает изоляцию. Перенос свойств на другие температуры и составы требует отдельного расчёта.</p></details>}
@@ -51,7 +56,9 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
     setMessage('');setFailed(false)
     try {
       const data=new FormData(event.currentTarget),next:PhysicsEnvironment={version:1,gravityMs2:number(data,'physicsGravityMs2'),ambientTemperatureK:celsiusToKelvin(number(data,'physicsAmbientC'))}
-      if (!isPhysicsEnvironment(next)) throw Error('Проверь гравитацию и температуру среды.')
+      const noise = soundLevel(data, 'backgroundNoiseDb', value?.backgroundNoiseDb)
+      if (noise !== undefined) next.backgroundNoiseDb = noise
+      if (!isPhysicsEnvironment(next)) throw Error('Проверь гравитацию, температуру и фоновый шум.')
       if (onChange(next)) setMessage('Физические условия сцены сохранены.');else {setFailed(true);setMessage('Условия не сохранены. Проверь сообщение редактора.')}
     } catch(error) {setFailed(true);setMessage((error as Error).message)}
   }
@@ -59,6 +66,7 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
     <form onSubmit={submit} aria-label="Физические условия сцены"><fieldset className="gb-properties gb-physics-properties" disabled={disabled}>
       <label className="w6-field gb-wide"><span>Гравитация вниз по Z, м/с²</span><input aria-label="Гравитация сцены (м/с²)" name="physicsGravityMs2" type="number" min="0" max="1000000" step="any" defaultValue={value?.gravityMs2??9.81} required/></label>
       <label className="w6-field gb-wide"><span>Температура среды, °C</span><input aria-label="Температура среды (°C)" name="physicsAmbientC" type="number" min="-273.15" max="999726.85" step="any" defaultValue={kelvinToCelsius(value?.ambientTemperatureK??293.15)} required/></label>
+      <label className="w6-field gb-wide"><span>Фоновый шум, дБ</span><input name="backgroundNoiseDb" type="number" min="0" max={MAX_SOUND_LEVEL_DB} step="any" defaultValue={value?.backgroundNoiseDb??''} placeholder={String(DEFAULT_BACKGROUND_NOISE_DB)}/><small>Общий фон сцены. Пустое поле использует {DEFAULT_BACKGROUND_NOISE_DB} дБ для прогноза.</small></label>
       <div className="w6-buttons gb-wide"><button className="w6-button w6-primary" type="submit">Сохранить условия среды</button><button className="w6-button" type="button" disabled={!value} onClick={()=>{if(onChange(null)){setFailed(false);setMessage('Условия среды сняты; профили объектов сохранены.')}}}>Снять условия среды</button></div>
     </fieldset></form><p role={failed?'alert':'status'} className={failed?'w6-error':'w6-notice'}>{message}</p>
   </details>

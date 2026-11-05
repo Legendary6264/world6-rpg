@@ -2,6 +2,7 @@ import { addAmounts, amountFromNumber, compareAmounts, exactAmount, scaleAmount,
 import type { ExactAmount } from './exactWork'
 import type { RoundWorkEntry } from './roundWork'
 import type { Scene, ScenePosition, SceneSupport, SceneToken } from './sceneTypes'
+import { segmentSlab as slab } from './sceneGeometry'
 export type MovementBody = { actorId: string; heightM: number; flightReason?: string }
 export type MovementPlan = { work: RoundWorkEntry; startMs: ExactAmount; endMs: ExactAmount; points: ScenePosition[]; lengths: number[]; distance: number }
 export type MovementChange = { workId: string; actorId: string; from: ScenePosition; to: ScenePosition; support: SceneSupport; atMs: ExactAmount; completed: boolean }
@@ -53,13 +54,6 @@ export function supportAt(scene: Scene, p: ScenePosition): SceneSupport {
   return { kind: 'object', objectId: surface.id }
 }
 type Range = [number, number]
-function slab(start: number, end: number, low: number, high: number): Range | null {
-  const change = end - start
-  if (!change) return start >= low && start <= high ? [0, 1] : null
-  const a = (low - start) / change, b = (high - start) / change
-  const left = Math.max(0, Math.min(a, b)), right = Math.min(1, Math.max(a, b))
-  return left <= right ? [left, right] : null
-}
 function rectangle(a: ScenePosition, b: ScenePosition, x: number, y: number, width: number, depth: number): Range | null {
   const horizontal = slab(a.x, b.x, x - width / 2, x + width / 2), vertical = slab(a.y, b.y, y - depth / 2, y + depth / 2)
   if (!horizontal || !vertical) return null

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {fixture,lobbyBody} from './fixtures.mjs'
 import {createDefaultCharacter} from '../generated/characterModel.mjs'
 import {createScene,emptyScenes} from '../generated/scenes.mjs'
+import {createTabletopObject} from '../generated/tabletopCatalog.mjs'
 for(const dialect of ['sqlite','postgres'])test('R08 речь: адресные знания, история и повтор · '+dialect,async t=>{
  const f=await fixture(t,dialect),{api}=f,gm=await f.register('owner'),users={}
  for(const name of ['speaker','clear','part','sound','silent'])users[name]=await f.register('speech-'+name)
@@ -16,7 +17,9 @@ for(const dialect of ['sqlite','postgres'])test('R08 речь: адресные 
   await api(root+'/characters/'+ids[name]+'/review',gm.token,'POST',{revision:(await world()).revision,decision:'approve',note:''})
  }
  const state=await world();state.campaign.scenes=createScene(emptyScenes(),'speech-hall','PRIVATE-SCENE','top')
- state.campaign.scenes.scenes[0].tokens=Object.values(ids).map((actorId,index)=>({id:'speech-token-'+index,actorId,x:2+index,y:5,z:0,diameter:1,support:{kind:'ground'}}))
+ const room=state.campaign.scenes.scenes[0]
+ room.tokens=Object.values(ids).map((actorId,index)=>({id:'speech-token-'+index,actorId,x:2+index,y:5,z:0,diameter:1,support:{kind:'ground'}}))
+ room.objects.push({...createTabletopObject('timber-door','private-door',{x:2.5,y:5,z:0},90),name:'PRIVATE-ACOUSTIC-DOOR'})
  await api(root+'/world',gm.token,'PUT',{revision:state.revision,world:state})
  await api(root+'/declarations',gm.token,'POST',{revision:(await world()).revision,sceneId:'speech-hall',durationSeconds:5,participantIds:[ids.speaker],allowReplace:true},201)
  const route=name=>root+'/characters/'+ids[name],v=await api(route('speaker')+'/declarations',users.speaker.token)
@@ -32,6 +35,26 @@ for(const dialect of ['sqlite','postgres'])test('R08 речь: адресные 
  const calc=async(next=input,status=200,token=gm.token)=>api(root+'/rounds/calculate',token,'POST',await body(next),status)
  const command=p=>({previewId:p.id,generation:p.generation,commandKey:crypto.randomUUID()}),apply=(b,status=200,token=gm.token)=>api(root+'/rounds/apply',token,'POST',b,status)
  let preview,receipt,savedCommand,after,spoken
+ await t.test('Акустический снимок доступен мастеру и обновляется после открытия двери',async()=>{
+  const closed=await api(root+'/declarations',gm.token)
+  assert.equal(closed.acoustics.sceneId,room.id);assert.equal(closed.acoustics.barriers[0].id,'private-door')
+  for(const [name,u] of Object.entries(users)){
+   await api(root+'/declarations',u.token,'GET',undefined,403)
+   const own=await api(route(name)+'/declarations',u.token);assert(!Object.hasOwn(own,'acoustics'))
+   const projected=await api(root+'/world',u.token);assert(!JSON.stringify(projected).includes('PRIVATE-ACOUSTIC-DOOR'))
+  }
+  const setDoor=async open=>{
+   const snapshot=await api(root+'/scenes',gm.token)
+   snapshot.scenes.scenes[0].objects[0].open=open
+   await api(root+'/scenes',gm.token,'PUT',{scenes:snapshot.scenes,revision:snapshot.revision})
+  }
+  await setDoor(true)
+  const open=await api(root+'/declarations',gm.token)
+  assert(open.revision>closed.revision);assert.equal(open.acoustics.barriers.length,0)
+  assert.equal(open.acoustics.openings[0].name,'PRIVATE-ACOUSTIC-DOOR')
+  await setDoor(false)
+  const unchanged=await world();assert.equal(unchanged.campaign.seconds,0);assert(unchanged.characters.every(actor=>!actor.journal.length))
+ })
  await t.test('Игрок не получает расчёт/историю или чужой журнал; неверное раскрытие не создаёт знаний',async()=>{
   for(const token of [users.speaker.token,users.clear.token]){await calc(input,403,token);await api(root+'/rounds/history',token,'GET',undefined,403)}
   await api(route('clear')+'/perception',users.silent.token,'GET',undefined,403)

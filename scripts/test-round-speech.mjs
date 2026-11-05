@@ -14,6 +14,7 @@ for(const file of await readdir('src'))if(file.endsWith('.ts')){
 const module=name=>import(pathToFileURL(join(directory,name+'.mjs')))
 const {calculateRound,compatibleRoundExecutor}=await module('roundExecution'),{createDefaultCharacter}=await module('characterModel'),{emptyCampaign}=await module('rpgSchema')
 const {createScene,emptyScenes}=await module('scenes'),{speechDistance,isSpeechJournalEntry,finishRoundSpeech}=await module('roundSpeech'),{isJournal,MAX_JOURNAL_ENTRIES}=await module('characterKnowledge')
+const {sceneAcoustics,forecastSpeech}=await module('acoustics'),{createTabletopObject}=await module('tabletopCatalog'),{physicsMaterialPreset}=await module('physicsMaterials')
 function world(){const scenes=createScene(emptyScenes(),'hall','PRIVATE-SCENE','top');scenes.scenes[0].tokens=['speaker','clear','part','sound','silent'].map((actorId,index)=>({id:'token-'+actorId,actorId,x:index+2,y:5,z:0,diameter:1,support:{kind:'ground'}}));return {characters:['speaker','clear','part','sound','silent'].map(id=>({...createDefaultCharacter(),id,name:'PRIVATE-'+id})),campaign:{...emptyCampaign(),scenes}}}
 const speech=(volume='whisper')=>({kind:'speak',target:{kind:'none'},volume,text:'Встречаемся у северных ворот. Пароль: ЛУНА.',note:'PRIVATE-PLAYER-NOTE'})
 function collection(action=speech()){return {id:'collection',sceneId:'hall',sceneName:'PRIVATE-SCENE',durationSeconds:5,allowReplace:true,phase:'closed',epoch:2,participantIds:['speaker'],entries:[{actorId:'speaker',actorName:'PRIVATE-speaker',revision:1,status:'submitted',actions:[action],resolved:[],submittedBy:'account-speaker',submittedAt:'2026-10-12T00:00:00Z',note:''}],history:[]}}
@@ -63,6 +64,61 @@ test('R08: подсказка дальности учитывает Z и не з
  const locations=[{sceneId:'s',actorId:'a',x:0,y:0,z:0},{sceneId:'s',actorId:'b',x:3,y:4,z:12},{sceneId:'other',actorId:'c',x:0,y:0,z:0}]
  assert.equal(speechDistance(locations,'s','a','b'),13);assert.equal(speechDistance(locations,'s','a','c'),null);assert.equal(speechDistance([{sceneId:'s',actorId:'a'}],'s','a','b'),null)
  const w=world();w.campaign.scenes.scenes[0].tokens.find(t=>t.actorId==='clear').x=25;assert.equal(calculateRound(w,collection(),input(),'manual-range').summary.speech[0].heard.length,3,'No unapproved automatic range')
+})
+
+const acousticPoint=(x,y,z=1.5)=>({x,y,z})
+function twoRooms() {
+ const scene=world().campaign.scenes.scenes[0]
+ const door=createTabletopObject('timber-door','door',acousticPoint(8,5,0),90)
+ scene.objects=[door,createTabletopObject('stone-wall','south',acousticPoint(8,3,0),90),createTabletopObject('stone-wall','north',acousticPoint(8,7,0),90)]
+ return {scene,door}
+}
+
+test('Акустика двух комнат: закрытая дверь пропускает голос, открытая возвращает слова',()=>{
+ const {scene,door}=twoRooms(),speaker=acousticPoint(6,5),listener=acousticPoint(10,5)
+ const closed=forecastSpeech(sceneAcoustics(scene),speaker,listener,'normal')
+ assert.equal(closed.barriers,1);assert.equal(closed.clarity,'sound');assert(closed.speechSnrDb<0)
+ door.open=true
+ const open=forecastSpeech(sceneAcoustics(scene),speaker,listener,'normal')
+ assert.equal(open.barriers,0);assert.equal(open.clarity,'clear');assert(open.signalDb>closed.signalDb)
+ const whisper=forecastSpeech(sceneAcoustics(scene),speaker,listener,'whisper')
+ assert(whisper.signalDb<open.signalDb);assert.notEqual(whisper.clarity,'clear')
+})
+
+test('Акустика: голос обходит стену через настоящий проём и проходит над стеной',()=>{
+ const {scene,door}=twoRooms(),speaker=acousticPoint(6,3),listener=acousticPoint(10,3)
+ const blocked=forecastSpeech(sceneAcoustics(scene),speaker,listener,'normal')
+ assert.equal(blocked.clarity,'none');assert.equal(blocked.barriers,1)
+ door.open=true
+ const detour=forecastSpeech(sceneAcoustics(scene),speaker,listener,'normal')
+ assert.equal(detour.viaDoor,door.name);assert.equal(detour.barriers,0);assert(detour.arrivalMs>blocked.arrivalMs);assert(detour.signalDb>blocked.signalDb)
+ scene.objects.push(createTabletopObject('stone-wall','fills-opening',acousticPoint(8,5,0),90))
+ assert.equal(forecastSpeech(sceneAcoustics(scene),speaker,listener,'normal').viaDoor,undefined)
+ const above=forecastSpeech(sceneAcoustics(scene),acousticPoint(6,3,3),acousticPoint(10,3,3),'normal')
+ assert.equal(above.barriers,0);assert.equal(above.clarity,'clear')
+})
+
+test('Акустика: расстояние ослабляет голос, температура меняет время прихода',()=>{
+ const scene=world().campaign.scenes.scenes[0],speaker=acousticPoint(5,5)
+ const near=forecastSpeech(sceneAcoustics(scene),speaker,acousticPoint(7,5),'normal')
+ const far=forecastSpeech(sceneAcoustics(scene),speaker,acousticPoint(9,5),'normal')
+ assert(Math.abs(near.signalDb-far.signalDb-20*Math.log10(2))<1e-9);assert.equal(far.arrivalMs,near.arrivalMs*2)
+ scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:273.15,backgroundNoiseDb:30}
+ assert(forecastSpeech(sceneAcoustics(scene),speaker,acousticPoint(9,5),'normal').arrivalMs>far.arrivalMs)
+})
+
+test('Акустика: несколько источников складываются по энергии и маскируют слова',()=>{
+ const scene=world().campaign.scenes.scenes[0],speaker=acousticPoint(5,5),listener=acousticPoint(9,5)
+ const quiet=forecastSpeech(sceneAcoustics(scene),speaker,listener,'normal')
+ const source=createTabletopObject('brazier','source',acousticPoint(9,5,1),0)
+ source.physics={version:1,material:physicsMaterialPreset('steel'),massKg:10,temperatureK:293.15,wetnessFraction:0,noiseLevelDbAt1m:45}
+ scene.objects=[source,{...source,id:'off',active:false}]
+ const one=forecastSpeech(sceneAcoustics(scene),speaker,listener,'normal')
+ assert.equal(one.clarity,'sound');assert.equal(quiet.clarity,'clear');assert.equal(one.signalDb,quiet.signalDb)
+ scene.objects[1].active=true
+ const two=forecastSpeech(sceneAcoustics(scene),speaker,listener,'normal')
+ const expected=10*Math.log10(10**3+2*10**4.5)
+ assert(Math.abs(two.noiseDb-expected)<1e-9);assert(two.speechSnrDb<one.speechSnrDb)
 })
 test('R08: заполненный журнал и повтор события не удаляют записи и блокируют весь расчёт',()=>{
  const w=world(),sample={id:'note',origin:'manual',title:'Заметка',text:'Сохранить',category:'other',certainty:'hypothesis',source:'Я',gameTime:'0 с',annotation:'',createdAt:'2026-10-12T00:00:00.000Z',updatedAt:'2026-10-12T00:00:00.000Z'}

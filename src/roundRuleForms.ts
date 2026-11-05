@@ -3,7 +3,7 @@ import type { RuleDecision, RuleRow } from './roundRules'
 import {isAbilityObjectEffects} from './abilityEnvironment'
 import type {ObjectOperation} from './tabletopInteractions'
 export type RuleSceneObject={id:string;name:string;operations?:ObjectOperation[]}
-export type RuleActor={id:string;name:string;canFly?:boolean;items?:{id:string;name:string;quantity?:number;consumable?:ConsumableEffect}[];abilities?:{id:string;name:string;spatial?:AbilitySpatial}[];regions?:{key:string;label:string}[];casts?:{id:string;abilityId:string;name:string;status:string;binding:'bound'|'unbound';spatial?:AbilitySpatial;chargePolicy?:ChargePolicy;roundPreparation?:boolean}[]}
+export type RuleActor={id:string;name:string;canFly?:boolean;speechEligible?:boolean;items?:{id:string;name:string;quantity?:number;consumable?:ConsumableEffect}[];abilities?:{id:string;name:string;spatial?:AbilitySpatial}[];regions?:{key:string;label:string}[];casts?:{id:string;abilityId:string;name:string;status:string;binding:'bound'|'unbound';spatial?:AbilitySpatial;chargePolicy?:ChargePolicy;roundPreparation?:boolean}[]}
 export const ruleNumbers=[['manualLocal','Локальное повреждение'],['manualSystemic','Системное поле прежнего движка'],['bleedingMlPerSecond','Кровотечение, мл/с'],['criticalChance','Шанс критического контакта, %'],['dodgeChance','Шанс уворота, %'],['criticalContactFactor','Коэффициент критического контакта']] as const
 export type TargetRuleForm={fields:Record<string,string>;accessible:boolean;conditionsConfirmed:boolean;canSpeak:boolean;armorPath:'covered'|'gap';gapConfirmed:boolean}
 export type RuleForm=TargetRuleForm&{key:string;kind:'item'|'ability';confirmed:boolean;operation:string;binding:string;charge:string;

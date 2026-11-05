@@ -9,6 +9,7 @@ import type { ActorTiming, RoundTimeline } from './roundTimeline'
 import './roundTimeline.css'
 import LobbyRoundExecution from './LobbyRoundExecution'
 import type { RoundWork } from './roundWork'
+import type { AcousticScene } from './acoustics'
 
 type Source = { revision: number; collectionId: string; epoch: number }
 type Draft = { source: Source; actors: { actorId: string; budget: string; costs: string[] }[] }
@@ -25,9 +26,9 @@ const milliseconds = (text: string) => {
 }
 const format = (value: number) => value > 0 && value < 0.001 ? '<0,001' : value.toLocaleString('ru-RU', { maximumFractionDigits: 3 })
 
-export default function LobbyRoundTimeline({ accountId, lobbyId, collection, revision, checkingAccess, roundWork, executed, actors, objects, movementBodies }: {
+export default function LobbyRoundTimeline({ accountId, lobbyId, collection, revision, checkingAccess, roundWork, executed, actors, objects, movementBodies, acoustics }: {
   accountId: string; lobbyId: string; collection: DeclarationCollection; revision: number; checkingAccess: boolean;
-  roundWork: RoundWork; executed: boolean; actors: RuleActor[]; objects: (RuleSceneObject & {sceneId:string})[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]
+  roundWork: RoundWork; executed: boolean; actors: RuleActor[]; objects: (RuleSceneObject & {sceneId:string})[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]; acoustics?: AcousticScene
 }) {
   const { request } = useOnline(), key = lobbyFormKey('round-timeline', accountId, lobbyId, collection.id)
   const source: Source = { revision, collectionId: collection.id, epoch: collection.epoch }, sourceKey = JSON.stringify(source)
@@ -106,6 +107,6 @@ export default function LobbyRoundTimeline({ accountId, lobbyId, collection, rev
       </article>))}
     </div>}
     <LobbyRoundExecution accountId={accountId} lobbyId={lobbyId} collection={collection} revision={revision} checkingAccess={checkingAccess}
-      timings={timings} timingReady={!incomplete && !stale} roundWork={roundWork} executed={executed} actors={actors} objects={objects} movementBodies={movementBodies}/>
+      timings={timings} timingReady={!incomplete && !stale} roundWork={roundWork} executed={executed} actors={actors} objects={objects} movementBodies={movementBodies} acoustics={acoustics}/>
   </section>
 }
