@@ -1,3 +1,6 @@
+import WorkspaceNavigation from './WorkspaceNavigation'
+import {characterSections} from './characterSections'
+import type {CharacterSection} from './characterSections'
 import CreationPanel from './CreationPanel'
 import GuidePanel from './GuidePanel'
 import ConditionPanel from './ConditionPanel'
@@ -53,7 +56,7 @@ function CharacterWorkspace({ remote, characterId, draft, characters, campaign, 
   const world:World={characters,campaign}
   let effective=draft,calculationError=''
   try{effective=effectiveActor(draft,campaign.seconds)}catch(e){calculationError=(e as Error).message}
-  const [mode, setMode] = useState<'editor' | 'play' | 'journal' | 'equipment' | 'abilities' | 'rules' | 'physiology' | 'magic' | 'body' | 'races' | 'skills' | 'training' | 'appearance' | 'templates' | 'guide' | 'actions' | 'conditions'>('editor')
+  const [mode, setMode] = useState<CharacterSection>('editor')
   const [message, setMessage] = useState('')
   const canSave = isCharacterDraft(draft)
 
@@ -155,11 +158,8 @@ function CharacterWorkspace({ remote, characterId, draft, characters, campaign, 
         <p className="w6-copy">{profileSummary(draft.profile)}</p>
         {(draft.profile.magic??[]).some(s=>s.state==='mastered')&&<p className="w6-copy">Освоены: {(draft.profile.magic??[]).filter(s=>s.state==='mastered').map(s=>schoolById(s.schoolId)?.name).join(', ')}</p>}
       </div><ResourceStrip draft={effective}/></div>
-      <nav className="w6-workspace-nav" aria-label="Разделы персонажа">
-      <div><span>Создание</span>{([['editor','Основа'],['races','Расы и формы'],['skills','Навыки'],['training','Развитие'],['appearance','Внешность · 3D'],['magic','Магия'],['abilities','Способности'],['equipment','Снаряжение'],['body','Анатомия'],['physiology','Физиология'],['rules','Формулы']] as const).map(([key,label])=><button className={'w6-button'+(mode===key?' w6-active':'')} key={key} aria-pressed={mode===key} onClick={()=>setMode(key)}>{label}</button>)}</div>
-      <div><span>Игра</span>{([['play','Игровой лист'],['actions','Действия'],['conditions','Мастер · состояние'],['journal','Личный справочник']] as const).map(([key,label])=><button className={'w6-button'+(mode===key?' w6-active':'')} key={key} aria-pressed={mode===key} onClick={()=>setMode(key)}>{label}</button>)}</div>
-      <div><span>Помощь</span>{([['templates','Примеры'],['guide','Путеводитель']] as const).map(([key,label])=><button className={'w6-button'+(mode===key?' w6-active':'')} key={key} aria-pressed={mode===key} onClick={()=>setMode(key)}>{label}</button>)}</div>
-      </nav>
+      <div className="ui-workspace-layout"><WorkspaceNavigation label="Разделы персонажа" sections={characterSections} selectedId={mode} onSelect={id=>setMode(id as CharacterSection)}/><div className="ui-workspace-content">
+      <header className="ui-workspace-heading"><h3>{characterSections.find(section=>section.id===mode)?.label}</h3><p>{characterSections.find(section=>section.id===mode)?.description}</p></header>
       {(['races','skills','training','appearance','templates'] as const).map(key=>mode===key&&<CreationPanel key={key} section={key} actor={draft} onChange={a=>changeDraft(a)}/>)}
       {mode==='guide'&&<GuidePanel/>}
       {mode==='conditions'&&<><ConditionPanel master actor={draft} seconds={campaign.seconds} onChange={a=>changeDraft(a)}/><CharacterBodyPanel characterId={characterId} body={draft.body} onPart={updateBodyPart} onAction={handleBodyAction}/></>}
@@ -214,6 +214,7 @@ function CharacterWorkspace({ remote, characterId, draft, characters, campaign, 
         </div>
         <p className="w6-notice" role="status">{message}</p>
       </div>
+      </div></div>
     </section>
   )
 }

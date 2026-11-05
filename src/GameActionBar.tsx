@@ -18,6 +18,7 @@ export default function GameActionBar({ map, point, contactId, objectId, options
   options: DeclarationOptions | null; disabled: boolean; onAdd: (action: DeclaredAction) => boolean; draft: QuickActionDraft; onChange: (draft: QuickActionDraft) => void;
 }) {
   const {mode,movement,text,volume,item,ability,aim}=draft
+  const modeHelp={world:['Окружение и движение','Выбери точку, предмет или существо на сцене. Здесь появятся доступные действия.'],speak:['Реплика героя','Напиши слова героя и выбери громкость. Реплика попадёт в план хода.'],item:['Предмет из инвентаря','Выбери предмет и нужное действие с ним.'],ability:['Применение способности','Выбери способность, заряд и цель. Проверь область перед добавлением в план.']}[mode]
   const field=<K extends keyof QuickActionDraft>(key:K,value:QuickActionDraft[K])=>onChange({...draft,[key]:value})
   const object=map?.objects.find(o=>o.id===objectId),contact=map?.contacts.find(c=>c.id===contactId&&c.kind!=='self')
   const knownObject=options?.targets.some(t=>t.kind==='object'&&t.id===objectId),knownContact=options?.targets.some(t=>t.kind==='contact'&&t.id===contactId)
@@ -37,6 +38,7 @@ export default function GameActionBar({ map, point, contactId, objectId, options
   useEffect(()=>{onAimChange?.(aimPreview);return ()=>onAimChange?.(null)},[aimPreview,onAimChange])
   return <section className="gb-game-actionbar" aria-label="Быстрые игровые действия">
     <div className="gb-game-modes">{([['world','Мир'],['speak','Речь'],['item','Предметы'],['ability','Способности']] as const).filter(([id])=>!environmentOnly||id==='world'||id==='ability').map(([id,label])=><button key={id} className="w6-button" type="button" aria-pressed={mode===id} onClick={()=>field('mode',id)}>{label}</button>)}</div>
+    <p className="ui-action-context"><strong>{modeHelp[0]}</strong>{modeHelp[1]}</p>
     <fieldset disabled={disabled}>
       {mode==='world'&&<><p className="gb-game-context">{object?<><strong>{object.name}</strong> · {object.visible?'объект перед тобой':'последнее известное состояние'}{object.kind==='door'&&(object.open?' · открыта':' · закрыта')}</>:contact?<><strong>{contact.label}</strong>{contact.signs&&' · '+contact.signs}</>:point?<>Точка назначения: {point.x}; {point.y}; {point.z} м</>:'Нажми на землю, предмет или существо на карте.'}</p>
         <div className="w6-buttons">{!environmentOnly&&<><select aria-label="Быстрый способ движения" value={movement} onChange={e=>field('movement',e.currentTarget.value as typeof movement)}><option value="ground">Ходьба</option><option value="air">Полёт</option></select><button type="button" className="w6-button w6-primary" disabled={!point} onClick={()=>{if(point)onAdd({kind:'move',route:[point],support:movement,note:''})}}>Идти к отметке</button></>}

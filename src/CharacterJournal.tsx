@@ -114,7 +114,7 @@ export default function CharacterJournal({ characterId, entries, onChange, effec
         commitEntry()
       }}>
         <h4>{automatic ? 'Дополнить наблюдение' : editing ? 'Изменить запись' : 'Новая запись'}</h4>
-        {!automatic && <><ArtworkPicker label="Иллюстрация записи" value={content.artwork} presets={['banner','portrait-traveler','portrait-mage','portrait-elf','weapons','armor','artifact','supplies']} onChange={artwork=>setContent({...content,artwork})}/>
+        {!automatic && <><ArtworkPicker collapsible label="Иллюстрация записи" value={content.artwork} presets={['banner','portrait-traveler','portrait-mage','portrait-elf','weapons','armor','artifact','supplies']} onChange={artwork=>setContent({...content,artwork})}/>
           <label className="w6-field" htmlFor={prefix + 'title'}>
             <span>Заголовок</span>
             <input id={prefix + 'title'} required maxLength={120} value={content.title}

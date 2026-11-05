@@ -1,0 +1,20 @@
+export const characterSections=[
+ {id:'editor',label:'Основа',group:'Герой',description:'Имя, профиль и характеристики героя.'},
+ {id:'races',label:'Расы и формы',group:'Герой',description:'Физиология, раса и доступные формы.'},
+ {id:'appearance',label:'Внешность · 3D',group:'Герой',description:'Портрет и объёмная модель персонажа.'},
+ {id:'body',label:'Анатомия',group:'Герой',description:'Устройство тела и его состояния.'},
+ {id:'physiology',label:'Физиология',group:'Герой',description:'Особенности тела и действующие ограничения.'},
+ {id:'skills',label:'Навыки',group:'Мастерство',description:'Умения и их связь с атрибутами.'},
+ {id:'training',label:'Развитие',group:'Мастерство',description:'Обучение и продвижение героя.'},
+ {id:'magic',label:'Магия',group:'Мастерство',description:'Направления и магическая специализация.'},
+ {id:'abilities',label:'Способности',group:'Мастерство',description:'Освоенные способности, подготовка и заряды.'},
+ {id:'play',label:'Игровой лист',group:'В игре',description:'Текущие ресурсы и состояние героя.'},
+ {id:'equipment',label:'Снаряжение',group:'В игре',description:'Предметы, экипировка и артефакты.'},
+ {id:'actions',label:'Действия',group:'В игре',description:'Проверки навыков и применение способностей.'},
+ {id:'journal',label:'Личный справочник',group:'В игре',description:'Записи и известные герою сведения.'},
+ {id:'conditions',label:'Мастер · состояние',group:'В игре',description:'Подтверждённые мастером изменения состояния.'},
+ {id:'rules',label:'Формулы',group:'Справка',description:'Настройки расчётов и их основания.'},
+ {id:'templates',label:'Примеры',group:'Справка',description:'Образцы для знакомства с механиками.'},
+ {id:'guide',label:'Путеводитель',group:'Справка',description:'Правила и устройство Мира 6.'},
+] as const
+export type CharacterSection=typeof characterSections[number]['id']

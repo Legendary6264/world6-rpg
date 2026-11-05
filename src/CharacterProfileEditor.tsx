@@ -15,7 +15,7 @@ export default function CharacterProfileEditor({ characterId, profile, onChange,
   return (
     <fieldset className="w6-fieldset">
       <legend>Профиль героя</legend>
-      <ArtworkPicker label="Портрет персонажа" value={profile.portrait} presets={portraitPresets} onChange={portrait=>onChange({...profile,portrait})}/>
+      <ArtworkPicker collapsible label="Портрет персонажа" value={profile.portrait} presets={portraitPresets} onChange={portrait=>onChange({...profile,portrait})}/>
       <div className="w6-attribute-grid">
         <label className="w6-field" htmlFor={'rank-' + characterId}>
           <span>Ранг</span>

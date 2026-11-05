@@ -1,6 +1,7 @@
 import {lazy,Suspense} from 'react'
 import App from './App'
 import OnlineProvider from './OnlineProvider'
+import './uiSystem.css'
 
 const Preview3D=lazy(()=>import('./Preview3D'))
 const PreviewAbilities=lazy(()=>import('./PreviewAbilities'))

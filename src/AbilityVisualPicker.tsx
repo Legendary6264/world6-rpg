@@ -66,7 +66,7 @@ export default function AbilityVisualPicker({ value, onChange, schoolId, basisSc
           </select>
         </label>
         <p className="w6-visual-picker-description">{family?.description ?? 'Эта способность показывается без анимированного эффекта.'} Оформление не меняет действие способности.</p>
-        {family && <>
+        {family && <details className="ui-effect-settings"><summary>Тонкая настройка эффекта</summary>
           <label htmlFor={fieldId + '-scale'}>Масштаб изображения <output>{Number(scale.toFixed(2))}×</output>
             <input id={fieldId + '-scale'} type="range" min=".25" max="4" step=".05" value={scale} onChange={event => configure({ scale: Number(event.currentTarget.value) })}/>
           </label>
@@ -76,7 +76,7 @@ export default function AbilityVisualPicker({ value, onChange, schoolId, basisSc
           <label htmlFor={fieldId + '-duration'}>Темп анимации <output>{(durationMs / 1000).toFixed(1)} с</output>
             <input id={fieldId + '-duration'} type="range" min="500" max="10000" step="100" value={durationMs} onChange={event => configure({ durationMs: Number(event.currentTarget.value) })}/>
           </label>
-        </>}
+        </details>}
       </div>
       <figure className="w6-visual-preview">
         {family&&<div className="w6-vfx-view-switch" aria-label="Вид предпросмотра"><button type="button" aria-pressed={mode==='2d'} onClick={()=>setMode('2d')}>Схема</button><button type="button" aria-pressed={mode==='3d'} onClick={()=>setMode('3d')}>3D-эффект</button></div>}

@@ -1,7 +1,6 @@
 import {economyReferencesValid,pruneEconomy} from './campaignEconomy'
 import {tradeReferencesValid,pruneTrade} from './campaignTrade'
 import {atlasReferencesValid,pruneAtlas} from './campaignAtlas'
-import { productBrand } from './productBrand'
 import { roundWorkReferencesValid } from './roundWork'
 import { declarationReferencesValid, pruneDeclarations } from './actionDeclarations'
 import ActionReview from './ActionReview'
@@ -174,11 +173,9 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
   }
 
   return (
-    <div className="character-manager"><header className="w6-atlas-banner"><div><p className="w6-eyebrow">Летопись персонажей</p><h1>{productBrand.name}</h1><p>Тело, магия и история твоего героя</p></div></header>
+    <div className="character-manager"><header className="w6-atlas-banner"><div><p className="w6-eyebrow">Летопись персонажей</p><h1>Персонажи</h1><p>Тело, магия и история твоего героя</p></div></header>
       {onRemotePublish&&<section className="panel w6-remote-publish"><h2>Редактор общей кампании</h2><p className="w6-copy">Изменения готовятся в этом черновике. Публикация отправляет их участникам и проверяет версию кампании на сервере.</p><button className="w6-button w6-primary" disabled={publishing||remotePublishDisabled} onClick={async()=>{setPublishing(true);try{setMessage(await onRemotePublish(world));setDirty(false)}catch(e){setMessage((e as Error).message)}finally{setPublishing(false)}}}>{publishing?'Публикуем…':'Опубликовать изменения кампании'}</button></section>}
-      <details className="panel w6-world-settings"><summary>Игра и настройки лобби / мира</summary><CampaignPanel remote={!!onRemotePublish} world={world} onPlan={showPlan} onRestore={applyWorld} onExamples={examples}/></details>
-      <SceneEditor value={campaign.scenes} actors={characters} onChange={changeScenes} disabled={initial.blocked}/>
-      <p className="w6-notice">{dirty?'Есть несохранённые изменения листов.':onRemotePublish?'Черновик кампании подготовлен. Публикация выполняется отдельной кнопкой.':'Текущие изменения сохранены.'}</p>
+      <p className="ui-save-state" data-dirty={dirty} role="status">{dirty?'Есть несохранённые изменения листов.':onRemotePublish?'Черновик кампании подготовлен. Публикация выполняется отдельной кнопкой.':'Текущие изменения сохранены.'}</p>
       {plan&&<div className="w6-modal-backdrop"><section className="w6-modal" role="dialog" aria-modal="true" aria-labelledby="plan-title"><h2 id="plan-title">Предварительный результат</h2><h3>{plan.text}</h3><ActionReview before={world} after={plan.world}/><details className="w6-fieldset"><summary>Подробный расчёт и основания</summary><p className="w6-prose">{plan.details}</p></details><p className="w6-copy">До подтверждения ресурсы и цель не изменяются. При изменении листов расчёт потребуется повторить.</p><div className="w6-buttons"><button className="w6-button w6-primary" type="button" onClick={confirmPlan}>Подтвердить и сохранить результат</button><button className="w6-button" type="button" onClick={()=>setPlan(null)}>Отмена расчёта</button></div></section></div>}
       <section className="panel">
         <h2>Мои персонажи</h2>
@@ -230,6 +227,8 @@ function CharacterManager({initialWorld,onRemotePublish,onDraftChange,remotePubl
             remote={!!onRemotePublish} onSave={draft => saveCharacter(character.id, draft)} />
         </div>
       ))}
+      <details className="panel w6-world-settings"><summary>Игра и настройки лобби / мира</summary><CampaignPanel remote={!!onRemotePublish} world={world} onPlan={showPlan} onRestore={applyWorld} onExamples={examples}/></details>
+      <details className="panel ui-campaign-tools"><summary>Сцены кампании<small>Расстановка, окружение и редактор 3D</small></summary><p className="w6-copy">Собирай сцены, размещай героев и настраивай окружение кампании.</p><SceneEditor value={campaign.scenes} actors={characters} onChange={changeScenes} disabled={initial.blocked}/></details>
     </div>
   )
 }

@@ -34,6 +34,18 @@ function arrangementFixture(){
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
 
+test('Панели узкого экрана сохраняют черновик свойств и не меняют сцену при переключении',async()=>{
+ await fixture();const object=active().objects[0];assert(object);await flush(()=>viewport.onSelect({kind:'object',id:object.id}))
+ const tabs=[...document.querySelectorAll('[aria-label="Области редактора"] button')],choose=text=>tabs.find(b=>b.textContent===text)
+ for(const tab of tabs)assert(document.getElementById(tab.getAttribute('aria-controls')))
+ await flush(()=>choose('Свойства').click());const input=document.querySelector('input[name=name]');assert(input)
+ input.value='Несохранённое имя предмета';const before=structuredClone(current),count=writes
+ await flush(()=>choose('Холст').click());assert.equal(document.querySelector('.gb-tabletop-workspace').dataset.mobilePanel,'canvas')
+ await flush(()=>choose('Модели').click());assert.equal(document.querySelector('.gb-tabletop-workspace').dataset.mobilePanel,'library')
+ await flush(()=>choose('Свойства').click());assert.equal(document.querySelector('input[name=name]'),input);assert.equal(input.value,'Несохранённое имя предмета')
+ assert.equal(choose('Свойства').getAttribute('aria-pressed'),'true');assert.equal(writes,count);assert.deepEqual(current,before)
+})
+
 test('Поворот героя: R, панель, отмена и повтор сохраняют точные XYZ, опору и оформление',async()=>{
  await fixture();const token=active().tokens[0],id=token.actorId
  const next=structuredClone(current),edited=next.scenes.find(s=>s.id===next.activeSceneId).tokens.find(t=>t.actorId===id)

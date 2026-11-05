@@ -8,7 +8,7 @@ import type { CloudCharacter } from './onlineTypes'
 import { RemoteStatus } from './NetworkCommon'
 export default function CloudLibraryPanel({onImported}:{onImported:()=>void}){
  const {user,request,refresh}=useOnline(),list=useRemote<CloudCharacter[]>(user?'/characters':null),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
- if(!user)return <section className="panel"><p className="w6-copy">Локальные герои доступны без входа. В аккаунте можно хранить копии для других устройств и подключать их к лобби.</p></section>
+ if(!user)return <p className="ui-cloud-hint">Локальные герои доступны без входа. В аккаунте можно хранить копии для других устройств и подключать их к лобби.</p>
  const key='world6.cloud-versions.'+user.id
  function versions():Record<string,number>{try{return JSON.parse(localStorage.getItem(key)||'{}')}catch{return {}}}
  function remember(characterId:string,revision:number){localStorage.setItem(key,JSON.stringify({...versions(),[characterId]:revision}))}
