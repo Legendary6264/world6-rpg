@@ -11,7 +11,7 @@ const mapBackground = (value: unknown): value is string => isTiledArtwork(value)
 // Limits protect saved data; they do not define perception distances or game rules.
 export type KnownArea = ScenePosition & { id: string; width: number; depth: number; height: number; visible: boolean }
 export type MapFrame = Pick<Scene, 'id' | 'width' | 'depth' | 'groundZ' | 'minZ' | 'maxZ' | 'view' | 'palette' | 'background' | 'backgroundTileSizeM' | 'environment'>
-export type ObservedObject = Pick<SceneObject, 'id' | 'name' | 'kind' | 'x' | 'y' | 'z' | 'width' | 'depth' | 'height' | 'open' | 'artwork' | 'asset' | 'facing' | 'active' | 'locked'>
+export type ObservedObject = Pick<SceneObject, 'id' | 'name' | 'kind' | 'x' | 'y' | 'z' | 'width' | 'depth' | 'height' | 'open' | 'artwork' | 'asset' | 'facing' | 'active' | 'locked'> & { waterVolume?: true }
 export type ObjectDisclosure = { objectId: string; visible: boolean; snapshot: ObservedObject }
 export type ContactDisclosure = { id: string; actorId: string; kind: 'identified' | 'silhouette' | 'sound'; label: string; signs: string; showHeight: boolean; showVisuals?: boolean; point: ScenePosition; radius: number }
 export type KnownScene = { sceneId: string; title: string; description: string; frame: MapFrame; areas: KnownArea[]; objects: ObjectDisclosure[]; contacts: ContactDisclosure[] }
@@ -32,7 +32,8 @@ const frame = (v: unknown): v is MapFrame => record(v) && (v.environment===undef
   number(v.minZ) && number(v.maxZ) && number(v.groundZ) && v.minZ <= v.groundZ && v.groundZ < v.maxZ && typeof v.view === 'string' && ['top', 'side'].includes(v.view) && typeof v.palette === 'string' && ['forest', 'stone', 'neon'].includes(v.palette)
 const area = (v: unknown): v is KnownArea => record(v) && position(v) && id(v.id) && number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 && number(v.height) && v.height > 0 && typeof v.visible === 'boolean'
 const observedObject = (v: unknown): v is ObservedObject => record(v) && position(v) && id(v.id) && text(v.name, 120) && typeof v.kind === 'string' && kinds.includes(v.kind) &&
-  number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 && number(v.height) && v.height >= 0 && typeof v.open === 'boolean' && (v.artwork === undefined || isArtwork(v.artwork)) && validTabletopAppearance(v)
+  number(v.width) && v.width > 0 && number(v.depth) && v.depth > 0 && number(v.height) && v.height >= 0 && typeof v.open === 'boolean' &&
+  (v.waterVolume === undefined || v.waterVolume === true && v.kind === 'water' && v.height > 0) && (v.artwork === undefined || isArtwork(v.artwork)) && validTabletopAppearance(v)
 const contact = (v: unknown): v is Omit<ContactDisclosure, 'id'> => record(v) && id(v.actorId) && typeof v.kind === 'string' && ['identified', 'silhouette', 'sound'].includes(v.kind) &&
   text(v.label, 120) && text(v.signs, 1000) && typeof v.showHeight === 'boolean' && (v.showVisuals===undefined||typeof v.showVisuals==='boolean'&&(!v.showVisuals||v.kind==='identified'&&v.showHeight)) && position(v.point) && number(v.radius) && v.radius >= 0 && v.radius <= 1000
 const sceneInput = (v: unknown): boolean => record(v) && id(v.sceneId) && text(v.title, 120) && text(v.description, 4000) &&
@@ -61,7 +62,8 @@ export function perceptionDraft(value: HeroPerception): PerceptionDraft {
 }
 const copyArea = (a: KnownArea): KnownArea => ({ id: a.id, x: a.x, y: a.y, z: a.z, width: a.width, depth: a.depth, height: a.height, visible: a.visible })
 export const mapFrame = (s: MapFrame): MapFrame => ({ id: s.id, width: s.width, depth: s.depth, groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, view: s.view, palette: s.palette, environment:sceneEnvironment(s), ...(mapBackground(s.background)?{background:s.background,...(s.backgroundTileSizeM!==undefined?{backgroundTileSizeM:s.backgroundTileSizeM}:{})}:{}) })
-export const publicObject = (o: SceneObject | ObservedObject): ObservedObject => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z, width: o.width, depth: o.depth, height: o.height, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}),...(o.asset!==undefined?{asset:o.asset}:{}),...(o.facing!==undefined?{facing:o.facing}:{}),...(o.active!==undefined?{active:o.active}:{}),...(o.locked!==undefined?{locked:o.locked}:{}) })
+export const publicObject = (o: SceneObject | ObservedObject): ObservedObject => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z, width: o.width, depth: o.depth, height: o.height, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}),...(o.asset!==undefined?{asset:o.asset}:{}),...(o.facing!==undefined?{facing:o.facing}:{}),...(o.active!==undefined?{active:o.active}:{}),...(o.locked!==undefined?{locked:o.locked}:{}),
+  ...(o.kind === 'water' && o.height > 0 && (('water' in o && o.water) || ('waterVolume' in o && o.waterVolume === true)) ? {waterVolume:true} : {}) })
 function areaInside(a: KnownArea, f: MapFrame) { return a.x >= 0 && a.y >= 0 && a.z >= f.minZ && a.x + a.width <= f.width && a.y + a.depth <= f.depth && a.z + a.height <= f.maxZ }
 export function withinArea(p: ScenePosition, a: KnownArea) { return p.x >= a.x && p.x <= a.x + a.width && p.y >= a.y && p.y <= a.y + a.depth && p.z >= a.z && p.z <= a.z + a.height }
 export function preparePerception(draft: PerceptionDraft, previous: HeroPerception, scenes: SceneState, actorIds: string[]): HeroPerception {

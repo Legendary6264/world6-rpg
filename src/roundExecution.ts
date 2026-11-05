@@ -27,8 +27,8 @@ import type { ActorTiming } from './roundTimeline'
 import type { MovementBody, MovementChange, MovementPlan } from './sceneMovement'
 import { isRoundReplay } from './roundReplay'
 import type { RoundReplay } from './roundReplay'
-export const ROUND_EXECUTOR_VERSION = 'r10-tabletop-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+export const ROUND_EXECUTOR_VERSION = 'r11-water-electricity-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -148,6 +148,9 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       if(work.action.kind==='ability') {
         const decision=ruleDecisions.get(workKeys.get(work.id)!)!
         if(decision.kind!=='ability')throw Error('Некорректные параметры способности.')
+        if(decision.physics?.kind==='discharge'&&compareAmounts(end,duration)<=0&&compareAmounts(amountFromNumber(decision.physics.durationMs),cost)>0){
+          throw Error('Длительность разряда должна помещаться в завершающую часть выпуска по мировым часам.')
+        }
         if((work.action.stage==='release'||decision.binding==='bound')&&!['self','contact'].includes(work.action.target.kind)&&!(work.action.stage==='release'&&'point' in work.action.target&&decision.spatialConfirmed===true))throw Error('Для выпуска нужны собственная/раскрытая цель или подтверждённая пространственная цель; подготовка пространства только без привязки.')
         if(work.action.stage==='prepare'&&compareAmounts(cursor,duration)<0)starts.push({work,at:cursor})
       }

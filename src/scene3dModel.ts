@@ -11,7 +11,7 @@ export type RenderEntity = {
   id: string
   supportObjectId?:string
   transform: { position: ScenePosition }
-  geometry: { kind: Scene['objects'][number]['kind'] | 'actor' | 'sound'; width: number; depth: number; height: number; open?: boolean; asset?:string;artwork?:string;facing?:number;active?:boolean;locked?:boolean;characterModel?:string;characterAnimation?: import('./characterAppearance').CharacterAnimation }
+  geometry: { kind: Scene['objects'][number]['kind'] | 'actor' | 'sound'; width: number; depth: number; height: number; open?: boolean; asset?:string;artwork?:string;facing?:number;active?:boolean;locked?:boolean;waterVolume?:true;characterModel?:string;characterAnimation?: import('./characterAppearance').CharacterAnimation }
   appearance: { color: string; remembered: boolean; heightKnown: boolean }
   identity: { label: string }
   interaction: RenderSelection
@@ -29,7 +29,7 @@ export function masterRenderModel(scene: Scene, actors: SceneActor[], visuals: S
     entities: [...scene.objects.map(o => {
       const c = objectEntity(scene.id, o).components, p = c.position.data, g = c.geometry.data
       return { id: c.identity.data.id, transform: { position: { x: p.x, y: p.y, z: p.z } },
-        geometry: { ...g, open: c.collision.data.open,...(c.appearance.data.artwork?{artwork:c.appearance.data.artwork}:{}) },
+        geometry: { ...g, open: c.collision.data.open,...(c.appearance.data.artwork?{artwork:c.appearance.data.artwork}:{}),...(o.water?{waterVolume:true as const}:{}) },
         appearance: { color: colors[g.kind], remembered: false, heightKnown: true }, identity: { label: c.identity.data.name },
         interaction: { kind: 'object' as const, id: c.identity.data.id } }
     }),
@@ -43,7 +43,7 @@ export function perceivedRenderModel(map: PerceivedMap): SceneRenderModel {
   return { frame: { ...map.frame }, title: map.title, restricted: true,
     areas: map.areas.map(a => ({ ...a })),
     entities: [...map.objects.map(o => ({ id: o.id, transform: { position: { x: o.x, y: o.y, z: o.z } },
-      geometry: { kind: o.kind, width: o.width, depth: o.depth, height: o.height, open: o.open,asset:o.asset,artwork:o.artwork,facing:o.facing,active:o.active,locked:o.locked },
+      geometry: { kind: o.kind, width: o.width, depth: o.depth, height: o.height, open: o.open,asset:o.asset,artwork:o.artwork,facing:o.facing,active:o.active,locked:o.locked,...(o.waterVolume?{waterVolume:o.waterVolume}:{}) },
       appearance: { color: colors[o.kind], remembered: !o.visible, heightKnown: true }, identity: { label: o.name },
       interaction: { kind: 'object' as const, id: o.id } })),
     ...map.contacts.map(c => ({ id: c.id, transform: { position: { x: c.x, y: c.y, z: c.z ?? map.frame.groundZ } },

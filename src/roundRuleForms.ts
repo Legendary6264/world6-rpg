@@ -1,22 +1,62 @@
 import type { AbilitySpatial, ChargePolicy, ActionInput, ConsumableEffect } from './rpgTypes'
 import type { RuleDecision, RuleRow } from './roundRules'
 import {isAbilityObjectEffects} from './abilityEnvironment'
+import { isAbilityPhysicsEffect } from './abilityPhysics'
+import type { AbilityPhysicsEffect } from './abilityPhysics'
 import type {ObjectOperation} from './tabletopInteractions'
 export type RuleSceneObject={id:string;name:string;operations?:ObjectOperation[]}
 export type RuleActor={id:string;name:string;canFly?:boolean;speechEligible?:boolean;items?:{id:string;name:string;quantity?:number;consumable?:ConsumableEffect}[];abilities?:{id:string;name:string;spatial?:AbilitySpatial}[];regions?:{key:string;label:string}[];casts?:{id:string;abilityId:string;name:string;status:string;binding:'bound'|'unbound';spatial?:AbilitySpatial;chargePolicy?:ChargePolicy;roundPreparation?:boolean}[]}
 export const ruleNumbers=[['manualLocal','Локальное повреждение'],['manualSystemic','Системное поле прежнего движка'],['bleedingMlPerSecond','Кровотечение, мл/с'],['criticalChance','Шанс критического контакта, %'],['dodgeChance','Шанс уворота, %'],['criticalContactFactor','Коэффициент критического контакта']] as const
 export type TargetRuleForm={fields:Record<string,string>;accessible:boolean;conditionsConfirmed:boolean;canSpeak:boolean;armorPath:'covered'|'gap';gapConfirmed:boolean}
 export type RuleForm=TargetRuleForm&{key:string;kind:'item'|'ability';confirmed:boolean;operation:string;binding:string;charge:string;
-  spatialConfirmed?:boolean;overrides?:{actorId:string;form:TargetRuleForm}[];environment?:{objectId:string;operation:string;reason:string}[]}
+  spatialConfirmed?:boolean;overrides?:{actorId:string;form:TargetRuleForm}[];environment?:{objectId:string;operation:string;reason:string}[];physics?: AbilityPhysicsForm}
+
+export const physicsFields = {
+  'create-water': { widthM: 'Ширина слоя, м', depthM: 'Длина слоя, м', heightM: 'Глубина воды, м' },
+  'add-substance': { massKg: 'Масса примеси, кг' },
+  discharge: { x: 'X обратной клеммы, м', y: 'Y обратной клеммы, м', z: 'Z обратной клеммы, м',
+    voltageV: 'Напряжение источника, В', limitA: 'Предел тока источника, А', durationMs: 'Длительность разряда, мс', thresholdA: 'Ток для операций с объектами, А' },
+} satisfies Record<AbilityPhysicsEffect['kind'], Record<string, string>>
+export type AbilityPhysicsForm = { kind: AbilityPhysicsEffect['kind']; fields: Record<string, string>; substance: 'salt' | 'sediment' }
+
+export function emptyAbilityPhysicsForm(kind: AbilityPhysicsForm['kind']): AbilityPhysicsForm {
+  return { kind, fields: Object.fromEntries(Object.keys(physicsFields[kind]).map(key => [key, ''])), substance: 'salt' }
+}
 export function emptyRuleForm(row:RuleRow,binding=''):RuleForm {
   return {key:row.key,kind:row.action.kind,confirmed:false,operation:row.action.kind==='item'?row.action.operation??'':'',binding:row.action.kind==='ability'&&row.action.stage==='release'?'bound':binding,charge:row.action.kind==='ability'&&row.action.castId?'cast:'+row.action.castId:'',
     fields:{region:'torso',structureId:'',note:'',injury:'',...Object.fromEntries(ruleNumbers.map(([k])=>[k,k==='criticalContactFactor'?'1':'0']))},accessible:false,conditionsConfirmed:false,canSpeak:false,armorPath:'covered',gapConfirmed:false}
 }
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
+function validPhysicsForm(value: unknown): value is AbilityPhysicsForm {
+  if (!record(value) || typeof value.kind !== 'string' || !Object.hasOwn(physicsFields, value.kind) ||
+      (value.substance !== 'salt' && value.substance !== 'sediment') || !record(value.fields)) return false
+  const fields = value.fields
+  const keys = Object.keys(physicsFields[value.kind as AbilityPhysicsForm['kind']])
+  return Object.keys(fields).length === keys.length && keys.every(key => typeof fields[key] === 'string' && fields[key].length <= 40)
+}
+
+function physicsFormEffect(form: AbilityPhysicsForm): AbilityPhysicsEffect | null {
+  const n = (key: string) => form.fields[key].trim() ? Number(form.fields[key].trim().replace(',', '.')) : NaN
+  let effect: AbilityPhysicsEffect
+  switch (form.kind) {
+    case 'create-water':
+      effect = { kind: form.kind, widthM: n('widthM'), depthM: n('depthM'), heightM: n('heightM') }
+      break
+    case 'add-substance':
+      effect = { kind: form.kind, substance: form.substance, massKg: n('massKg') }
+      break
+    case 'discharge':
+      effect = { kind: form.kind, returnContact: { x: n('x'), y: n('y'), z: n('z') },
+        voltageV: n('voltageV'), limitA: n('limitA'), durationMs: n('durationMs'), thresholdA: n('thresholdA') }
+      break
+  }
+  return isAbilityPhysicsEffect(effect) ? effect : null
+}
 const validTarget=(v:unknown):boolean=>record(v)&&['accessible','conditionsConfirmed','canSpeak','gapConfirmed'].every(k=>typeof v[k]==='boolean')&&
   ['covered','gap'].includes(String(v.armorPath))&&record(v.fields)&&Object.keys(v.fields).length===10&&['region','structureId','note','injury',...ruleNumbers.map(([k])=>k)].every(k=>typeof (v.fields as Record<string,unknown>)[k]==='string'&&((v.fields as Record<string,string>)[k]).length<=2000)
 export const isRuleForm=(v:unknown):v is RuleForm=>record(v)&&validTarget(v)&&typeof v.key==='string'&&v.key.length<=400&&['item','ability'].includes(String(v.kind))&&typeof v.confirmed==='boolean'&&
   ['operation','binding','charge'].every(k=>typeof v[k]==='string'&&(v[k] as string).length<=500)&&(v.spatialConfirmed===undefined||typeof v.spatialConfirmed==='boolean')&&
+  (v.physics===undefined||v.kind==='ability'&&validPhysicsForm(v.physics))&&
   (v.environment===undefined||Array.isArray(v.environment)&&v.environment.length<=20&&v.environment.every(e=>record(e)&&typeof e.objectId==='string'&&e.objectId.length<=160&&typeof e.operation==='string'&&e.operation.length<=40&&typeof e.reason==='string'&&e.reason.length<=500))&&
   (v.overrides===undefined||Array.isArray(v.overrides)&&v.overrides.length<=200&&v.overrides.every(o=>record(o)&&typeof o.actorId==='string'&&/^[a-zA-Z0-9:_-]{1,160}$/.test(o.actorId)&&validTarget(o.form))&&new Set(v.overrides.map(o=>o.actorId)).size===v.overrides.length)
 export function targetFormInput(f:TargetRuleForm):ActionInput|null {
@@ -34,6 +74,9 @@ export function ruleFormDecision(f:RuleForm):RuleDecision|null {
   if(f.kind==='item')return {key:f.key,kind:'item',confirmed:f.confirmed,operation:'consume',input}
   const targets=(f.overrides??[]).map(o=>({actorId:o.actorId,input:targetFormInput(o.form)}));if(targets.some(t=>!t.input))return null
   if(f.environment!==undefined&&!isAbilityObjectEffects(f.environment))return null
+  const physics = f.physics && physicsFormEffect(f.physics)
+  if (f.physics && !physics) return null
   return {key:f.key,kind:'ability',confirmed:f.confirmed,binding:f.binding as 'bound'|'unbound',charge:f.charge,input,
-    ...(f.spatialConfirmed!==undefined?{spatialConfirmed:f.spatialConfirmed}:{}),...(targets.length?{targetInputs:targets as {actorId:string;input:ActionInput}[]}:{}),...(f.environment?.length?{environment:f.environment}:{})}
+    ...(f.spatialConfirmed!==undefined?{spatialConfirmed:f.spatialConfirmed}:{}),...(targets.length?{targetInputs:targets as {actorId:string;input:ActionInput}[]}:{}),...(f.environment?.length?{environment:f.environment}:{}),
+    ...(physics ? { physics } : {})}
 }

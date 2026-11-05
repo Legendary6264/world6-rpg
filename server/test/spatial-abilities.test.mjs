@@ -4,6 +4,7 @@ import {fixture,lobbyBody} from './fixtures.mjs'
 import {createDefaultCharacter} from '../generated/characterModel.mjs'
 import {createScene,emptyScenes,sceneObject} from '../generated/scenes.mjs'
 import {emptyAbility} from '../generated/rpgSchema.mjs'
+import {physicsMaterialPreset} from '../generated/physicsMaterials.mjs'
 const fields={region:'torso',distanceM:999,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:'SPATIAL-SECRET-NOTE'}
 for(const dialect of ['sqlite','postgres'])test('Пространственный выпуск: API, снимок и повтор · '+dialect,async t=>{
  const f=await fixture(t,dialect),{api}=f,gm=await f.register('space-owner'),player=await f.register('space-player')
@@ -74,4 +75,93 @@ for(const dialect of ['sqlite','postgres'])test('Пространственны�
   assert.equal((await apply(releaseCommand)).duplicate,true);const before=await world(),backup=await api(root+'/backup',gm.token);assert.deepEqual(hero(backup.world).rpg.casts,hero(before).rpg.casts)
   await api(root+'/restore',gm.token,'POST',{world:backup.world,bindings:backup.bindings,revision:before.revision});assert.deepEqual(hero(await world()).rpg.casts,hero(before).rpg.casts);await apply(releaseCommand,409)
  })
+})
+
+for (const dialect of ['sqlite', 'postgres']) test('Вода и разряд меняют один раунд и сохраняются при повторе · ' + dialect, async t => {
+ const f = await fixture(t, dialect), {api} = f, gm = await f.register('water-owner'), player = await f.register('water-player')
+ const {id} = await api('/lobbies', gm.token, 'POST', lobbyBody, 201), root = '/lobbies/' + id
+ await api(root + '/join', player.token, 'POST')
+ const hero = {...createDefaultCharacter(), id:'water-source', name:'Герой'}
+ await api('/characters/' + hero.id, player.token, 'PUT', {character:hero, revision:-1})
+ const {id:actorId} = await api(root + '/characters', player.token, 'POST', {characterId:hero.id}, 201)
+ const actorRoute = root + '/characters/' + actorId
+ const world = () => api(root + '/world', gm.token)
+ await api(actorRoute + '/review', gm.token, 'POST', {revision:(await world()).revision, decision:'approve', note:''})
+ const initial = await world(), actor = initial.characters[0]
+ actor.rpg.formulas = []; actor.statistics.energyRegeneration = '0'; actor.resources.mana = {maximum:'50',current:'50'}
+ actor.rpg.abilities = [{...emptyAbility(), id:'spell', templateId:'spell-template', name:'Опыт с водой', approved:true,
+   spatial:{shape:'sphere', includeCaster:false, radiusM:1}, rangeM:10, mechanism:'effect', cost:{mana:7,shadow:0,stamina:0}}]
+ initial.campaign.scenes = createScene(emptyScenes(), 'water-scene', 'Площадка', 'top')
+ const scene = initial.campaign.scenes.scenes[0]
+ scene.tokens = [{actorId, x:2, y:2, z:0, diameter:1, support:{kind:'ground'}}]
+ scene.objects = [{...sceneObject('lamp','electrode',{x:5,y:6,z:0}), width:1,depth:1,height:.2,
+   name:'PRIVATE-WATER-ELECTRODE', active:false, physics:{version:1, material:physicsMaterialPreset('copper'), massKg:1, temperatureK:298.15, wetnessFraction:0}}]
+ await api(root + '/world', gm.token, 'PUT', {world:initial, revision:initial.revision})
+ await api(actorRoute + '/disclosure', gm.token, 'PUT', {revision:(await world()).revision,draft:{activeSceneId:scene.id,scenes:[{
+   sceneId:scene.id,title:'Площадка',description:'',areas:[{id:'area',x:0,y:0,z:-5,width:20,depth:20,height:25,visible:true}],objects:[],contacts:[]
+ }]}})
+ await api(root + '/declarations', gm.token, 'POST', {sceneId:scene.id,participantIds:[actorId],durationSeconds:5,allowReplace:true,revision:(await world()).revision},201)
+ const view = await api(actorRoute + '/declarations', player.token)
+ const waterPoint = {x:6.5,y:6,z:0}, electrode = {x:5,y:6,z:.05}
+ const discharge = {kind:'discharge',returnContact:{x:7.25,y:6,z:.05},voltageV:24,limitA:.5,durationMs:100,thresholdA:.02}
+ const operations = [
+   {point:waterPoint,physics:{kind:'create-water',widthM:2,depthM:1,heightM:.1}},
+   {point:electrode,physics:discharge},
+   {point:waterPoint,physics:{kind:'add-substance',substance:'salt',massKg:.2}},
+   {point:electrode,physics:discharge},
+ ]
+ const actions = operations.flatMap(({point})=>[
+   {kind:'ability',abilityId:'spell',stage:'prepare',target:{kind:'none'},note:''},
+   {kind:'ability',abilityId:'spell',stage:'release',target:{kind:'area',point},note:''},
+ ])
+ await api(actorRoute + '/declarations', player.token, 'PUT', {
+   collectionId:view.collection.id,epoch:view.collection.epoch,baseVersion:0,controlStamp:view.controlStamp,actions,
+ })
+ await api(root + '/declarations', gm.token, 'PATCH', {collectionId:view.collection.id,epoch:view.collection.epoch,operation:'close'})
+ const before = await world(), collection = before.campaign.declarations.active
+ const key = index => 'new:' + actorId + ':' + index
+ const rules = operations.flatMap(({physics}, index) => [
+   {key:key(index*2),kind:'ability',confirmed:true,binding:'unbound',charge:'',input:fields},
+   {key:key(index*2+1),kind:'ability',confirmed:true,binding:'unbound',charge:'prepare:'+key(index*2),input:fields,spatialConfirmed:true,physics,
+     ...(physics.kind==='discharge'?{environment:[{objectId:'electrode',operation:'ignite',reason:'PRIVATE-WATER-RULE'}]}:{})},
+ ])
+ const request = {revision:before.revision,collectionId:collection.id,epoch:collection.epoch,input:{
+   timings:[{actorId,entryRevision:1,budgetMs:5000,costs:actions.map((_,index)=>({index,personalMs:500}))}],
+   continuations:[],missingDecisions:[],interactionsConfirmed:false,rules,
+ }}
+ const calculate = (body, token=gm.token, status=200) => api(root + '/rounds/calculate', token, 'POST', body, status)
+ await calculate(request, player.token, 403)
+ const long = structuredClone(request); long.input.rules[3].physics.durationMs=501
+ await calculate(long, gm.token, 400)
+ const outOfBounds = structuredClone(request); outOfBounds.input.rules[1].physics.widthM=20
+ await calculate(outOfBounds, gm.token, 400)
+ const preview = await calculate(request), releases = preview.summary.rules.filter(rule=>rule.kind==='release')
+ assert.equal(releases[0].physics.volumeL,200)
+ assert.equal(releases[1].physics.circuit.status,'closed')
+ assert(releases[1].physics.circuit.currentA<discharge.thresholdA)
+ assert.equal(releases[1].environment,undefined)
+ assert.equal(releases[2].physics.composition.saltKg,.2)
+ assert(releases[3].physics.circuit.currentA>discharge.thresholdA)
+ assert.deepEqual(releases[3].physics.circuit.path.map(part=>part.id),['electrode',releases[0].physics.objectId])
+ assert.equal(releases[3].environment[0].operation,'ignite')
+ assert.deepEqual(await world(),before)
+
+ const command = {previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()}
+ const apply = (body=command,path='/rounds/apply') => api(root+path,gm.token,'POST',body)
+ const result = await apply(), after = await world(), objects = after.campaign.scenes.scenes[0].objects
+ assert.equal(objects.length,2);assert.equal(objects[0].active,true);assert.equal(objects[1].water.saltKg,.2)
+ assert.equal(after.characters[0].resources.mana.current,'22')
+ await f.restart()
+ assert.equal((await apply()).duplicate,true);assert.deepEqual(await world(),after)
+ const personal = JSON.stringify(await api(root+'/world',player.token))
+ for (const secret of ['PRIVATE-WATER-ELECTRODE','PRIVATE-WATER-RULE','saltKg','currentA']) assert(!personal.includes(secret),secret)
+
+ const history = await api(root+'/rounds/history',gm.token)
+ const rollback = await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:history.revision,receiptId:result.receipt.id,reason:'Повторить опыт'})
+ await apply({previewId:rollback.id,generation:rollback.generation,commandKey:crypto.randomUUID()},'/rounds/change/apply')
+ assert.deepEqual((await world()).campaign.scenes.scenes[0].objects,before.campaign.scenes.scenes[0].objects)
+ const rolledBack = await api(root+'/rounds/history',gm.token)
+ const replay = await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:rolledBack.revision,receiptId:result.receipt.id})
+ await apply({previewId:replay.id,generation:replay.generation,commandKey:crypto.randomUUID()})
+ assert.deepEqual((await world()).campaign.scenes.scenes[0].objects,objects)
 })

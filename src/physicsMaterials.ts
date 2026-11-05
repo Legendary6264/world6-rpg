@@ -1,5 +1,7 @@
 import {MAX_TEMPERATURE_K, physicsId, physicsKeys, physicsNumber, physicsRecord} from './physicsUnits'
 
+export const PURE_WATER_CONDUCTIVITY_SM = 5.5e-6
+
 export type PhysicsMaterial = {
   id: string
   name: string
@@ -31,7 +33,7 @@ export function copyPhysicsMaterial(value: PhysicsMaterial): PhysicsMaterial {
 // Null means unknown; it must never be interpreted as zero conductivity.
 const approximation = 'Приближённый профиль для настройки мастером. Свойства зависят от состава и температуры; это не утверждённый канон.'
 const presets: readonly Readonly<PhysicsMaterial>[] = [
-  {id:'water-pure',name:'Чистая вода · пример',phase:'liquid',referenceTemperatureK:298.15,densityKgM3:997,specificHeatJKgK:4180,thermalConductivityWMK:.6,electricalConductivitySM:5.5e-6,basis:'approximation',note:'Слабая собственная проводимость при 25 °C: NIST, https://nvlpubs.nist.gov/nistpubs/jres/100/5/j15wu.pdf . Остальные значения приближены. Проводимость не учитывает примеси, изменение температуры или пробой; это не защита от электрического воздействия.'},
+  {id:'water-pure',name:'Чистая вода · пример',phase:'liquid',referenceTemperatureK:298.15,densityKgM3:997,specificHeatJKgK:4180,thermalConductivityWMK:.6,electricalConductivitySM:PURE_WATER_CONDUCTIVITY_SM,basis:'approximation',note:'Слабая собственная проводимость при 25 °C: NIST, https://nvlpubs.nist.gov/nistpubs/jres/100/5/j15wu.pdf . Остальные значения приближены. Проводимость не учитывает примеси, изменение температуры или пробой; это не защита от электрического воздействия.'},
   {id:'water-unspecified',name:'Вода с неизвестным составом',phase:'liquid',referenceTemperatureK:293.15,densityKgM3:1000,specificHeatJKgK:4180,thermalConductivityWMK:.6,electricalConductivitySM:null,basis:'approximation',note:approximation},
   {id:'wood',name:'Древесина · пример',phase:'solid',referenceTemperatureK:293.15,densityKgM3:650,specificHeatJKgK:1700,thermalConductivityWMK:.12,electricalConductivitySM:null,basis:'approximation',note:approximation},
   {id:'stone',name:'Камень · пример',phase:'solid',referenceTemperatureK:293.15,densityKgM3:2600,specificHeatJKgK:800,thermalConductivityWMK:2,electricalConductivitySM:null,basis:'approximation',note:approximation},

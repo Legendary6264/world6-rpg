@@ -58,6 +58,24 @@ test('Панели узкого экрана сохраняют черновик
  assert.equal(choose('Свойства').getAttribute('aria-pressed'),'true');assert.equal(writes,count);assert.deepEqual(current,before)
 })
 
+test('Вода в редакторе: глубина и состав образуют одно изменение с отменой',async()=>{
+ await fixture()
+ const state=structuredClone(current),scene=state.scenes.find(s=>s.id===state.activeSceneId)
+ const water=load('scenes').sceneObject('water','test-pool',{x:4,y:4,z:scene.groundZ})
+ scene.objects.push(water)
+ await flush(()=>setExternal(state));await flush(()=>viewport.onSelect({kind:'object',id:water.id}))
+ const form=()=>document.querySelector('form[aria-label="Объём и состав воды"]'),saved=()=>active().objects.find(o=>o.id===water.id)
+ await flush(()=>{
+  form().querySelector('[name=waterHeight]').value='.1'
+  form().querySelector('[name=waterBase]').value='pure'
+  form().querySelector('[name=waterSalt]').value='.2'
+  form().dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}))
+ })
+ assert.equal(saved().height,.1);assert.equal(saved().water.saltKg,.2)
+ await key('z',{ctrlKey:true});assert.deepEqual(saved(),water)
+ await key('z',{ctrlKey:true,shiftKey:true});assert.equal(saved().water.saltKg,.2)
+})
+
 test('Поворот героя: R, панель, отмена и повтор сохраняют точные XYZ, опору и оформление',async()=>{
  await fixture();const token=active().tokens[0],id=token.actorId
  const next=structuredClone(current),edited=next.scenes.find(s=>s.id===next.activeSceneId).tokens.find(t=>t.actorId===id)

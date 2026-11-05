@@ -117,7 +117,12 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
     const targetId=target.kind==='self'?r.actorId:target.kind==='contact'?work?.targetActorId??collection.entries.find(e=>e.actorId===r.actorId)?.resolved.find(v=>v.index===Number(r.key.slice(r.key.lastIndexOf(':')+1)))?.actorId:null
     return releaseSignature(r.actorId,work?.sceneId??collection.sceneId,r.action.abilityId,targetId??target)
   }
-  const ruleForm=(r:typeof ruleRows[number])=>draft.rules?.find(f=>f.key===r.key&&f.kind===r.action.kind&&!(r.action.kind==='ability'&&r.action.castId&&f.charge!=='cast:'+r.action.castId)&&!(r.action.kind==='item'&&r.action.operation&&f.operation!==r.action.operation))??emptyRuleForm(r,actors.find(a=>a.id===r.actorId)?.casts?.find(c=>c.id===roundWork.entries.find(w=>w.id===r.key)?.ability?.castId)?.binding)
+  const ruleForm=(r:typeof ruleRows[number])=>{
+    const form=draft.rules?.find(f=>f.key===r.key&&f.kind===r.action.kind&&!(r.action.kind==='ability'&&r.action.castId&&f.charge!=='cast:'+r.action.castId)&&!(r.action.kind==='item'&&r.action.operation&&f.operation!==r.action.operation))??emptyRuleForm(r,actors.find(a=>a.id===r.actorId)?.casts?.find(c=>c.id===roundWork.entries.find(w=>w.id===r.key)?.ability?.castId)?.binding)
+    return form.physics && !(r.action.kind==='ability'&&r.action.stage==='release'&&'point' in r.action.target)
+      ? {...form,physics:undefined,confirmed:false}
+      : form
+  }
   const rules=ruleRows.map(r=>ruleFormDecision(ruleForm(r))),rulesReady=rules.every((d,i)=>{const a=ruleRows[i].action;return d?.confirmed&&!(a.kind==='ability'&&a.stage==='release'&&d.kind==='ability'&&(!d.charge||'point' in a.target&&d.spatialConfirmed!==true))})
   const objectName = (sceneId: string, id: string) => objects.find(o => o.sceneId === sceneId && o.id === id)?.name ?? 'Прежний объект'
   function remember(next: Draft) { setDraft(next); const shared = writeLobbyForm(heightsKey, next.bodyHeights ?? {}), saved = writeLobbyForm(key, next); setWarning(saved && shared ? '' : 'Решения не сохранены на устройстве. Не закрывай страницу.'); return saved }
@@ -136,6 +141,10 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
           ...(hasMovement ? {movement:{confirmed:!!draft.movementConfirmed,bodies:bodyRows.map(b=>({actorId:b.actorId,heightM:height(bodyHeight(b.actorId)),...(flightReason(b.actorId).trim()?{flightReason:flightReason(b.actorId).trim()}:{})}))}} : {}) } }) })
       if (!active.current || abort.signal.aborted || attempt !== sequence.current || origin !== current.current) return
       if (value.revision !== revision || value.collectionId !== collection.id || value.epoch !== collection.epoch) { setMessage('Расчёт относится к другой версии. Обнови кампанию.'); return }
+      if (value.summary.rules?.some(outcome => outcome.kind === 'release' && !outcome.physics &&
+          rules.some(rule => rule?.key === outcome.key && rule.kind === 'ability' && rule.physics))) {
+        throw Error('В результате выпуска отсутствует расчёт воды или разряда. Обнови сервер игры и рассчитай раунд заново.')
+      }
       setPreview({ source: origin, value }); setMessage('Последствия рассчитаны на сервере. Проверь их перед применением.')
     } catch (e) { if (active.current && !abort.signal.aborted && attempt === sequence.current) setMessage((e as Error).message) }
     finally { if (active.current && pending.current === abort) { setBusy(null); inFlight.current = false } }

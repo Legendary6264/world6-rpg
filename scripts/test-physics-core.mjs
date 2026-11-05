@@ -23,6 +23,8 @@ const {emptyScenes,createScene,sceneObject,isSceneState,copySceneState,moveScene
 const {captureSceneAssembly,assemblyLayout,isSceneAssembly}=await load('sceneAssemblies'),{mergeSceneDraft}=await load('sceneDraftMerge')
 const {emptyCampaign,isCampaign,copyCampaign}=await load('rpgSchema'),{createCharacterArchive,parseCharacterArchive}=await load('characterTransfer')
 const {createDefaultCharacter}=await load('characterModel'),{advanceWorld}=await load('rpgEngine'),{exactAmount}=await load('exactWork'),{publicObject}=await load('scenePerception')
+const {pureWater,waterConductivitySM}=await load('waterPhysics'),{calculateCircuit}=await load('electricalCircuit')
+const {applyAbilityPhysics}=await load('abilityPhysics')
 const environment=()=>({version:1,gravityMs2:9.81,ambientTemperatureK:293.15})
 const body=(id='water-pure')=>({version:1,material:physicsMaterialPreset(id),massKg:2,temperatureK:298.15,wetnessFraction:0})
 function sceneState(physical=true){const state=createScene(emptyScenes(),'scene','Физический полигон','top'),scene=state.scenes[0];scene.objects=[{...sceneObject('crate','object',{x:5,y:5,z:0}),width:1,depth:1,height:1,...(physical?{physics:body()}: {})}];if(physical)scene.physics=environment();return state}
@@ -104,6 +106,64 @@ test('Старый клиент: явное снятие профиля и уд�
   const before=sceneState(),next=copySceneState(before);next.scenes[0].physics=null;next.scenes[0].objects[0].physics=null;preserveScenePhysics(before,next)
   assert(isSceneState(next));assert.equal(next.scenes[0].physics,null);assert.equal(copySceneState(next).scenes[0].objects[0].physics,null)
   next.scenes[0].objects=[];preserveScenePhysics(before,next);assert.equal(next.scenes[0].objects.length,0)
+})
+
+const pool=(id,x)=>({...sceneObject('water',id,{x,y:5,z:0}),width:2,depth:1,height:.1,water:pureWater()})
+const discharge=(x,y=5,z=.05)=>({kind:'discharge',returnContact:{x,y,z},voltageV:24,limitA:.5,durationMs:100,thresholdA:.02})
+
+test('Вода: дозирование ведёт отдельный учёт соли и песка, а проводимость зависит от концентрации',()=>{
+ const scene=sceneState().scenes[0],water=pool('pool',8),at={x:8,y:5,z:.05}
+ scene.objects=[water]
+ const initial=waterConductivitySM(water.water,water)
+ assert.equal(initial,5.5e-6)
+ const sand=applyAbilityPhysics(scene,at,'unused',{kind:'add-substance',substance:'sediment',massKg:.15})
+ assert.equal(sand.composition.sedimentKg,.15);assert.equal(sand.conductivitySM,initial)
+ const salted=applyAbilityPhysics(scene,at,'unused',{kind:'add-substance',substance:'salt',massKg:.2})
+ assert.equal(salted.volumeL,200);assert.equal(salted.composition.saltKg,.2);assert(salted.conductivitySM>initial*10000)
+ assert(waterConductivitySM(water.water,{...water,height:.2})<salted.conductivitySM)
+ assert.equal(waterConductivitySM({...water.water,base:'unknown'},water),null)
+ assert.equal(waterConductivitySM({...water.water,saltKg:20},water),null)
+})
+
+test('Цепь: сопротивление прямого участка учитывает сечение; ток ограничен источником',()=>{
+ const scene=sceneState().scenes[0],water=pool('pool',8)
+ water.water.saltKg=.2;scene.objects=[water]
+ const settings={...discharge(8.5),limitA:.01,thresholdA:.005},result=calculateCircuit(scene,{x:7.5,y:5,z:.05},settings)
+ const expected=1/(.1*waterConductivitySM(water.water,water))
+ assert.equal(result.status,'closed');assert(Math.abs(result.ohms-expected)<1e-9)
+ assert.equal(result.currentA,.01);assert(Math.abs(result.energyJ-.01**2*expected*.1)<1e-9)
+ assert.deepEqual(result.path.map(o=>o.id),['pool'])
+})
+
+test('Цепь: проводник соединяет две лужи только при контакте площадью; неизвестный материал отличается от изолятора',()=>{
+ const scene=sceneState().scenes[0],left=pool('left',4),right=pool('right',8),start={x:4,y:5,z:.05}
+ const bridge={...sceneObject('crate','bridge',{x:6,y:6,z:0}),width:2,depth:1,height:.1,physics:body('copper')}
+ scene.objects=[left,right,bridge]
+ assert.equal(calculateCircuit(scene,start,discharge(8)).status,'open','касание ребром')
+ bridge.y=5
+ const connected=calculateCircuit(scene,start,discharge(8))
+ assert.equal(connected.status,'closed');assert.deepEqual(connected.path.map(p=>p.id),['left','bridge','right'])
+ bridge.x+=.001;assert.equal(calculateCircuit(scene,start,discharge(8)).status,'open','воздушный зазор')
+ bridge.x=6;bridge.physics.material.electricalConductivitySM=null
+ assert.equal(calculateCircuit(scene,start,discharge(8)).status,'unknown')
+ bridge.physics.material.electricalConductivitySM=0
+ assert.equal(calculateCircuit(scene,start,discharge(8)).status,'open')
+})
+
+test('Вода: копии, сборки и старый клиент сохраняют состав; публичный объект раскрывает геометрию',()=>{
+ const state=sceneState(false),scene=state.scenes[0],water=pool('pool',8)
+ water.water.saltKg=.1;scene.objects=[water];assert(isSceneState(state))
+ const copy=copySceneState(state)
+ copy.scenes[0].objects[0].water.saltKg=.5;assert.equal(water.water.saltKg,.1)
+ delete copy.scenes[0].objects[0].water;preserveScenePhysics(state,copy)
+ assert.deepEqual(copy.scenes[0].objects[0].water,water.water)
+ copy.scenes[0].objects[0].water=null;preserveScenePhysics(state,copy)
+ assert.equal(copy.scenes[0].objects[0].water,null)
+ const assembly=captureSceneAssembly(scene,[{kind:'object',id:water.id}],'Вода','pool-assembly'),placed=assemblyLayout(assembly,{x:8,y:5,z:0},90)
+ assert.deepEqual(placed[0].water,water.water);placed[0].water.saltKg=.4;assert.equal(assembly.objects[0].water.saltKg,.1)
+ const visible=publicObject(water);assert.equal(visible.height,.1);assert.equal(visible.waterVolume,true);assert(!Object.hasOwn(visible,'water'))
+ const bad=copySceneState(state);bad.scenes[0].objects[0].height=0;assert(!isSceneState(bad))
+ bad.scenes[0].objects[0].height=.1;bad.scenes[0].objects[0].water.saltKg=-1;assert(!isSceneState(bad))
 })
 test('Акустические поля проверяются и переживают запись физического профиля старым клиентом',()=>{
   const before=sceneState(),scene=before.scenes[0],object=scene.objects[0]

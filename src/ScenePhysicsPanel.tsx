@@ -4,7 +4,9 @@ import {physicsMaterialPresets} from './physicsMaterials'
 import {copyPhysicsMaterial} from './physicsMaterials'
 import {DEFAULT_BACKGROUND_NOISE_DB,MAX_SOUND_LEVEL_DB,isPhysicsBody,isPhysicsEnvironment} from './physicsState'
 import type {PhysicsBody,PhysicsEnvironment} from './physicsState'
-import {celsiusToKelvin,kelvinToCelsius} from './physicsUnits'
+import {celsiusToKelvin,cubicMetresToLitres,kelvinToCelsius,physicsNumber} from './physicsUnits'
+import {isWaterComposition,MAX_WATER_ADDITIVE_KG,MIN_WATER_HEIGHT_M,waterConductivitySM,waterVolumeM3} from './waterPhysics'
+import type {SceneObject} from './sceneTypes'
 
 const number = (data: FormData, key: string): number => {
   const text = data.get(key)
@@ -14,6 +16,42 @@ const number = (data: FormData, key: string): number => {
 const display = (value: number | null, unit: string) => value === null ? 'Не задано' : value.toLocaleString('ru-RU',{maximumSignificantDigits:5}) + ' ' + unit
 const soundLevel = (data: FormData, key: string, previous: number | null | undefined) =>
   data.get(key) ? number(data, key) : previous === undefined ? undefined : null
+
+export function WaterVolumePanel({ object, disabled, onChange }: { object: SceneObject; disabled: boolean; onChange: (next: SceneObject) => boolean }) {
+  const [error, setError] = useState('')
+  const value = object.water
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (disabled) return
+    setError('')
+    try {
+      const data = new FormData(event.currentTarget), height = number(data, 'waterHeight')
+      const water = { version: 1, base: data.get('waterBase'), saltKg: number(data, 'waterSalt'), sedimentKg: number(data, 'waterSediment') }
+      if (!isWaterComposition(water) || !physicsNumber(height, MIN_WATER_HEIGHT_M, 1e6)) throw Error('Проверь глубину слоя и массы примесей.')
+      if (!onChange({ ...object, height, water })) setError('Проверь границы сцены и положение слоя.')
+    } catch (cause) {
+      setError((cause as Error).message)
+    }
+  }
+  return <details className="gb-scene-details"><summary>Объём и состав воды</summary>
+    {value && <p className="w6-copy">{display(cubicMetresToLitres(waterVolumeM3(object)), 'л')} · проводимость {display(waterConductivitySM(value, object), 'См/м')}</p>}
+    <p className="w6-copy">Объём определяется размерами слоя. Проводимость рассчитана для чистой воды и раствора NaCl до 50 г/л при комнатной температуре.</p>
+    <form key={JSON.stringify([object.height, value])} onSubmit={submit} aria-label="Объём и состав воды"><fieldset className="gb-properties gb-physics-properties" disabled={disabled}>
+      <label className="w6-field"><span>Глубина слоя, м</span><input name="waterHeight" type="number" step="any" min={MIN_WATER_HEIGHT_M} defaultValue={object.height || .05} required/></label>
+      <label className="w6-field"><span>Исходная вода</span><select name="waterBase" defaultValue={value?.base ?? 'unknown'}>
+        <option value="unknown">Неизвестный состав</option>
+        <option value="pure">Чистая вода</option>
+      </select></label>
+      <label className="w6-field"><span>Растворённая соль (NaCl), кг</span><input name="waterSalt" type="number" step="any" min="0" max={MAX_WATER_ADDITIVE_KG} defaultValue={value?.saltKg ?? 0} required/></label>
+      <label className="w6-field"><span>Песок, кг</span><input name="waterSediment" type="number" step="any" min="0" max={MAX_WATER_ADDITIVE_KG} defaultValue={value?.sedimentKg ?? 0} required/></label>
+      <div className="w6-buttons gb-wide">
+        <button type="submit" className="w6-button w6-primary">Сохранить состав</button>
+        <button type="button" className="w6-button" disabled={!value} onClick={() => { if (onChange({ ...object, water: null })) setError('') }}>Снять состав</button>
+      </div>
+    </fieldset></form>
+    {error && <p role="alert" className="w6-error">{error}</p>}
+  </details>
+}
 
 export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
   const [materialId,setMaterialId]=useState(value?.material.id??''),[message,setMessage]=useState(''),[failed,setFailed]=useState(false),presets=physicsMaterialPresets()

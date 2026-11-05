@@ -5,6 +5,7 @@ import type { Scene, SceneObject, SceneState, SceneToken } from './sceneTypes'
 import {sceneObjectLabels} from './sceneObjectDefaults'
 import {validSceneEnvironment} from './sceneEnvironment'
 import {copyPhysicsBody,copyPhysicsEnvironment,isPhysicsBody,isPhysicsEnvironment} from './physicsState'
+import { copyWaterComposition, isWaterComposition, MIN_WATER_HEIGHT_M } from './waterPhysics'
 export {sceneObject,sceneObjectLabels} from './sceneObjectDefaults'
 
 // Storage/rendering limits, not game rules. Coordinates and dimensions are metres.
@@ -38,6 +39,7 @@ function validScene(v: unknown): v is Scene {
       typeof o.kind === 'string' && Object.hasOwn(sceneObjectLabels, o.kind) && validTabletopAppearance(o) && position(o, v) && (o.artwork === undefined || isArtwork(o.artwork)) &&
       (o.physics === undefined || o.physics === null || isPhysicsBody(o.physics)) &&
       size(o.width) && size(o.depth) && finite(o.height) && o.height >= 0 && Number(o.z) + o.height <= Number(v.maxZ) &&
+      (o.water === undefined || o.kind === 'water' && (o.water === null || isWaterComposition(o.water) && o.height >= MIN_WATER_HEIGHT_M)) &&
       o.width <= Number(v.width) && o.depth <= Number(v.depth) &&
       ['blocksMovement', 'blocksSight', 'canSupport', 'open'].every(k => typeof o[k] === 'boolean'))) return false
   const objects = v.objects as SceneObject[]
@@ -78,6 +80,7 @@ export function copySceneState(state: SceneState): SceneState {
       width: o.width, depth: o.depth, height: o.height, blocksMovement: o.blocksMovement,
       blocksSight: o.blocksSight, canSupport: o.canSupport, open: o.open, ...(o.artwork !== undefined ? { artwork: o.artwork } : {}),
       ...(o.physics !== undefined ? {physics:copyPhysicsBody(o.physics)} : {}),
+      ...(o.water !== undefined ? {water:copyWaterComposition(o.water)} : {}),
       ...(o.asset!==undefined?{asset:o.asset}:{}),...(o.facing!==undefined?{facing:o.facing}:{}),...(o.active!==undefined?{active:o.active}:{}),...(o.locked!==undefined?{locked:o.locked}:{}) })),
     tokens: s.tokens.map(t => ({ actorId: t.actorId, x: t.x, y: t.y, z: t.z, diameter: t.diameter,
       ...(t.characterModel!==undefined?{characterModel:t.characterModel}:{}),...(t.facing!==undefined?{facing:t.facing}:{}),...(t.characterAnimation!==undefined?{characterAnimation:t.characterAnimation}:{}),

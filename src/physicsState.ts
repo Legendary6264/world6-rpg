@@ -2,6 +2,7 @@ import {copyPhysicsMaterial, isPhysicsMaterial} from './physicsMaterials'
 import type {PhysicsMaterial} from './physicsMaterials'
 import {MAX_TEMPERATURE_K, physicsKeys, physicsNumber, physicsRecord} from './physicsUnits'
 import type {SceneState} from './sceneTypes'
+import { copyWaterComposition } from './waterPhysics'
 
 export const DEFAULT_BACKGROUND_NOISE_DB = 30
 export const MAX_SOUND_LEVEL_DB = 160
@@ -47,6 +48,7 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
     const objects = new Map(previous.objects.map(object => [object.id,object]))
     for (const object of scene.objects) {
       const before = objects.get(object.id)
+      if (object.kind === 'water' && object.water === undefined && before?.water !== undefined) object.water = copyWaterComposition(before.water)
       if (object.physics === undefined && before?.physics !== undefined) object.physics = copyPhysicsBody(before.physics)
       else if (object.physics && object.physics.noiseLevelDbAt1m === undefined && before?.physics?.noiseLevelDbAt1m !== undefined) {
         object.physics = {...object.physics, noiseLevelDbAt1m:before.physics.noiseLevelDbAt1m}

@@ -3,6 +3,7 @@ import type {EditorItem} from './sceneEditorCommands'
 import type {AssetPlacement} from './sceneEditorPlacement'
 import {copySceneState,isSceneState,MAX_SCENE_OBJECTS,replaceScene} from './scenes.ts'
 import {copyPhysicsBody} from './physicsState'
+import { copyWaterComposition } from './waterPhysics'
 
 export type SceneAssembly={version:1;id:string;name:string;width:number;depth:number;height:number;objects:SceneObject[]}
 export type AssemblyPlacement={assembly:SceneAssembly;facing:number;elevation:number}
@@ -40,7 +41,7 @@ export function assemblyLayout(a:SceneAssembly,at:ScenePosition,facing:number):S
  assemblyDimensions(a,facing)
  return a.objects.map(o=>{
   const x=o.x-a.width/2,y=o.y-a.depth/2,rx=facing===0?x:facing===90?-y:facing===180?-x:y,ry=facing===0?y:facing===90?x:facing===180?-y:-x
-  return {...o,...(o.physics!==undefined?{physics:copyPhysicsBody(o.physics)}:{}),x:round(at.x+rx),y:round(at.y+ry),z:round(at.z+o.z),width:facing%180?o.depth:o.width,depth:facing%180?o.width:o.depth,facing:((o.facing??0)+facing)%360}
+  return {...o,...(o.physics!==undefined?{physics:copyPhysicsBody(o.physics)}:{}),...(o.water!==undefined?{water:copyWaterComposition(o.water)}:{}),x:round(at.x+rx),y:round(at.y+ry),z:round(at.z+o.z),width:facing%180?o.depth:o.width,depth:facing%180?o.width:o.depth,facing:((o.facing??0)+facing)%360}
  })
 }
 export function assemblyAnchor(frame:Pick<Scene,'width'|'depth'|'groundZ'>,a:SceneAssembly,point:ScenePosition,facing:number,elevation=0,step?:number):ScenePosition{

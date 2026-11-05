@@ -5,6 +5,13 @@ export {populateCharacter as populateFigure} from './scene3dCharacters.ts'
 
 export function populateWater(e:RenderEntity,mesh:ModelMesh){
  if(e.geometry.kind!=='water')return false
+ const volumeHeight=e.geometry.height
+ if(e.geometry.waterVolume&&volumeHeight>0){
+  const {width,depth}=e.geometry
+  mesh(new THREE.BoxGeometry(width,volumeHeight,depth),'#367f89',0,volumeHeight/2,0,
+   {opacity:.67,roughness:.13,metalness:.08,clearcoat:1,castShadow:false})
+  return true
+ }
  const w=e.geometry.width,d=e.geometry.depth,h=Math.max(.035,e.geometry.height),sectors=72,rings=22,positions:number[]=[],uv:number[]=[],indices:number[]=[]
  const shoreline=(angle:number)=>.93+.025*Math.sin(angle*5)+.025*Math.sin(angle*9+1.2)
  for(let ring=0;ring<=rings;ring++)for(let sector=0;sector<=sectors;sector++){

@@ -11,9 +11,9 @@ import {defaultLightTuning,normalizeLightTuning,lightDirection,readViewLightSett
 import {reliefPlate,flutedColumn} from '../src/scene3dRelief.ts'
 import {SceneContactPass,withContactGeometry} from '../src/scene3dContact.ts'
 
-function build(kind,w,d,h,open=false){
+function build(kind,w,d,h,open=false,waterVolume=false){
  const group=new THREE.Group(),materials=new Map(),resources=new Set()
- const entity={id:'detail:'+kind,geometry:{kind,width:w,depth:d,height:h,open,characterModel:'vanguard'},appearance:{remembered:false,heightKnown:true,color:'#78baa5'}}
+ const entity={id:'detail:'+kind,geometry:{kind,width:w,depth:d,height:h,open,waterVolume,characterModel:'vanguard'},appearance:{remembered:false,heightKnown:true,color:'#78baa5'}}
  const populate=kind==='actor'?populateFigure:kind==='water'?populateWater:populateCraftedEntity
  populate(entity,(geometry,color,x,y,z,options={})=>{
   const key=JSON.stringify([color,options]);let material=materials.get(key)
@@ -72,6 +72,16 @@ test('Фигурки и вода: размер, складки плаща, ре�
   model.dispose()
  }
  let called=false;assert.equal(populateFigure({geometry:{kind:'actor'},appearance:{heightKnown:false}},()=>{called=true}),false);assert(!called)
+})
+
+test('Вода с составом: 3D-слой показывает полную площадь и фактическую глубину',()=>{
+ const model=build('water',2,1,.1,false,true)
+ try {
+  const bounds=new THREE.Box3().setFromObject(model.group,true)
+  assert(bounds.min.distanceTo(new THREE.Vector3(-1,0,-.5))<1e-8)
+  assert(bounds.max.distanceTo(new THREE.Vector3(1,.1,.5))<1e-8)
+  assert(model.group.children[0].material.transparent)
+ } finally { model.dispose() }
 })
 
 test('Свет: смена направления и мощности без замены источников; фонари возвращаются из рабочего режима',()=>{

@@ -2075,6 +2075,38 @@ test('Пространство UI: мастер подтверждает гео�
   assert.equal(f.worlds.a.characters[1].rpg.effects.length,0);await click('Применить рассчитанный раунд');assert.equal(f.worlds.a.characters[1].rpg.effects.length,1);assert.equal(f.worlds.a.characters[2].rpg.effects.length,1);assert.equal(f.worlds.a.characters[0].resources.mana.current,'43')
  }finally{await f.close()}
 })
+test('Вода UI: параметры выпуска сохраняются, требуют сверки и создают один объём после применения',async()=>{
+ const f=await fixture()
+ try{
+  executableSpatial(f,'a');await spatialFields(f,'a')
+  const label=name=>'[aria-label="'+name+' Hero a · 1"]'
+  await selectValue(label('Действие со средой'),'create-water')
+  await input(label('Ширина слоя, м'),'2');await input(label('Длина слоя, м'),'1');await input(label('Глубина воды, м'),'0,1')
+  assert.equal(document.querySelector(label('Правила подтверждены')).checked,false)
+  assert(!enabledButton('Рассчитать последствия раунда'))
+  await f.mount(false);await f.mount(true);await flush();await f.open('a');await click('Открыть инструменты заявлений')
+  assert.equal(document.querySelector(label('Глубина воды, м')).value,'0,1')
+  assert.equal(document.querySelector(label('Пространство подтверждено')).checked,false)
+  await flush(()=>document.querySelector(label('Пространство подтверждено')).click())
+  await flush(()=>document.querySelector(label('Правила подтверждены')).click())
+  f.intercept((url,options)=>{
+   if(!url.endsWith('/rounds/calculate'))return undefined
+   f.intercept(null)
+   return f.request(url,options).then(result=>{
+    for(const outcome of result.summary.rules)delete outcome.physics
+    return result
+   })
+  })
+  await click('Рассчитать последствия раунда')
+  assert(!enabledButton('Применить рассчитанный раунд'));assert(document.body.textContent.includes('Обнови сервер игры'))
+  await click('Рассчитать последствия раунда')
+  assert.deepEqual(f.executions[0].input.rules[0].physics,{kind:'create-water',widthM:2,depthM:1,heightM:.1})
+  assert.equal(f.worlds.a.campaign.scenes.scenes[0].objects.length,0)
+  await click('Применить рассчитанный раунд')
+  const [water]=f.worlds.a.campaign.scenes.scenes[0].objects
+  assert.equal(water.height,.1);assert.deepEqual(water.water,{version:1,base:'pure',saltKg:0,sedimentKg:0})
+ }finally{await f.close()}
+})
 test('Пространство UI: индивидуальный неверный ввод сохраняется и не смешивается между лобби',async()=>{
  const f=await fixture()
  try {

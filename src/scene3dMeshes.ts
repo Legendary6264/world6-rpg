@@ -35,7 +35,8 @@ export function populateEntityModel(e:RenderEntity,mesh:ModelMesh,low=false){
   const rock=mesh(new THREE.IcosahedronGeometry(1,low?0:1),color,0,h*.5,0);rock.scale.set(w*.5,h*.5,d*.5)
   if(!low){const seam=mesh(new THREE.DodecahedronGeometry(1,0),'#a2a8ac',w*.15,h*.35,-d*.08);seam.scale.set(w*.26,h*.26,d*.3)}
  }else if(g.kind==='water'){
-  box(w,.018,d,0,.009,0,color,{opacity:.78,roughness:.15,metalness:.4})
+  const waterHeight=g.waterVolume?g.height:.018
+  mesh(new THREE.BoxGeometry(w,waterHeight,d),color,0,waterHeight/2,0,{opacity:.78,roughness:.15,metalness:.4})
   if(!low)for(let i=0;i<5;i++)box(w*(.12+(i%3)*.08),.003,Math.min(.035,d*.02),Math.sin(i*4)*w*.28,.02,(i-2)*d*.16,'#91c6c7',{opacity:.55})
  }else{
   const ring=mesh(new THREE.TorusGeometry(w/2,.035,4,32),color,0,.08,0);ring.rotation.x=Math.PI/2
