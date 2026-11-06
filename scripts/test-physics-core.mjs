@@ -30,6 +30,8 @@ const {advanceMovement}=await load('sceneMovement')
 const {perceivedMap,preparePerception,emptyPerception}=await load('scenePerception')
 const {advanceThermal,applyHeat,smokeVisibilityM}=await load('thermalPhysics')
 const {advanceFalls,nextFallSeconds}=await load('structuralPhysics')
+const {planSlide,slideStep,applySlide,checkDoorSlideClearance}=await load('horizontalPhysics')
+const {duplicateEditorGroup}=await load('sceneEditorCommands')
 const {BOILING_ENTHALPY_J_KG,FUSION_J_KG,VAPORIZATION_J_KG,waterVolumeM3,liquidEnthalpy}=await load('waterPhysics')
 const environment=()=>({version:1,gravityMs2:9.81,ambientTemperatureK:293.15})
 const body=(id='water-pure')=>({version:1,material:physicsMaterialPreset(id),massKg:2,temperatureK:298.15,wetnessFraction:0})
@@ -119,6 +121,74 @@ const discharge=(x,y=5,z=.05)=>({kind:'discharge',returnContact:{x,y,z},voltageV
 const flowCell=(id,x,height=.2,z=0)=>({...pool(id,x),z,height,water:{...pureWater(),flow:true}})
 const totals=cells=>['volume','saltKg','sedimentKg'].map(key=>cells.reduce((sum,c)=>sum+(key==='volume'?c.width*c.depth*c.height:c.water[key]),0))
 const closeTo=(actual,expected)=>assert(Math.abs(actual-expected)<1e-10,`${actual} differs from ${expected}`)
+
+function slidingCrate() {
+ const state=sceneState(),scene=state.scenes[0]
+ scene.physics.gravityMs2=10
+ const crate={...scene.objects[0],x:4,physics:{...body('wood'),massKg:10,
+   sliding:{dryFriction:.2,wetFriction:.05,impactTransfer:.5,vxMs:0,vyMs:0}}}
+ scene.objects=[crate]
+ const push=(impulseNs=60,fromX=2)=>applyAbilityPhysics(scene,{x:crate.x,y:crate.y,z:.5},'unused',{kind:'push-object',impulseNs},{x:fromX,y:crate.y,z:0})
+ const advance=seconds=>{const step=slideStep(planSlide(scene),seconds);return {step,impact:applySlide(scene,step)}}
+ return {state,scene,crate,push,advance}
+}
+
+test('Скольжение: импульс зависит от массы, смачивание меняет торможение, скорость переживает копию',()=>{
+ const dry=slidingCrate(),wet=slidingCrate(),heavy=slidingCrate()
+ wet.crate.physics.wetnessFraction=1
+ heavy.crate.physics.massKg=20
+ assert.equal(dry.push().speedMs,6);assert.equal(wet.push().speedMs,6);assert.equal(heavy.push().speedMs,3)
+ dry.advance(.5);wet.advance(.5)
+ closeTo(dry.crate.x,6.75);closeTo(dry.crate.physics.sliding.vxMs,5)
+ assert(wet.crate.x>dry.crate.x);closeTo(wet.crate.physics.sliding.vxMs,5.75)
+ const saved=copySceneState(JSON.parse(JSON.stringify(dry.state))).scenes[0]
+ const rest=slideStep(planSlide(saved),10)
+ assert(rest.stopped);assert.equal(rest.collision,undefined);closeTo(rest.point.x,13)
+ const once=slidingCrate();once.push()
+ closeTo(once.advance(10).step.point.x,rest.point.x)
+ const stoppedByImpulse=wet.push(wet.crate.physics.sliding.vxMs*10,wet.crate.x+2)
+ closeTo(stoppedByImpulse.speedMs,0);assert.equal(planSlide(wet.scene),undefined)
+})
+
+test('Скольжение: тонкая дверь останавливает предмет, открытая пропускает, герой защищён от автоматического удара',()=>{
+ const {scene,crate,push,advance}=slidingCrate()
+ const gate={...sceneObject('door','gate',{x:8,y:5,z:0}),width:.1,depth:1,height:2}
+ const wall={...sceneObject('wall','wall',{x:12,y:5,z:0}),width:1,depth:1,height:2,
+   physics:{...body('stone'),structure:{failureJ:1e6,absorbedJ:0}}}
+ scene.objects.push(gate,wall)
+ push(300)
+ const hitGate=advance(1)
+ assert.equal(hitGate.step.collision.contact.objectId,'gate');closeTo(crate.x,7.45)
+ gate.open=true
+ push(300,6)
+ const hitWall=advance(1)
+ assert.equal(hitWall.step.collision.contact.objectId,'wall');closeTo(crate.x,11)
+ closeTo(hitWall.impact.energyJ,hitWall.step.collision.energyJ/2)
+ closeTo(wall.physics.structure.absorbedJ,hitWall.impact.energyJ)
+ const protectedScene=slidingCrate()
+ protectedScene.scene.tokens=[{actorId:'bystander',x:6,y:5,z:0,diameter:1,support:{kind:'ground'}}]
+ protectedScene.push()
+ const stopped=protectedScene.advance(1)
+ assert.deepEqual(stopped.step.collision.contact,{kind:'actor',actorId:'bystander'})
+ assert.equal(stopped.impact,undefined);closeTo(protectedScene.crate.x,5)
+})
+
+test('Скольжение: редактор копирует настройки, не копируя скорость, дверь проверяет занятый проём',()=>{
+ const {state,scene,crate,push}=slidingCrate()
+ push()
+ const old=copySceneState(state)
+ delete old.scenes[0].objects[0].physics.sliding
+ preserveScenePhysics(state,old);assert.equal(old.scenes[0].objects[0].physics.sliding.vxMs,6)
+ const duplicate=duplicateEditorGroup(state,[{kind:'object',id:crate.id}],()=> 'copy').state.scenes[0]
+ assert.equal(duplicate.objects[0].physics.sliding.vxMs,6)
+ assert.deepEqual(duplicate.objects[1].physics.sliding,{...crate.physics.sliding,vxMs:0})
+ const gate={...sceneObject('door','gate',{x:4.4,y:5,z:0}),open:true,width:.2,depth:1,height:2}
+ scene.objects.push(gate)
+ assert.throws(()=>checkDoorSlideClearance(scene,gate.id),/мешает предмет/)
+ const moved=moveSceneObject(state,scene.id,{...crate,x:6})
+ assert.equal(moved.scenes[0].objects[0].physics.sliding.vxMs,0)
+ assert.equal(crate.physics.sliding.vxMs,6)
+})
 
 function breakablePlatform() {
  const state=sceneState(),scene=state.scenes[0]

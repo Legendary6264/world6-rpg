@@ -250,6 +250,20 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
             fall.impact?.status==='outside-range' ? ' · энергия удара за пределами калибровки' : ''}
         </p>)}
       </section>}
+      {visible.summary.slides && <section aria-label="Импульс и скольжение">
+        <h4>Импульс и скольжение</h4>
+        {visible.summary.slides.moving.map(o => <p key={o.objectId}>{o.name} · скользит · ({coords(o.point)}) м · {quantity(o.speedMs)} м/с</p>)}
+        {visible.summary.slides.stops.map((stop, index) => {
+          const hit = stop.collision
+          const reason = !hit ? 'остановился от трения' : hit.contact.kind === 'object' ? 'столкнулся с преградой «' + hit.contact.name + '»' :
+            hit.contact.kind === 'actor' ? 'остановился перед героем ' + name(hit.contact.actorId) : 'достиг границы сцены'
+          return <p key={stop.objectId+':'+index}>{stop.name} · {reason} · ({coords(stop.point)}) м
+            {hit ? ' · энергия при контакте ' + quantity(hit.energyJ) + ' Дж' : ''}
+            {stop.impact ? ' · преграде передано ' + quantity(stop.impact.energyJ) + ' Дж · ' +
+              (stop.impact.collapsed ? 'преграда разрушилась' : 'накоплено ' + quantity(stop.impact.absorbedJ) + ' / ' + quantity(stop.impact.failureJ) + ' Дж') : ''}
+          </p>
+        })}
+      </section>}
       {visible.summary.carried.map(e => <p key={e.id}>{name(e.actorId)} · остаток {e.remaining.numerator}/{e.remaining.denominator} {e.unit === 'world-ms' ? 'мировых мс' : 'личных мс'}</p>)}
       {visible.summary.warnings.map(w => <p key={w}>{w}</p>)}
       {!draft.command && <button className="w6-button" disabled={disabled} onClick={() => void apply()}>Применить рассчитанный раунд</button>}

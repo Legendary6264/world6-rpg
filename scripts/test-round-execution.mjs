@@ -15,6 +15,8 @@ for (const file of await readdir('src')) {
 const module = name => import(pathToFileURL(join(directory, name + '.mjs')))
 const { calculateRound } = await module('roundExecution'), { createDefaultCharacter } = await module('characterModel')
 const { emptyCampaign } = await module('rpgSchema'), scenes = await module('scenes'), exact = await module('exactWork')
+const { physicsMaterialPreset } = await module('physicsMaterials')
+const { advanceWaterFlow } = await module('waterFlow')
 const amount = n => exact.exactAmount(BigInt(n))
 const wait = seconds => ({ kind: 'wait', seconds, note: '' })
 const door = operation => ({ kind: 'interact', operation, target: { kind: 'object', id: 'door' }, note: '' })
@@ -110,6 +112,42 @@ function motionWorld(a = location(2,2), b = location(25,18)) {
 }
 const motionInput = (timings,missing=['b']) => ({...input(timings,missing),movement:{confirmed:true,bodies:[{actorId:'a',heightM:2,flightReason:'Мастер подтвердил действующую левитацию и её условия'},{actorId:'b',heightM:2,flightReason:'Мастер подтвердил действующую левитацию и её условия'}]}})
 const ownToken = w => w.campaign.scenes.scenes[0].tokens.find(t=>t.actorId==='a')
+function slidingBox(x, friction) {
+  return { ...scenes.sceneObject('crate','sliding-box',location(x,5)),name:'Скользящий ящик',width:1,depth:1,height:1,
+    physics:{version:1,material:physicsMaterialPreset('wood'),massKg:10,temperatureK:293.15,wetnessFraction:0,
+      sliding:{dryFriction:friction,wetFriction:null,impactTransfer:1,vxMs:3,vyMs:0}} }
+}
+test('Скольжение и ходьба: пересекающийся маршрут блокирует расчёт, соседний проходит',()=>{
+  const w=motionWorld(location(6,2)),scene=w.campaign.scenes.scenes[0]
+  scene.physics={version:1,gravityMs2:10,ambientTemperatureK:293.15}
+  scene.objects=[slidingBox(4,.2)]
+  const plan=target=>collection([entry('a',[move([target])])])
+  const p=motionInput([timing('a',[200])]),before=structuredClone(w)
+  assert.throws(()=>calculateRound(w,plan(location(6,8)),p,'cross-slide'),/препятствие «Скользящий ящик»/)
+  assert.deepEqual(w,before)
+  ownToken(w).x=9
+  const beside=calculateRound(w,plan(location(9,8)),p,'beside-slide')
+  assert.deepEqual({x:ownToken(beside.world).x,y:ownToken(beside.world).y},{x:9,y:8})
+  assert.equal(beside.summary.slides.stops[0].point.x,6.25)
+})
+test('Скольжение и вода: разрушенная преграда пропускает поток с момента удара',()=>{
+  const w=motionWorld(),scene=w.campaign.scenes.scenes[0],crate=slidingBox(3,0)
+  const cell=(id,x,height)=>({...scenes.sceneObject('water',id,location(x,5)),width:2,depth:2,height,
+    water:{version:1,base:'pure',saltKg:0,sedimentKg:0,flow:true}})
+  const barrier={...scenes.sceneObject('wall','barrier',location(6,5)),width:.2,depth:2,height:2,
+    physics:{version:1,material:physicsMaterialPreset('wood'),massKg:4,temperatureK:293.15,wetnessFraction:0,structure:{failureJ:1,absorbedJ:0}}}
+  scene.objects=[crate,barrier,cell('source',5,.2),cell('sink',7,0)]
+  const round={...collection([entry('a',[wait(1)])]),durationSeconds:1}
+  const result=calculateRound(w,round,input([timing('a')],['b']),'slide-flow')
+  const [stop]=result.summary.slides.stops,hitSeconds=Number(stop.atMs.numerator)/Number(stop.atMs.denominator)/1000
+  assert(stop.impact.collapsed);assert(Math.abs(hitSeconds-.8)<2e-6)
+  const reference=structuredClone(scene)
+  reference.objects=reference.objects.filter(o=>o.id!=='barrier')
+  reference.objects[0].x=stop.point.x
+  advanceWaterFlow(reference,1-hitSeconds)
+  const actual=result.world.campaign.scenes.scenes[0].objects.find(o=>o.id==='sink').height
+  assert(actual>0);assert(Math.abs(actual-reference.objects.find(o=>o.id==='sink').height)<1e-10)
+})
 test('Движение: свободные XYZ и порядок маршрута; расчёт не изменяет источник',()=>{
   const w=motionWorld(),before=structuredClone(w),c=collection([entry('a',[move([location(7,2),location(7,7)])])])
   const r=calculateRound(w,c,motionInput([timing('a',[500])]),'walk')

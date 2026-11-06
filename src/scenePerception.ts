@@ -7,6 +7,7 @@ import {validTabletopAppearance} from './tabletopCatalog'
 import {sceneEnvironment,validSceneEnvironment} from './sceneEnvironment'
 import {smokeVisibilityM} from './thermalPhysics'
 import {isVariableWater,waterIceCover} from './waterPhysics'
+import {isSliding} from './mechanicalProfiles'
 // These built-in terrain paintings contain no campaign objects or private labels.
 const mapBackground = (value: unknown): value is string => isTiledArtwork(value) || value === 'pixel-ground-stone' || value === 'pixel-ground-yard'
 
@@ -22,7 +23,7 @@ export type ScenePerceptions = { version: 1; heroes: HeroPerception[] }
 export type PerceptionDraft = { activeSceneId: string | null; scenes: (Omit<KnownScene, 'frame' | 'objects' | 'contacts'> & {
   objects: Pick<ObjectDisclosure, 'objectId' | 'visible'>[]; contacts: Omit<ContactDisclosure, 'id'>[] })[] }
 export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; falling?: true; support?: 'ground' | 'air' | 'object'; portrait?: string; radius?: number; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
-export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; title: string; description: string; frame: MapFrame; areas: KnownArea[]; objects: (ObservedObject & { visible: boolean })[]; contacts: VisibleContact[] }
+export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; title: string; description: string; frame: MapFrame; areas: KnownArea[]; objects: (ObservedObject & { visible: boolean; sliding?: true })[]; contacts: VisibleContact[] }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const id = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(v)
 const text = (v: unknown, n: number): v is string => typeof v === 'string' && v.length <= n
@@ -58,6 +59,12 @@ export function isScenePerceptions(v: unknown): v is ScenePerceptions {
   })
 }
 export const emptyPerception = (actorId: string): HeroPerception => ({ actorId, activeSceneId: null, scenes: [] })
+export function removeLiveObjectDisclosure(perceptions: ScenePerceptions | undefined, sceneId: string, objectId: string) {
+  for (const hero of perceptions?.heroes ?? []) {
+    const known = hero.scenes.find(known => known.sceneId === sceneId)
+    if (known) known.objects = known.objects.filter(object => !object.visible || object.objectId !== objectId)
+  }
+}
 export function perceptionDraft(value: HeroPerception): PerceptionDraft {
   return { activeSceneId: value.activeSceneId, scenes: value.scenes.map(s => ({ sceneId: s.sceneId, title: s.title, description: s.description,
     areas: s.areas.map(copyArea), objects: s.objects.map(o => ({ objectId: o.objectId, visible: o.visible })),
@@ -124,7 +131,8 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
     const current = o.visible ? live.objects.find(c => c.id === o.objectId) : o.snapshot
     if (!current || !inArea(current, o.visible) || o.visible && !inSight(current)) return []
     const visible = publicObject(current)
-    return visible.waterVolume && visible.height === 0 ? [] : [{ ...visible, visible: o.visible }]
+    const sliding = o.visible && 'physics' in current && isSliding(current.physics?.sliding)
+    return visible.waterVolume && visible.height === 0 ? [] : [{ ...visible, visible: o.visible, ...(sliding ? {sliding:true as const} : {}) }]
   })
   const contacts: VisibleContact[] = knowledge.contacts.flatMap(c => {
     const token = live.tokens.find(t => t.actorId === c.actorId), actor = actors.find(a => a.id === c.actorId)

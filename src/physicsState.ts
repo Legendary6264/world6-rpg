@@ -3,8 +3,8 @@ import type {PhysicsMaterial} from './physicsMaterials'
 import {MAX_TEMPERATURE_K, physicsKeys, physicsNumber, physicsRecord} from './physicsUnits'
 import type {SceneState} from './sceneTypes'
 import { copyWaterComposition } from './waterPhysics'
-import { isStructureProfile } from './mechanicalProfiles'
-import type { StructureProfile } from './mechanicalProfiles'
+import { isSlidingProfile, isStructureProfile, restingObject, slidePlacementChanged } from './mechanicalProfiles'
+import type { SlidingProfile, StructureProfile } from './mechanicalProfiles'
 
 export const DEFAULT_BACKGROUND_NOISE_DB = 30
 export const MAX_SOUND_LEVEL_DB = 160
@@ -13,7 +13,8 @@ export const MAX_AEROSOL_KG = 1e15
 export type RoomAtmosphere = {oxygenFraction:number;smokeKg:number;steamKg:number;outsideTemperatureK:number;doorVentilation:boolean}
 export type Combustion = {fuelKg:number;burnRateKgS:number;ignitionTemperatureK:number}
 export type PhysicsEnvironment = {version:1;gravityMs2:number;ambientTemperatureK:number;backgroundNoiseDb?:number|null;atmosphere?:RoomAtmosphere|null}
-export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temperatureK:number;wetnessFraction:number;noiseLevelDbAt1m?:number|null;combustion?:Combustion|null;structure?:StructureProfile|null}
+export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temperatureK:number;wetnessFraction:number;
+  noiseLevelDbAt1m?:number|null;combustion?:Combustion|null;structure?:StructureProfile|null;sliding?:SlidingProfile|null}
 
 export function isRoomAtmosphere(value: unknown): value is RoomAtmosphere {
   return physicsRecord(value) && physicsKeys(value, ['oxygenFraction','smokeKg','steamKg','outsideTemperatureK','doorVentilation']) &&
@@ -42,7 +43,7 @@ export function isPhysicsEnvironment(value: unknown): value is PhysicsEnvironmen
 }
 export function isPhysicsBody(value: unknown): value is PhysicsBody {
   return physicsRecord(value) && withOptionalProfiles(value, ['version','material','massKg','temperatureK','wetnessFraction'], {
-    noiseLevelDbAt1m:isSoundLevel, combustion:isCombustion, structure:isStructureProfile,
+    noiseLevelDbAt1m:isSoundLevel, combustion:isCombustion, structure:isStructureProfile, sliding:isSlidingProfile,
   }) && value.version === 1 &&
     isPhysicsMaterial(value.material) && physicsNumber(value.massKg, 1e-12, 1e12) &&
     physicsNumber(value.temperatureK, 0, MAX_TEMPERATURE_K) && physicsNumber(value.wetnessFraction, 0, 1)
@@ -56,7 +57,7 @@ export function copyPhysicsBody(value: PhysicsBody | null): PhysicsBody | null {
   if (value === null) return null
   if (!isPhysicsBody(value)) throw Error('Проверь физические свойства объекта.')
   return {...value,material:copyPhysicsMaterial(value.material), ...(value.combustion ? {combustion:{...value.combustion}} : {}),
-    ...(value.structure ? {structure:{...value.structure}} : {})}
+    ...(value.structure ? {structure:{...value.structure}} : {}), ...(value.sliding ? {sliding:{...value.sliding}} : {})}
 }
 
 // Old clients may omit unknown fields. Explicit null is the new client's clear
@@ -75,6 +76,7 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
     const objects = new Map(previous.objects.map(object => [object.id,object]))
     for (const object of scene.objects) {
       const before = objects.get(object.id)
+      const omittedSlide = object.physics === undefined || object.physics?.sliding === undefined
       if (object.kind === 'water' && object.water === undefined && before?.water !== undefined) object.water = copyWaterComposition(before.water)
       else if (object.water && before?.water) {
         if (object.water.flow === undefined && before.water.flow !== undefined) object.water.flow = before.water.flow
@@ -89,6 +91,12 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
         if (object.physics.structure === undefined && before.physics.structure !== undefined) {
           object.physics.structure = before.physics.structure && {...before.physics.structure}
         }
+        if (object.physics.sliding === undefined && before.physics.sliding !== undefined) {
+          object.physics.sliding = before.physics.sliding && {...before.physics.sliding}
+        }
+      }
+      if (before && omittedSlide && object.physics?.sliding && slidePlacementChanged(before, object)) {
+        object.physics = restingObject(object).physics
       }
     }
     const tokens = new Map(previous.tokens.map(token => [token.actorId, token]))

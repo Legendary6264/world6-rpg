@@ -45,7 +45,7 @@ export function perceivedRenderModel(map: PerceivedMap): SceneRenderModel {
     areas: map.areas.map(a => ({ ...a })),
     entities: [...map.objects.map(o => ({ id: o.id, transform: { position: { x: o.x, y: o.y, z: o.z } },
       geometry: { kind: o.kind, width: o.width, depth: o.depth, height: o.height, open: o.open,asset:o.asset,artwork:o.artwork,facing:o.facing,active:o.active,locked:o.locked,...(o.waterVolume?{waterVolume:o.waterVolume,iceCover:o.iceCover}:{}) },
-      appearance: { color: colors[o.kind], remembered: !o.visible, heightKnown: true }, identity: { label: o.name },
+      appearance: { color: colors[o.kind], remembered: !o.visible, heightKnown: true }, identity: { label: o.name + (o.sliding ? ' · скользит' : '') },
       interaction: { kind: 'object' as const, id: o.id } })),
     ...map.contacts.map(c => ({ id: c.id, transform: { position: { x: c.x, y: c.y, z: c.z ?? map.frame.groundZ } },
       geometry: { kind: c.kind === 'sound' ? 'sound' as const : 'actor' as const,

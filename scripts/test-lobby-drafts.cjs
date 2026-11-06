@@ -2152,6 +2152,30 @@ test('Конструкции UI: мастер подтверждает энер�
   assert.equal(f.worlds.a.campaign.scenes.scenes[0].objects.length,0)
  }finally{await f.close()}
 })
+test('Скольжение UI: мастер подтверждает импульс и видит конечное положение до применения',async()=>{
+ const f=await fixture()
+ try {
+  executableSpatial(f,'a')
+  const scene=f.worlds.a.campaign.scenes.scenes[0]
+  for(const token of scene.tokens.slice(1)) token.y=8
+  scene.objects=[{...load('scenes').sceneObject('crate','crate',{x:8,y:2,z:0}),name:'Ящик',height:1,
+    physics:{version:1,material:load('physicsMaterials').physicsMaterialPreset('wood'),massKg:10,temperatureK:293.15,wetnessFraction:0,
+      sliding:{dryFriction:.2,wetFriction:null,impactTransfer:0,vxMs:0,vyMs:0}}}]
+  await spatialFields(f,'a')
+  const label=name=>'[aria-label="'+name+' Hero a · 1"]'
+  await selectValue(label('Действие со средой'),'push-object')
+  await input(label('Импульс толчка, Н·с'),'20')
+  assert(!enabledButton('Рассчитать последствия раунда'))
+  await flush(()=>document.querySelector(label('Пространство подтверждено')).click())
+  await flush(()=>document.querySelector(label('Правила подтверждены')).click())
+  await click('Рассчитать последствия раунда')
+  assert.deepEqual(f.executions[0].input.rules[0].physics,{kind:'push-object',impulseNs:20})
+  assert.match(document.querySelector('[aria-label="Импульс и скольжение"]').textContent,/Ящик/)
+  assert.equal(f.worlds.a.campaign.scenes.scenes[0].objects[0].x,8)
+  await click('Применить рассчитанный раунд')
+  assert(f.worlds.a.campaign.scenes.scenes[0].objects[0].x>8)
+ }finally{await f.close()}
+})
 test('Пространство UI: индивидуальный неверный ввод сохраняется и не смешивается между лобби',async()=>{
  const f=await fixture()
  try {

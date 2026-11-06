@@ -442,3 +442,94 @@ for (const dialect of ['sqlite','postgres']) test('Разрушение опор
  assert.deepEqual(replayed.characters.find(c=>c.id===rider.id).body,landed.body)
  assert.deepEqual(replayed.characters.find(c=>c.id===rider.id).rpg.inventory,landed.rpg.inventory)
 })
+
+for (const dialect of ['sqlite','postgres']) test('Толчок в раунде: открытая вовремя дверь меняет удар, повтор сохраняет путь · '+dialect,async t=>{
+ const f=await fixture(t,dialect),{api}=f,gm=await f.register('slide-owner'),player=await f.register('slide-player')
+ const {id}=await api('/lobbies',gm.token,'POST',lobbyBody,201),root='/lobbies/'+id
+ await api(root+'/join',player.token,'POST')
+ const character={...createDefaultCharacter(),id:'slide-source',name:'Маг'}
+ await api('/characters/'+character.id,player.token,'PUT',{character,revision:-1})
+ const {id:actorId}=await api(root+'/characters',player.token,'POST',{characterId:character.id},201)
+ const route=root+'/characters/'+actorId,world=()=>api(root+'/world',gm.token)
+ await api(route+'/review',gm.token,'POST',{revision:(await world()).revision,decision:'approve',note:''})
+ const initial=await world(),actor=initial.characters[0]
+ actor.rpg.formulas=[];actor.statistics.energyRegeneration='0';actor.resources.mana={maximum:'50',current:'50'}
+ actor.rpg.abilities=[{...emptyAbility(),id:'spell',templateId:'push',name:'Толчок',approved:true,
+   spatial:{shape:'point',includeCaster:false},rangeM:20,mechanism:'effect',cost:{mana:7,shadow:0,stamina:0}}]
+ const guard={...createDefaultCharacter(),id:'slide-guard',name:'Дозорный'}
+ initial.characters.push(guard)
+ initial.campaign.scenes=createScene(emptyScenes(),'slide-scene','Шлюз','top')
+ const scene=initial.campaign.scenes.scenes[0],point={x:4,y:5,z:.5}
+ scene.physics={version:1,gravityMs2:10,ambientTemperatureK:293.15}
+ const profile={version:1,material:physicsMaterialPreset('wood'),massKg:10,temperatureK:293.15,wetnessFraction:0}
+ scene.objects=[
+   {...sceneObject('crate','crate',{...point,z:0}),name:'Ящик',width:1,depth:1,height:1,
+     physics:{...profile,sliding:{dryFriction:.2,wetFriction:null,impactTransfer:.5,vxMs:0,vyMs:0}}},
+   {...sceneObject('door','gate',{x:8,y:5,z:0}),width:.2,depth:1.5,height:2},
+   {...sceneObject('wall','wall',{x:12,y:5,z:0}),width:1,depth:1.5,height:2,canSupport:true,
+     physics:{...profile,structure:{failureJ:19,absorbedJ:0}}},
+ ]
+ scene.tokens=[{actorId,x:2,y:5,z:0,diameter:.6,support:{kind:'ground'}},
+   {actorId:guard.id,x:12.3,y:5,z:2,diameter:.5,support:{kind:'object',objectId:'wall'}}]
+ await api(root+'/world',gm.token,'PUT',{world:initial,revision:initial.revision})
+ await api(route+'/disclosure',gm.token,'PUT',{revision:(await world()).revision,draft:{activeSceneId:scene.id,scenes:[{sceneId:scene.id,
+   title:scene.name,description:'',areas:[{id:'hall',x:0,y:0,z:0,width:15,depth:10,height:6,visible:true}],
+   objects:scene.objects.map(o=>({objectId:o.id,visible:true})),contacts:[]}]}})
+ const phase=(collection,operation)=>api(root+'/declarations',gm.token,'PATCH',{collectionId:collection.id,epoch:collection.epoch,operation})
+ const submit=async actions=>{
+   await api(root+'/declarations',gm.token,'POST',{sceneId:scene.id,participantIds:[actorId],durationSeconds:3,allowReplace:true,revision:(await world()).revision},201)
+   const view=await api(route+'/declarations',player.token)
+   await api(route+'/declarations',player.token,'PUT',{collectionId:view.collection.id,epoch:view.collection.epoch,baseVersion:0,controlStamp:view.controlStamp,actions})
+   await phase(view.collection,'close')
+   return world()
+ }
+ const request=(snapshot,costs,rules)=>({revision:snapshot.revision,collectionId:snapshot.campaign.declarations.active.id,
+   epoch:snapshot.campaign.declarations.active.epoch,input:{timings:[{actorId,entryRevision:1,budgetMs:3000,costs:costs.map((personalMs,index)=>({index,personalMs}))}],
+     continuations:[],missingDecisions:[],interactionsConfirmed:true,rules}})
+ const calculate=body=>api(root+'/rounds/calculate',gm.token,'POST',body)
+ const command=p=>({previewId:p.id,generation:p.generation,commandKey:crypto.randomUUID()})
+ const apply=body=>api(root+'/rounds/apply',gm.token,'POST',body)
+ const before=await submit([
+   {kind:'ability',abilityId:'spell',stage:'prepare',target:{kind:'none'},note:''},
+   {kind:'ability',abilityId:'spell',stage:'release',target:{kind:'point',point},note:''},
+ ]),key=i=>'new:'+actorId+':'+i
+ const first=await calculate(request(before,[500,2000],[
+   {key:key(0),kind:'ability',confirmed:true,binding:'unbound',charge:'',input:fields},
+   {key:key(1),kind:'ability',confirmed:true,binding:'unbound',charge:'prepare:'+key(0),input:fields,
+     spatialConfirmed:true,physics:{kind:'push-object',impulseNs:60}},
+ ]))
+ assert.deepEqual(await world(),before)
+ assert.deepEqual(first.summary.slides.moving,[{objectId:'crate',name:'Ящик',point:{x:6.75,y:5,z:0},speedMs:5}])
+ await apply(command(first))
+ const sliding=await world()
+ await f.restart()
+ assert.deepEqual(await world(),sliding)
+ const map=(await api(route+'/perception',player.token)).map
+ const observed=map.objects.find(o=>o.id==='crate')
+ assert.equal(observed.x,6.75);assert.equal(observed.sliding,true);assert(!Object.hasOwn(observed,'physics'))
+ await phase(sliding.campaign.declarations.active,'archive')
+ const next=await submit([{kind:'interact',operation:'open',target:{kind:'object',id:'gate'},note:''}])
+ const blocked=await calculate(request(next,[500],[]))
+ assert.equal(blocked.summary.slides.stops[0].collision.contact.objectId,'gate')
+ const open=await calculate(request(next,[100],[]))
+ const [stop]=open.summary.slides.stops
+ assert.equal(stop.collision.contact.objectId,'wall')
+ assert(Math.abs(stop.point.x-11)<1e-10);assert(Math.abs(stop.collision.energyJ-40)<1e-8)
+ assert.equal(stop.impact.collapsed,true)
+ assert(Math.abs(stop.impact.energyJ-20)<1e-8)
+ assert.equal(open.summary.falls.landings[0].actorId,guard.id)
+ assert.equal(open.summary.falls.landings[0].toZ,0)
+ assert.deepEqual(await world(),next)
+ const appliedCommand=command(open),{receipt}=await apply(appliedCommand),after=await world()
+ assert.equal(after.campaign.scenes.scenes[0].objects.some(o=>o.id==='wall'),false)
+ await f.restart()
+ assert.equal((await apply(appliedCommand)).duplicate,true);assert.deepEqual(await world(),after)
+ const history=await api(root+'/rounds/history',gm.token)
+ const rollback=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:history.revision,receiptId:receipt.id,reason:'Проверить скольжение'})
+ await api(root+'/rounds/change/apply',gm.token,'POST',command(rollback))
+ assert.deepEqual((await world()).campaign.scenes.scenes[0],next.campaign.scenes.scenes[0])
+ const undone=await api(root+'/rounds/history',gm.token)
+ const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:undone.revision,receiptId:receipt.id})
+ await apply(command(replay))
+ assert.deepEqual((await world()).campaign.scenes.scenes[0],after.campaign.scenes.scenes[0])
+})

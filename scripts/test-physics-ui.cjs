@@ -11,7 +11,7 @@ async function field(label,value){await flush(()=>{const element=input(label);as
 async function submit(){await flush(()=>document.querySelector('form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})))}
 async function fixture(Panel=ObjectPhysicsPanel,initial,options={}){
   await flush(()=>root.render(null));const observed={value:initial,changes:[]}
-  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),value,canBreak:options.canBreak,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
+  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),value,canBreak:options.canBreak,canSlide:options.canSlide,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
   await flush(()=>root.render(React.createElement(Wrapper)));return observed
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
@@ -92,4 +92,13 @@ test('Конструкции UI: параметры травмы задаютс�
   await submit();assert.deepEqual(state.value,{massKg:60,region:'torso',contactCm2:100})
   await flush(()=>{name('landingEnabled').click()})
   await submit();assert.equal(state.value,null)
+})
+
+test('Скольжение UI: изменение трения сохраняет текущую скорость предмета',async()=>{
+  const state=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('wood'),massKg:10,temperatureK:293.15,wetnessFraction:.5,
+    sliding:{dryFriction:.3,wetFriction:null,impactTransfer:0,vxMs:3,vyMs:4}},{canSlide:true})
+  const name=key=>document.querySelector('[name="'+key+'"]')
+  await flush(()=>{name('dryFriction').value='0.2';name('wetFriction').value='0';name('impactTransfer').value='50'})
+  await submit()
+  assert.deepEqual(state.value.sliding,{dryFriction:.2,wetFriction:0,impactTransfer:.5,vxMs:3,vyMs:4})
 })

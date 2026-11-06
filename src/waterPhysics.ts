@@ -1,6 +1,7 @@
 import { PURE_WATER_CONDUCTIVITY_SM } from './physicsMaterials'
 import { physicsKeys, physicsNumber, physicsRecord } from './physicsUnits'
 import type { SceneObject } from './sceneTypes'
+import { isSliding } from './mechanicalProfiles'
 
 export const MIN_WATER_HEIGHT_M = 0.0001
 export const MAX_WATER_ADDITIVE_KG = 1e9
@@ -60,8 +61,8 @@ export const isVariableWater = (water: WaterComposition | null | undefined) => !
 export const validWaterHeight = (water: WaterComposition, height: number) =>
   water.enthalpyJKg != null ? height > 0 || height === 0 && water.enthalpyJKg === 0 :
     water.flow ? height > 0 || height === 0 && water.saltKg === 0 && water.sedimentKg === 0 : height >= MIN_WATER_HEIGHT_M
-export const supportsSceneTokens = (object: Pick<SceneObject, 'canSupport' | 'water' | 'height'>) =>
-  object.canSupport && (!isVariableWater(object.water) || object.height >= MIN_WATER_HEIGHT_M)
+export const supportsSceneTokens = (object: Pick<SceneObject, 'canSupport' | 'water' | 'height' | 'physics'>) =>
+  object.canSupport && !isSliding(object.physics?.sliding) && (!isVariableWater(object.water) || object.height >= MIN_WATER_HEIGHT_M)
 
 // Concentration in kg/m³ (numerically g/L). The dilute slope uses the NaCl
 // limiting molar conductivity at 25 °C (NBS J. Res. 69A, 39, table 6).

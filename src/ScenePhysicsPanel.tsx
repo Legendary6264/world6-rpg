@@ -8,7 +8,7 @@ import {celsiusToKelvin,cubicMetresToLitres,kelvinToCelsius,physicsNumber} from 
 import {FUSION_J_KG,ICE_HEAT_J_KG_K,isWaterComposition,liquidEnthalpy,MAX_WATER_ADDITIVE_KG,validWaterHeight,waterConductivitySM,waterPhase,waterVolumeM3} from './waterPhysics'
 import type {SceneObject} from './sceneTypes'
 import {bodyRegions} from './bodyRegions'
-import {isLandingProfile,MAX_STRUCTURAL_ENERGY_J} from './mechanicalProfiles'
+import {isLandingProfile,isSliding,MAX_SLIDE_FRICTION,MAX_STRUCTURAL_ENERGY_J} from './mechanicalProfiles'
 import type {LandingProfile} from './mechanicalProfiles'
 
 const number = (data: FormData, key: string): number => {
@@ -80,13 +80,14 @@ export function WaterVolumePanel({ object, thermal, disabled, onChange }: { obje
   </details>
 }
 
-export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,canBreak,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;canBurn?:boolean;canBreak?:boolean;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
+export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,canBreak,canSlide,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;canBurn?:boolean;canBreak?:boolean;canSlide?:boolean;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
   const [materialId,setMaterialId]=useState(value?.material.id??''),[message,setMessage]=useState(''),[failed,setFailed]=useState(false),presets=physicsMaterialPresets()
   // A saved snapshot wins over a later catalogue default, including custom values.
   const materials=value?[...presets.filter(material=>material.id!==value.material.id),value.material]:presets
   const material=materials.find(material=>material.id===materialId)
   const [burning, setBurning] = useState(!!value?.combustion)
   const [breakable, setBreakable] = useState(!!value?.structure)
+  const [sliding, setSliding] = useState(!!value?.sliding)
   function submit(event:FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if(disabled)return
@@ -102,7 +103,12 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,can
       } else if (value?.combustion === null) next.combustion = null
       if (data.has('simulateStructure')) next.structure = {failureJ:number(data,'structureFailureJ'),absorbedJ:number(data,'structureAbsorbedJ')}
       else if (value?.structure !== undefined) next.structure = null
-      if (!isPhysicsBody(next)) throw Error('Проверь физические параметры. Накопленная энергия должна быть меньше порога разрушения.')
+      if (data.has('simulateSliding')) {
+        if (material.phase !== 'solid') throw Error('Для скольжения выбери твёрдый материал.')
+        next.sliding = {dryFriction:number(data,'dryFriction'), wetFriction:data.get('wetFriction') === '' ? null : number(data,'wetFriction'),
+          impactTransfer:number(data,'impactTransfer') / 100, vxMs:value?.sliding?.vxMs ?? 0, vyMs:value?.sliding?.vyMs ?? 0}
+      } else if (value?.sliding !== undefined) next.sliding = null
+      if (!isPhysicsBody(next)) throw Error('Проверь физические параметры, предел прочности и трение.')
       if (onChange(next)) setMessage('Физический профиль объекта сохранён.');else {setFailed(true);setMessage('Профиль не сохранён. Проверь сообщение редактора.')}
     } catch(error) {setFailed(true);setMessage((error as Error).message)}
   }
@@ -128,6 +134,16 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,can
           <label className="w6-field"><span>Порог разрушения, Дж</span><input name="structureFailureJ" type="number" step="any" min=".001" max={MAX_STRUCTURAL_ENERGY_J} defaultValue={value?.structure?.failureJ ?? ''} required/></label>
           <label className="w6-field"><span>Уже накоплено от ударов, Дж</span><input name="structureAbsorbedJ" type="number" step="any" min="0" max={MAX_STRUCTURAL_ENERGY_J} defaultValue={value?.structure?.absorbedJ ?? 0} required/></label>
           <p className="w6-copy">Удары складываются. При достижении порога объект перестаёт быть опорой и преградой.</p>
+        </>}
+      </details>}
+      {(canSlide || !!value?.sliding) && <details className="gb-scene-details gb-wide">
+        <summary>Скольжение по полу{isSliding(value?.sliding) ? ' · предмет движется' : ''}</summary>
+        <label className="w6-check"><input name="simulateSliding" type="checkbox" checked={sliding} onChange={event=>setSliding(event.currentTarget.checked)}/>Разрешить толчки</label>
+        {sliding && <>
+          <label className="w6-field"><span>Коэффициент трения насухо</span><input name="dryFriction" type="number" step="any" min="0" max={MAX_SLIDE_FRICTION} defaultValue={value?.sliding?.dryFriction ?? .35} required/></label>
+          <label className="w6-field"><span>Коэффициент трения при полном смачивании</span><input name="wetFriction" type="number" step="any" min="0" max={MAX_SLIDE_FRICTION} defaultValue={value?.sliding?.wetFriction ?? ''} placeholder="Как у сухого предмета"/></label>
+          <label className="w6-field"><span>Энергия, передаваемая преграде, %</span><input name="impactTransfer" type="number" step="any" min="0" max="100" defaultValue={(value?.sliding?.impactTransfer ?? 0)*100} required/></label>
+          <p className="w6-copy">Трение задаётся для пары предмета и пола. Энергия столкновения учитывается у преграды с заданной прочностью.</p>
         </>}
       </details>}
       <div className="w6-buttons gb-wide"><button className="w6-button w6-primary" type="submit">Сохранить физический профиль</button><button className="w6-button" type="button" disabled={!value} onClick={()=>{if(onChange(null)){setFailed(false);setMessage('Физический профиль объекта снят.')}}}>Снять физический профиль</button></div>

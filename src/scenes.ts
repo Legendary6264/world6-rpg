@@ -7,7 +7,7 @@ import {validSceneEnvironment} from './sceneEnvironment'
 import {copyPhysicsBody,copyPhysicsEnvironment,isPhysicsBody,isPhysicsEnvironment} from './physicsState'
 import { copyWaterComposition, isWaterComposition, MAX_FLOW_CELLS, supportsSceneTokens, validWaterHeight, WATER_EDGE_TOLERANCE_M } from './waterPhysics'
 import { objectBounds, overlapLength } from './sceneGeometry'
-import { isFallMotion, isLandingProfile } from './mechanicalProfiles'
+import { isFallMotion, isLandingProfile, isSliding, onSlideFloor, restingObject, slidePlacementChanged } from './mechanicalProfiles'
 export {sceneObject,sceneObjectLabels} from './sceneObjectDefaults'
 
 // Storage/rendering limits, not game rules. Coordinates and dimensions are metres.
@@ -47,6 +47,9 @@ function validScene(v: unknown): v is Scene {
       ['blocksMovement', 'blocksSight', 'canSupport', 'open'].every(k => typeof o[k] === 'boolean'))) return false
   const objects = v.objects as SceneObject[]
   if (!unique(objects.map(o => o.id))) return false
+  const sliding = objects.filter(o => isSliding(o.physics?.sliding))
+  const floor = { groundZ:v.groundZ, width:v.width, depth:v.depth }
+  if (sliding.length > 1 || sliding.some(o => !onSlideFloor(o, floor))) return false
   const cells = objects.filter(o => o.water?.flow).map(objectBounds), tolerance = WATER_EDGE_TOLERANCE_M
   if (cells.length > MAX_FLOW_CELLS || cells.some(({ min, max }) =>
     min.x < -tolerance || min.y < -tolerance || max.x > Number(v.width) + tolerance || max.y > Number(v.depth) + tolerance)) return false
@@ -114,8 +117,15 @@ export function createScene(state: SceneState, sceneId: string, name: string, vi
   return checked(next)
 }
 export function replaceScene(state: SceneState, scene: Scene): SceneState {
-  if (!state.scenes.some(s => s.id === scene.id)) throw new Error('Сцена больше не существует.')
-  return checked(copySceneState({ ...state, scenes: state.scenes.map(s => s.id === scene.id ? scene : s) }))
+  const previous = state.scenes.find(s => s.id === scene.id)
+  if (!previous) throw new Error('Сцена больше не существует.')
+  const originals = new Map(previous.objects.map(o => [o.id, o]))
+  const objects = scene.objects.map(object => {
+    if (!isSliding(object.physics?.sliding)) return object
+    const original = originals.get(object.id)
+    return original && onSlideFloor(object, scene) && !slidePlacementChanged(original, object) ? object : restingObject(object)
+  })
+  return checked(copySceneState({ ...state, scenes: state.scenes.map(s => s.id === scene.id ? { ...scene, objects } : s) }))
 }
 export function deleteScene(state: SceneState, sceneId: string): SceneState {
   const next = copySceneState(state)

@@ -4,6 +4,7 @@ import type {AssetPlacement} from './sceneEditorPlacement'
 import {copySceneState,isSceneState,MAX_SCENE_OBJECTS,replaceScene} from './scenes.ts'
 import {copyPhysicsBody} from './physicsState'
 import { copyWaterComposition } from './waterPhysics'
+import { restingObject } from './mechanicalProfiles'
 
 export type SceneAssembly={version:1;id:string;name:string;width:number;depth:number;height:number;objects:SceneObject[]}
 export type AssemblyPlacement={assembly:SceneAssembly;facing:number;elevation:number}
@@ -32,7 +33,7 @@ export function captureSceneAssembly(scene:Scene,items:readonly EditorItem[],nam
  if(objects.length>MAX_ASSEMBLY_OBJECTS)throw Error('В одной сборке может быть до 64 объектов.')
  const x=Math.min(...objects.map(o=>o.x-o.width/2)),y=Math.min(...objects.map(o=>o.y-o.depth/2)),z=Math.min(...objects.map(o=>o.z))
  const assembly:SceneAssembly={version:1,id,name:name.trim(),width:extent(Math.max(...objects.map(o=>o.x+o.width/2))-x),depth:extent(Math.max(...objects.map(o=>o.y+o.depth/2))-y),height:Math.max(0,extent(Math.max(...objects.map(o=>o.z+o.height))-z)),
-  objects:objects.map(o=>({...o,x:round(o.x-x),y:round(o.y-y),z:round(o.z-z)}))}
+  objects:objects.map(o=>({...restingObject(o),x:round(o.x-x),y:round(o.y-y),z:round(o.z-z)}))}
  if(!isSceneAssembly(assembly))throw Error('Проверь название и габариты сборки.')
  return cleanAssembly(assembly)
 }

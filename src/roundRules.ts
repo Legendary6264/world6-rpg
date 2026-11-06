@@ -3,6 +3,7 @@ import {isAbilityObjectEffects,applyAbilityObjectEffects,abilityObjectDetails} f
 import type {AbilityObjectEffect,AbilityObjectOutcome} from './abilityEnvironment'
 import { applyAbilityPhysics, isAbilityPhysicsEffect, physicsOutcomeDetails } from './abilityPhysics'
 import type { AbilityPhysicsEffect, AbilityPhysicsOutcome } from './abilityPhysics'
+import { removeLiveObjectDisclosure } from './scenePerception'
 import { abilityAreaContains } from './abilityArea'
 import { activateArtifact, consumeItemPlan, equipItem, makeActionPlan, modifiersText, readyRoundPreparation, releaseRoundPlan, releaseSpatialRoundPlan } from './rpgEngine'
 import type { DeclaredAction, DeclarationCollection } from './actionDeclarations'
@@ -132,16 +133,13 @@ export function finishRoundRule(world:World,work:RoundWorkEntry,key:string,decis
     if (!scene || !origin || !shape || !('point' in target) || !abilityAreaContains(origin, target.point, shape, target.point)) {
       throw Error('Контакт физического действия должен находиться внутри формы пространственного выпуска.')
     }
-    if (decision.physics.kind === 'structural-impact' && ['stone','impact'].includes(cast.ability.mechanism) && plan.targets?.length) {
-      throw Error('Физический контакт уже направлен в существо. Для удара по конструкции выбери отдельную точку.')
+    if ((decision.physics.kind === 'structural-impact' || decision.physics.kind === 'push-object') &&
+        ['stone','impact'].includes(cast.ability.mechanism) && plan.targets?.length) {
+      throw Error('Физический контакт уже направлен в существо. Для удара или толчка предмета выбери отдельную точку.')
     }
-    physics = applyAbilityPhysics(scene, target.point, work.id + '-water', decision.physics)
+    physics = applyAbilityPhysics(scene, target.point, work.id + '-water', decision.physics, origin)
     if (physics.kind === 'structural-impact' && physics.collapsed) {
-      const objectId = physics.objectId
-      for (const hero of plan.world.campaign.perceptions?.heroes ?? []) {
-        const known = hero.scenes.find(known => known.sceneId === scene.id)
-        if (known) known.objects = known.objects.filter(object => !object.visible || object.objectId !== objectId)
-      }
+      removeLiveObjectDisclosure(plan.world.campaign.perceptions, scene.id, physics.objectId)
     }
   }
   let effects = decision.environment ?? []

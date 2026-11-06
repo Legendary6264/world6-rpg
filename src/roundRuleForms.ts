@@ -19,6 +19,7 @@ export const physicsFields = {
     voltageV: 'Напряжение источника, В', limitA: 'Предел тока источника, А', durationMs: 'Длительность разряда, мс', thresholdA: 'Ток для операций с объектами, А' },
   heat: { energyKJ: 'Изменение тепловой энергии, кДж' },
   'structural-impact': { energyJ: 'Энергия удара по конструкции, Дж' },
+  'push-object': { impulseNs: 'Импульс толчка, Н·с' },
 } satisfies Record<AbilityPhysicsEffect['kind'], Record<string, string>>
 export type AbilityPhysicsForm = { kind: AbilityPhysicsEffect['kind']; fields: Record<string, string>; substance: 'salt' | 'sediment' }
 
@@ -60,6 +61,9 @@ function physicsFormEffect(form: AbilityPhysicsForm): AbilityPhysicsEffect | nul
       break
     case 'structural-impact':
       effect = { kind: form.kind, energyJ: n('energyJ') }
+      break
+    case 'push-object':
+      effect = { kind: form.kind, impulseNs: n('impulseNs') }
       break
   }
   return isAbilityPhysicsEffect(effect) ? effect : null

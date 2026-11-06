@@ -5,9 +5,11 @@ import { MAX_SCENE_OBJECTS, sceneObject } from './scenes'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
 import { applyHeat, MAX_ABILITY_HEAT_KJ, thermalTarget } from './thermalPhysics'
 import type { HeatOutcome } from './thermalPhysics'
-import { MAX_STRUCTURAL_ENERGY_J } from './mechanicalProfiles'
+import { MAX_PUSH_IMPULSE_NS, MAX_STRUCTURAL_ENERGY_J } from './mechanicalProfiles'
 import { strikeStructure } from './structuralPhysics'
 import type { StructuralImpactOutcome } from './structuralPhysics'
+import { pushObject } from './horizontalPhysics'
+import type { PushOutcome } from './horizontalPhysics'
 import { isVariableWater, isWaterComposition, liquidEnthalpy, liquidWaterHeight, MAX_WATER_ADDITIVE_KG, MIN_WATER_HEIGHT_M, pureWater, waterConductivitySM, waterEnthalpy, waterVolumeM3 } from './waterPhysics'
 import type { WaterComposition } from './waterPhysics'
 
@@ -18,11 +20,13 @@ export type AbilityPhysicsEffect =
   | ({ kind: 'discharge' } & DischargeSettings)
   | { kind: 'heat'; energyKJ: number }
   | { kind: 'structural-impact'; energyJ: number }
+  | { kind: 'push-object'; impulseNs: number }
 export type AbilityPhysicsOutcome =
   | { kind: 'water'; change: 'created' | 'filled' | 'salt' | 'sediment'; objectId: string; volumeL: number; composition: WaterComposition; conductivitySM: number | null }
   | { kind: 'discharge'; circuit: CircuitResult; thresholdA: number }
   | HeatOutcome
   | StructuralImpactOutcome
+  | PushOutcome
 
 const isPoint = (point: unknown): point is ScenePosition =>
   physicsRecord(point) && physicsKeys(point, ['x', 'y', 'z']) && Object.values(point).every(v => physicsNumber(v, -1e6, 1e6))
@@ -49,6 +53,8 @@ export function isAbilityPhysicsEffect(value: unknown): value is AbilityPhysicsE
         Math.abs(value.energyKJ) >= .001
     case 'structural-impact':
       return physicsKeys(value, ['kind', 'energyJ']) && physicsNumber(value.energyJ, .001, MAX_STRUCTURAL_ENERGY_J)
+    case 'push-object':
+      return physicsKeys(value, ['kind', 'impulseNs']) && physicsNumber(value.impulseNs, .001, MAX_PUSH_IMPULSE_NS)
     default: return false
   }
 }
@@ -62,7 +68,7 @@ function waterOutcome(object: SceneObject, composition: WaterComposition, change
 
 // Only called on the private candidate of a confirmed release, at its exact
 // place in the round. Persisting the candidate is the round command's job.
-export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: string, effect: AbilityPhysicsEffect): AbilityPhysicsOutcome {
+export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: string, effect: AbilityPhysicsEffect, origin?: ScenePosition): AbilityPhysicsOutcome {
   if (!isAbilityPhysicsEffect(effect) || !inFrame(aim, scene)) throw Error('Проверь параметры физического действия и точку выпуска.')
   switch (effect.kind) {
     case 'create-water': {
@@ -120,6 +126,11 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
       if (targets.length !== 1) throw Error('Укажи точку внутри одной конструкции с заданной прочностью.')
       return strikeStructure(scene, targets[0], effect.energyJ)
     }
+    case 'push-object': {
+      const targets = scene.objects.filter(o => o.physics?.sliding && pointInObject(o, aim))
+      if (!origin || targets.length !== 1) throw Error('Укажи точку внутри одного предмета с настройками скольжения.')
+      return pushObject(scene, targets[0], origin, aim, effect.impulseNs)
+    }
   }
 }
 
@@ -142,6 +153,8 @@ export function physicsOutcomeDetails(outcome: AbilityPhysicsOutcome): string {
     return outcome.name + ' · ' + (outcome.collapsed ? 'конструкция разрушена' : 'конструкция выдержала') +
       ' · удар ' + number(outcome.energyJ) + ' Дж · накоплено ' + number(outcome.absorbedJ) + ' / ' + number(outcome.failureJ) + ' Дж'
   }
+  if (outcome.kind === 'push-object') return outcome.name + ' · толчок ' + number(outcome.impulseNs) +
+    ' Н·с · скорость после толчка ' + number(outcome.speedMs) + ' м/с'
   const { circuit, thresholdA } = outcome
   if (circuit.status === 'open') return 'Разряд · между клеммами нет непрерывного проводящего пути.'
   if (circuit.status === 'unknown') return 'Разряд · на пути есть участки с неизвестной проводимостью.'

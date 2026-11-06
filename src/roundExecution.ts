@@ -35,9 +35,13 @@ import { advanceThermal, settleFire, thermalRoundChanges } from './thermalPhysic
 import type { ThermalRoundChanges } from './thermalPhysics'
 import { isVariableWater } from './waterPhysics'
 import { advanceFalls, nextFallSeconds } from './structuralPhysics'
-import type { FallLanding } from './structuralPhysics'
-export const ROUND_EXECUTOR_VERSION = 'r14-structural-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+import type { FallLanding, StructuralImpactOutcome } from './structuralPhysics'
+import { applySlide, checkDoorSlideClearance, planSlide, slideStep, slideSweep } from './horizontalPhysics'
+import type { SlideStep } from './horizontalPhysics'
+import { isSliding } from './mechanicalProfiles'
+import { removeLiveObjectDisclosure } from './scenePerception'
+export const ROUND_EXECUTOR_VERSION = 'r15-horizontal-motion-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -47,10 +51,13 @@ export type RoundExecutionEvent = { actorId: string; actionIndex: number; workId
   kind: 'inspect' | 'speak' | 'wait' | ObjectOperation | 'relocate' | 'move' | 'item' | 'prepare' | 'ready' | 'release'; objectId?: string; castId?:string; listening?:'listen'|'eavesdrop' }
 type RoundFallLanding = FallLanding & { atMs: ExactAmount; impact?: LandingImpactResult; region?: string }
 type RoundFalls = { landings: RoundFallLanding[]; falling: { actorId:string; fromZ:number; toZ:number; speedMs:number }[] }
+type SlideStatus = Pick<SlideStep, 'objectId' | 'name' | 'point' | 'speedMs'>
+type SlideStop = Omit<SlideStep, 'vxMs' | 'vyMs' | 'stopped' | 'speedMs'> & { atMs:ExactAmount; impact?:StructuralImpactOutcome }
 export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
   carried: { id: string; actorId: string; actionKind: string; remaining: ExactAmount; unit: string }[];
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
-  movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls }
+  movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls;
+  slides?: { stops:SlideStop[]; moving:SlideStatus[] } }
 export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
 const zero = exactAmount(0n), thousand = exactAmount(1000n)
@@ -224,12 +231,14 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const movementCheck = () => { if (++movementChecks > MAX_MOVEMENT_CHECKS) throw Error('Сцена слишком сложна для одного расчёта движения. Технический предел проверок; ничего не применено.') }
   const thermalEnabled = !!scene?.physics?.atmosphere
   const variableWater = thermalEnabled || !!scene?.objects.some(object => isVariableWater(object.water))
-  const structural = !!scene?.tokens.some(token => token.fall) ||
-    [...ruleDecisions.values()].some(decision => decision.kind === 'ability' && decision.physics?.kind === 'structural-impact')
+  const physicsDecisions = [...ruleDecisions.values()].flatMap(d => d.kind === 'ability' && d.physics ? [d.physics.kind] : [])
+  const horizontal = !!scene?.objects.some(o => isSliding(o.physics?.sliding)) || physicsDecisions.includes('push-object')
+  const structural = horizontal || !!scene?.tokens.some(token => token.fall) || physicsDecisions.includes('structural-impact')
   const dynamicSupports = variableWater || structural
   const waterSupports = new Map<string, WaterSupportChange>(), routeSupports = new Map<string, SceneSupport>()
   const wetRoutes = new Map<string, WetRouteContact>()
   const landings: RoundFallLanding[] = []
+  const slideStops: SlideStop[] = []
   const activeScene = () => candidate.campaign.scenes?.scenes.find(s => s.id === collection.sceneId)
   function settleFalls(seconds: number, at: ExactAmount) {
     const current = activeScene()
@@ -239,6 +248,25 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       const impact = profile && landing.support.kind !== 'air' && landing.speedMs > 0 ?
         applyLandingImpact(candidate, landing.actorId, profile, landing.speedMs, 'round-' + seed + '-land-' + landings.length) : undefined
       landings.push({ ...landing, atMs:at, ...(impact && profile ? {impact, region:profile.region} : {}) })
+    }
+  }
+  function resolveLostSupport(outcome: StructuralImpactOutcome, at: ExactAmount) {
+    const released = new Set(outcome.releasedActors)
+    if (movements.some(p => released.has(p.work.actorId) && compareAmounts(p.endMs, at) > 0)) {
+      throw Error('Опора разрушится до завершения маршрута. Согласуй движение до расчёта раунда.')
+    }
+    settleFalls(0, at)
+  }
+  function commitSlide(step: SlideStep, at: ExactAmount) {
+    const current = activeScene()!
+    const impact = applySlide(current, step)
+    if (impact?.collapsed) {
+      removeLiveObjectDisclosure(candidate.campaign.perceptions, current.id, impact.objectId)
+      resolveLostSupport(impact, at)
+    }
+    if (step.stopped) {
+      const { objectId, name, point, collision } = step
+      slideStops.push({ objectId, name, point, atMs:at, ...(collision ? {collision} : {}), ...(impact ? {impact} : {}) })
     }
   }
   function advanceEnvironment(seconds: number, at: ExactAmount) {
@@ -256,13 +284,18 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         { ...previous, toZ: change.toZ, lostSupport: previous.lostSupport || change.lostSupport } : change)
     }
   }
-  const advanceSegment = (at: ExactAmount) => {
-    const move = () => {
+  const routesDuring = (at: ExactAmount) => movements.filter(p => compareAmounts(p.startMs, at) < 0 && compareAmounts(p.endMs, cursor) > 0)
+  const advanceSegment = (at: ExactAmount, slide?: ReturnType<typeof planSlide>) => {
+    const move = (step?: SlideStep) => {
       const current = activeScene()
       if (!current || !movements.length) return
       // Completed paths cannot reset a rider after the surface has moved.
       const routes = dynamicSupports ? movements.filter(p => compareAmounts(p.endMs, cursor) > 0) : movements
-      advanceMovement(current, routes, bodies, cursor, at, movementCheck, variableWater ? (actorId, object, kind) => {
+      // An active character route may run beside a slide. Crossing its swept
+      // footprint within the same interval needs a new order from the GM.
+      const checkedScene = slide && step ? { ...current, objects:current.objects.map(o =>
+        o.id === step.objectId ? slideSweep(o, step.point) : o) } : current
+      advanceMovement(checkedScene, routes, bodies, cursor, at, movementCheck, variableWater ? (actorId, object, kind) => {
         wetRoutes.set(JSON.stringify([actorId, object.id]), { actorId, objectId: object.id, name: object.name, kind })
       } : undefined)
       if (!dynamicSupports) return
@@ -274,7 +307,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       }
     }
     if (compareAmounts(cursor, at) === 0) { if (!dynamicSupports) move(); return }
-    const activeMovements = movements.filter(p => compareAmounts(p.startMs,at) < 0 && compareAmounts(p.endMs,cursor) > 0)
+    const activeMovements = routesDuring(at)
     checkCapabilities(activeMovements)
     const seconds = numberOf(subtractAmounts(at, cursor)) / 1000, previous = candidate.campaign.seconds
     // The legacy physiology engine uses a numeric clock and microsecond steps.
@@ -282,10 +315,17 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     if (seconds < 0.000001 || previous + seconds <= previous || Math.abs((previous + seconds - previous) - seconds) > Math.max(1e-9, seconds * 1e-10)) {
       throw Error('Интервал слишком мал для текущих игровых часов. Требуется решение мастера; время не округлено для исполнения.')
     }
-    move()
+    const step = slide && slideStep(slide, seconds)
+    move(step)
     candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment))
     settleFalls(seconds, at)
     advanceEnvironment(seconds, at)
+    if (step) {
+      // A break at the end of this segment cannot open a route for water
+      // or air during the elapsed part. Wet the new position at the boundary.
+      commitSlide(step, at)
+      advanceEnvironment(0, at)
+    }
     checkCapabilities(activeMovements)
     cursor = at
   }
@@ -295,11 +335,14 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     while (compareAmounts(cursor, at) < 0) {
       const current = activeScene()
       const remainingUs = numberOf(subtractAmounts(at, cursor)) * 1000
-      const nextUs = current ? Math.max(1, Math.ceil(nextFallSeconds(current) * 1e6)) : Infinity
-      // Land on the first representable microsecond, then let wounds and other
-      // existing effects run for the rest of the interval before the next action.
+      const slide = horizontal && current ? planSlide(current, new Set(routesDuring(at).map(p => p.work.actorId))) : undefined
+      if (slide?.endSeconds === 0) { commitSlide(slideStep(slide, 0), cursor); continue }
+      const nextPhysics = Math.min(current ? nextFallSeconds(current) : Infinity, slide?.endSeconds ?? Infinity)
+      const nextUs = Math.max(1, Math.ceil(nextPhysics * 1e6))
+      // A physical contact takes effect on the first representable
+      // microsecond, before the remainder of the action interval is run.
       const end = nextUs + 1 <= remainingUs ? addAmounts(cursor, exactAmount(BigInt(nextUs), 1000n)) : at
-      advanceSegment(end)
+      advanceSegment(end, slide)
     }
   }
   const events: RoundExecutionEvent[] = []
@@ -312,14 +355,18 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       const key=workKeys.get(work.id)!,decision=ruleDecisions.get(key)!
       const replay=input.replay?.selections.find(s=>s.key===key)
       const result=stage==='start'?beginRoundAbility(candidate,work,key,decision):finishRoundRule(candidate,work,key,decision,works,replay,replay?seed+':'+key:undefined)
-      if(hasMovement)for(const effect of result.outcome.environment??[])if(effect.operation==='close')checkClosingDoor(result.world.campaign.scenes!.scenes.find(s=>s.id===work.sceneId)!,effect.objectId,bodies,movementCheck)
+      for (const effect of result.outcome.environment ?? []) if (effect.operation === 'close') {
+        const current = result.world.campaign.scenes!.scenes.find(s => s.id === work.sceneId)!
+        if (hasMovement) checkClosingDoor(current, effect.objectId, bodies, movementCheck)
+        checkDoorSlideClearance(current, effect.objectId)
+      }
       candidate=result.world;ruleOutcomes.push({...result.outcome,atMs:at})
       if (result.outcome.physics?.kind === 'structural-impact' && result.outcome.physics.collapsed) {
-        const released = new Set(result.outcome.physics.releasedActors)
-        if (movements.some(p => released.has(p.work.actorId) && compareAmounts(p.endMs, at) > 0)) {
-          throw Error('Опора разрушится до завершения маршрута. Согласуй движение до расчёта раунда.')
-        }
-        settleFalls(0, at)
+        resolveLostSupport(result.outcome.physics, at)
+      }
+      if (result.outcome.physics?.kind === 'push-object') {
+        const slide = planSlide(activeScene()!)
+        if (slide?.endSeconds === 0) commitSlide(slideStep(slide, 0), at)
       }
       if (result.outcome.physics?.kind === 'heat' || result.outcome.physics?.kind === 'water' &&
           (result.outcome.physics.change === 'filled' || thermalEnabled && result.outcome.physics.change === 'created')) advanceEnvironment(0, at)
@@ -339,10 +386,17 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       const actor = candidate.characters.find(c => c.id === work.actorId)!
       if (actor.rpg.dead || actor.body.consciousness !== 'awake') throw Error('Герой потерял возможность выполнить взаимодействие. Мастер должен пересмотреть раунд.')
       const objectId = a.target.id
-      const object = candidate.campaign.scenes?.scenes.find(s => s.id === work.sceneId)?.objects.find(o => o.id === objectId)
-      if (!object) throw Error('К моменту взаимодействия объекта уже нет. Согласуй порядок или измени заявление.')
-      if (a.operation === 'close' && hasMovement) checkClosingDoor(candidate.campaign.scenes!.scenes.find(s => s.id === work.sceneId)!, objectId, bodies, movementCheck)
-      if(a.operation==='relocate'){if(!a.destination)throw Error('Укажи новое положение объекта.');candidate.campaign.scenes=moveSceneObject(candidate.campaign.scenes!,work.sceneId!,{...object,...a.destination})}
+      const current = candidate.campaign.scenes?.scenes.find(s => s.id === work.sceneId), object = current?.objects.find(o => o.id === objectId)
+      if (!current || !object) throw Error('К моменту взаимодействия объекта уже нет. Согласуй порядок или измени заявление.')
+      if (a.operation === 'close') {
+        if (hasMovement) checkClosingDoor(current, objectId, bodies, movementCheck)
+        checkDoorSlideClearance(current, objectId)
+      }
+      if (a.operation === 'relocate') {
+        if (!a.destination) throw Error('Укажи новое положение объекта.')
+        if (isSliding(object.physics?.sliding)) throw Error('Предмет ещё скользит. Согласуй перенос после остановки.')
+        candidate.campaign.scenes = moveSceneObject(candidate.campaign.scenes!,work.sceneId!,{...object,...a.destination})
+      }
       else Object.assign(object,operateSceneObject(object,a.operation as ObjectOperation))
       if (thermalEnabled && a.operation === 'ignite') settleFire(activeScene()!)
       events.push({ actorId: work.actorId, actionIndex: work.origin.actionIndex, workId: work.id, atMs: at, kind: a.operation as ObjectOperation|'relocate', objectId: object.id })
@@ -368,11 +422,17 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const thermal = thermalEnabled ? thermalRoundChanges(scene!, activeScene()!) : undefined
   const falling = structural ? (activeScene()?.tokens ?? []).flatMap(token => token.fall ?
     [{ actorId:token.actorId, fromZ:token.fall.fromZ, toZ:token.z, speedMs:token.fall.speedMs }] : []) : []
+  const moving = horizontal ? (activeScene()?.objects ?? []).flatMap(object => {
+    const slide = object.physics?.sliding
+    return slide && isSliding(slide) ? [{ objectId:object.id, name:object.name, point:{ x:object.x, y:object.y, z:object.z },
+      speedMs:Math.hypot(slide.vxMs, slide.vyMs) }] : []
+  }) : []
   if(input.replay?.selections.some(s=>s.mode==='preserve'&&!ruleOutcomes.some(r=>r.key===s.key&&r.kind==='release'))) throw Error('Выпуск с прежними бросками должен завершиться в этом раунде. Для переноса выбери новые броски.')
   return { world: candidate, summary: { durationSeconds: collection.durationSeconds, events,
     ...(water ? { water } : {}),
     ...(thermal ? { thermal } : {}),
     ...(landings.length || falling.length ? { falls:{landings,falling} } : {}),
+    ...(slideStops.length || moving.length ? { slides:{stops:slideStops,moving} } : {}),
     ...(listeningWindows.length?{listeningWindows}:{}),
     ...(speechOutcomes.length?{speech:speechOutcomes}:{}),
     ...(input.replay?{replay:{sourceReceiptId:input.replay.sourceReceiptId,selections:input.replay.selections.map(({key,mode,sourceKey})=>({key,mode,...(sourceKey?{sourceKey}:{})}))}}:{}),

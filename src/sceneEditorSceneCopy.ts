@@ -1,5 +1,6 @@
 import type {Scene,SceneState} from './sceneTypes'
 import {copySceneState,isSceneState,MAX_SCENES} from './scenes'
+import {restingObject} from './mechanicalProfiles'
 
 export function sceneCopyName(source:Pick<Scene,'name'>,scenes:readonly Pick<Scene,'name'>[]):string{
  const names=new Set(scenes.map(s=>s.name))
@@ -26,7 +27,7 @@ export function copyEditorScene(state:SceneState,sourceId:string,name:string,id:
   reserved.add(next);return next
  }
  const next=copySceneState(state),source=next.scenes[sourceIndex]
- const copy:Scene={...source,id:freshId(),name:trimmed,objects:source.objects.map(o=>({...o,id:freshId()})),tokens:[]}
+ const copy:Scene={...source,id:freshId(),name:trimmed,objects:source.objects.map(o=>({...restingObject(o),id:freshId()})),tokens:[]}
  next.scenes.splice(sourceIndex+1,0,copy);next.activeSceneId=copy.id
  if(!isSceneState(next))throw Error('Проверь параметры копии сцены.')
  return copySceneState(next)
