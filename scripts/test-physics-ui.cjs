@@ -3,7 +3,7 @@ const React=require('react'),{act}=React,{JSDOM}=require('jsdom'),dom=new JSDOM(
 Object.assign(global,{window:dom.window,document:dom.window.document,FormData:dom.window.FormData,IS_REACT_ACT_ENVIRONMENT:true})
 const {createRoot}=require('react-dom/client'),root=createRoot(document.getElementById('root')),cache=new Map()
 function load(name){if(cache.has(name))return cache.get(name).exports;const file=['.tsx','.ts'].map(ext=>path.resolve('src',name+ext)).find(fs.existsSync);assert(file,name);const mod={exports:{}};cache.set(name,mod);const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2023}}).outputText;vm.runInThisContext('(function(require,module,exports){'+code+'\n})',{filename:file})(id=>id.startsWith('./')?load(id.slice(2)):require(id),mod,mod.exports);return mod.exports}
-const {ObjectPhysicsPanel,EnvironmentPhysicsPanel,LandingPhysicsPanel}=load('ScenePhysicsPanel'),{physicsMaterialPreset}=load('physicsMaterials')
+const {ObjectPhysicsPanel,EnvironmentPhysicsPanel,LandingPhysicsPanel,WaterVolumePanel}=load('ScenePhysicsPanel'),{physicsMaterialPreset}=load('physicsMaterials')
 const flush=async fn=>act(async()=>{fn?.();await new Promise(resolve=>setTimeout(resolve,10))})
 const input=label=>document.querySelector('[aria-label="'+label+'"]')
 const button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text)
@@ -11,10 +11,23 @@ async function field(label,value){await flush(()=>{const element=input(label);as
 async function submit(){await flush(()=>document.querySelector('form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})))}
 async function fixture(Panel=ObjectPhysicsPanel,initial,options={}){
   await flush(()=>root.render(null));const observed={value:initial,changes:[]}
-  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),value,canEmitLight:options.canEmitLight,canBreak:options.canBreak,canSlide:options.canSlide,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
+  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),...(Panel===WaterVolumePanel?{object:value}:{value}),canEmitLight:options.canEmitLight,canBreak:options.canBreak,canSlide:options.canSlide,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
   await flush(()=>root.render(React.createElement(Wrapper)));return observed
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
+
+test('Химия UI: мастер задаёт избыток реагента и явно убирает его из состава',async()=>{
+  const {pureWater}=load('waterPhysics')
+  const state=await fixture(WaterVolumePanel,{id:'pool',width:2,depth:1,height:.1,water:pureWater()})
+  const named=name=>document.querySelector('[name="'+name+'"]')
+  await flush(()=>{named('waterReagent').value='acid'})
+  await submit();assert(document.querySelector('[role=alert]'));assert.equal(state.value.water.reagentMol,undefined)
+  await flush(()=>{named('waterReagentMassKg').value='.036461'})
+  await submit();assert.equal(state.value.water.reagentMol,1)
+  assert.match(document.body.textContent,/pH при 25 °C/)
+  await flush(()=>{named('waterReagent').value='none'})
+  await submit();assert.equal(state.value.water.reagentMol,0)
+})
 
 test('Акустика UI: источник и фон редактируются и сбрасываются независимо',async()=>{
   const object=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('steel'),massKg:4,temperatureK:293.15,wetnessFraction:0})

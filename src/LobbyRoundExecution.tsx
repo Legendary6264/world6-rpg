@@ -224,7 +224,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
       {!!visible.summary.movements?.length && <div aria-label="Позиции после движения">{visible.summary.movements.map(m=><p key={m.workId}>{name(m.actorId)} · ({coords(m.from)}) → ({coords(m.to)}) м · {m.support.kind==='air'?'в воздухе':m.support.kind==='ground'?'на земле':'на объекте '+objectName(collection.sceneId,m.support.objectId)} · {m.completed?'маршрут завершён':'маршрут продолжается'}</p>)}</div>}
       {visible.summary.water && <section aria-label="Растекание и смачивание">
         <h4>Вода и опоры</h4>
-        {visible.summary.water.layers.map(layer => <p key={layer.id}>{layer.name} · {quantity(layer.fromL)} → {quantity(layer.toL)} л · соль {quantity(layer.saltKg)} кг · песок {quantity(layer.sedimentKg)} кг</p>)}
+        {visible.summary.water.layers.map(layer => <p key={layer.id}>{layer.name} · {quantity(layer.fromL)} → {quantity(layer.toL)} л · соль {quantity(layer.saltKg)} кг · песок {quantity(layer.sedimentKg)} кг{layer.ph === undefined ? '' : ' · pH при 25 °C ' + (layer.ph === null ? 'не определён' : quantity(layer.ph))}</p>)}
         {visible.summary.water.wetted.map(surface => <p key={surface.id}>{surface.name} · смочено {quantity(surface.fraction * 100)} % поверхности</p>)}
         {visible.summary.water.supports.map(change => <p key={change.actorId}>{name(change.actorId)} · {change.lostSupport ? 'покинул водную опору' : 'сместился вместе с водной опорой'} · {quantity(change.fromZ)} → {quantity(change.toZ)} м по Z</p>)}
         {visible.summary.water.routes.map(contact => <p key={JSON.stringify([contact.actorId, contact.objectId])}>{name(contact.actorId)} · на маршруте {contact.kind === 'water' ? 'вода' : 'мокрая опора'} «{contact.name}»</p>)}

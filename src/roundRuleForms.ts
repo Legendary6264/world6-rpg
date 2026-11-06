@@ -1,8 +1,8 @@
 import type { AbilitySpatial, ChargePolicy, ActionInput, ConsumableEffect } from './rpgTypes'
 import type { RuleDecision, RuleRow } from './roundRules'
 import {isAbilityObjectEffects} from './abilityEnvironment'
-import { isAbilityPhysicsEffect } from './abilityPhysics'
-import type { AbilityPhysicsEffect } from './abilityPhysics'
+import { isAbilityPhysicsEffect, isWaterAdditive } from './abilityPhysics'
+import type { AbilityPhysicsEffect, WaterAdditive } from './abilityPhysics'
 import type {ObjectOperation} from './tabletopInteractions'
 export type RuleSceneObject={id:string;name:string;operations?:ObjectOperation[]}
 export type RuleActor={id:string;name:string;canFly?:boolean;speechEligible?:boolean;items?:{id:string;name:string;quantity?:number;consumable?:ConsumableEffect}[];abilities?:{id:string;name:string;spatial?:AbilitySpatial}[];regions?:{key:string;label:string}[];casts?:{id:string;abilityId:string;name:string;status:string;binding:'bound'|'unbound';spatial?:AbilitySpatial;chargePolicy?:ChargePolicy;roundPreparation?:boolean}[]}
@@ -21,7 +21,7 @@ export const physicsFields = {
   'structural-impact': { energyJ: 'Энергия удара по конструкции, Дж' },
   'push-object': { impulseNs: 'Импульс толчка, Н·с' },
 } satisfies Record<AbilityPhysicsEffect['kind'], Record<string, string>>
-export type AbilityPhysicsForm = { kind: AbilityPhysicsEffect['kind']; fields: Record<string, string>; substance: 'salt' | 'sediment' }
+export type AbilityPhysicsForm = { kind: AbilityPhysicsEffect['kind']; fields: Record<string, string>; substance: WaterAdditive }
 
 export function emptyAbilityPhysicsForm(kind: AbilityPhysicsForm['kind']): AbilityPhysicsForm {
   return { kind, fields: Object.fromEntries(Object.keys(physicsFields[kind]).map(key => [key, ''])), substance: 'salt' }
@@ -33,7 +33,7 @@ export function emptyRuleForm(row:RuleRow,binding=''):RuleForm {
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 function validPhysicsForm(value: unknown): value is AbilityPhysicsForm {
   if (!record(value) || typeof value.kind !== 'string' || !Object.hasOwn(physicsFields, value.kind) ||
-      (value.substance !== 'salt' && value.substance !== 'sediment') || !record(value.fields)) return false
+      !isWaterAdditive(value.substance) || !record(value.fields)) return false
   const fields = value.fields
   const keys = Object.keys(physicsFields[value.kind as AbilityPhysicsForm['kind']])
   return Object.keys(fields).length === keys.length && keys.every(key => typeof fields[key] === 'string' && fields[key].length <= 40)

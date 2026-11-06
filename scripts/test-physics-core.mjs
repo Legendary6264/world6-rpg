@@ -23,9 +23,9 @@ const {emptyScenes,createScene,sceneObject,isSceneState,copySceneState,moveScene
 const {captureSceneAssembly,assemblyLayout,isSceneAssembly}=await load('sceneAssemblies'),{mergeSceneDraft}=await load('sceneDraftMerge')
 const {emptyCampaign,isCampaign,copyCampaign}=await load('rpgSchema'),{createCharacterArchive,parseCharacterArchive}=await load('characterTransfer')
 const {createDefaultCharacter}=await load('characterModel'),{advanceWorld}=await load('rpgEngine'),{exactAmount}=await load('exactWork'),{publicObject}=await load('scenePerception')
-const {pureWater,waterConductivitySM}=await load('waterPhysics'),{calculateCircuit}=await load('electricalCircuit')
+const {pureWater,waterConductivitySM,waterPH,waterReagents}=await load('waterPhysics'),{calculateCircuit}=await load('electricalCircuit')
 const {applyAbilityPhysics}=await load('abilityPhysics')
-const {advanceWaterFlow,settleWaterSupports}=await load('waterFlow')
+const {advanceWaterFlow,settleWaterSupports,waterRoundChanges}=await load('waterFlow')
 const {advanceMovement}=await load('sceneMovement')
 const {perceivedMap,preparePerception,emptyPerception}=await load('scenePerception')
 const {advanceThermal,applyHeat,smokeVisibilityM}=await load('thermalPhysics')
@@ -545,6 +545,55 @@ test('Вода: дозирование ведёт отдельный учёт с
  assert(waterConductivitySM(water.water,{...water,height:.2})<salted.conductivitySM)
  assert.equal(waterConductivitySM({...water.water,base:'unknown'},water),null)
  assert.equal(waterConductivitySM({...water.water,saltKg:20},water),null)
+})
+
+test('Раствор: разбавление, нейтрализация и остаток меняют pH и ток, массы сохраняются',()=>{
+ const scene=sceneState().scenes[0],water=pool('pool',8),point={x:7.5,y:5,z:.05},settings=discharge(8.5)
+ scene.objects=[water]
+ const dose=(substance,mol)=>applyAbilityPhysics(scene,point,'unused',{kind:'add-substance',substance,massKg:mol*waterReagents[substance].molarMassKg})
+ const pureCurrent=calculateCircuit(scene,point,settings).currentA
+ const acid=dose('acid',.2),acidCurrent=calculateCircuit(scene,point,settings).currentA
+ assert(Math.abs(acid.ph-3)<1e-6);assert(acidCurrent>pureCurrent*100)
+ const dilute=applyAbilityPhysics(scene,point,'unused',{kind:'fill-water',volumeL:200})
+ assert(dilute.ph>acid.ph && dilute.conductivitySM<acid.conductivitySM)
+ const neutral=dose('alkali',.2)
+ closeTo(neutral.ph,7);closeTo(neutral.reaction.neutralizedMol,.2);closeTo(neutral.reaction.saltKg,.01168856)
+ closeTo(neutral.reaction.saltKg+neutral.reaction.waterKg,.2*(.036461+.0399971))
+ closeTo(neutral.volumeL,400+neutral.reaction.waterKg)
+ const saltCurrent=calculateCircuit(scene,point,settings).currentA
+ assert(saltCurrent>pureCurrent*100 && saltCurrent<acidCurrent)
+ const excess=dose('alkali',.1)
+ assert(excess.ph>10);closeTo(excess.composition.reagentMol,-.1)
+ assert.equal(waterPH({...water.water,base:'unknown'},water),null)
+ assert.equal(waterConductivitySM({...water.water,reagentMol:100},water),null)
+ const ice={...water.water,enthalpyJKg:0}
+ water.water=ice
+ assert.throws(()=>dose('acid',.1),/жидкого объёма/);assert.equal(water.water,ice)
+ const oversized={...excess.composition,saltKg:1e9,reagentMol:.1}
+ water.water=oversized
+ assert.throws(()=>dose('alkali',1e-7),/пределы/);assert.equal(water.water,oversized)
+})
+
+test('Раствор: встречные притоки нейтрализуются в общем слое, состав переживает старого клиента',()=>{
+ const state=sceneState(),scene=state.scenes[0]
+ const left=flowCell('acid',4,.15),middle=flowCell('mix',6,0),right=flowCell('alkali',8,.15)
+ left.water.reagentMol=1;right.water.reagentMol=-1;scene.objects=[left,middle,right]
+ const mass=()=>scene.objects.reduce((sum,cell)=>{
+  const excess=cell.water.reagentMol??0
+  return sum+waterVolumeM3(cell)*1000+cell.water.saltKg+
+    Math.abs(excess)*waterReagents[excess>=0?'acid':'alkali'].molarMassKg
+ },0)
+ const before=copySceneState(state),initial=mass()
+ advanceWaterFlow(scene,.25)
+ assert(middle.height>0 && middle.water.saltKg>0);closeTo(mass(),initial)
+ assert.equal(middle.water.reagentMol,0);assert.equal(waterPH(middle.water,middle),7)
+ assert.equal(waterRoundChanges(before.scenes[0],scene,[],[]).layers.find(layer=>layer.id===middle.id).ph,7)
+ const old=copySceneState(JSON.parse(JSON.stringify(state))),oldWater=old.scenes[0].objects[0].water
+ delete oldWater.reagentMol;preserveScenePhysics(state,old)
+ closeTo(oldWater.reagentMol,left.water.reagentMol);assert(isSceneState(old))
+ oldWater.reagentMol=0;preserveScenePhysics(state,old);assert.equal(oldWater.reagentMol,0)
+ oldWater.reagentMol=Infinity;assert(!isSceneState(old))
+ assert.doesNotMatch(JSON.stringify(publicObject(left)),/reagentMol|saltKg/)
 })
 
 test('Цепь: сопротивление прямого участка учитывает сечение; ток ограничен источником',()=>{

@@ -33,15 +33,15 @@ import type { WaterRoundChanges, WaterSupportChange, WetRouteContact } from './w
 import type { SceneSupport } from './sceneTypes'
 import { advanceThermal, settleFire, thermalRoundChanges } from './thermalPhysics'
 import type { ThermalRoundChanges } from './thermalPhysics'
-import { isVariableWater } from './waterPhysics'
+import { isVariableWater, isWaterReagent } from './waterPhysics'
 import { advanceFalls, nextFallSeconds } from './structuralPhysics'
 import type { FallLanding, StructuralImpactOutcome } from './structuralPhysics'
 import { applySlide, checkDoorSlideClearance, planSlide, slideStep, slideSweep } from './horizontalPhysics'
 import type { SlideStep } from './horizontalPhysics'
 import { isSliding } from './mechanicalProfiles'
 import { removeLiveObjectDisclosure } from './scenePerception'
-export const ROUND_EXECUTOR_VERSION = 'r15-horizontal-motion-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+export const ROUND_EXECUTOR_VERSION = 'r16-aqueous-chemistry-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -230,10 +230,11 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   }
   const movementCheck = () => { if (++movementChecks > MAX_MOVEMENT_CHECKS) throw Error('Сцена слишком сложна для одного расчёта движения. Технический предел проверок; ничего не применено.') }
   const thermalEnabled = !!scene?.physics?.atmosphere
-  const variableWater = thermalEnabled || !!scene?.objects.some(object => isVariableWater(object.water))
-  const physicsDecisions = [...ruleDecisions.values()].flatMap(d => d.kind === 'ability' && d.physics ? [d.physics.kind] : [])
-  const horizontal = !!scene?.objects.some(o => isSliding(o.physics?.sliding)) || physicsDecisions.includes('push-object')
-  const structural = horizontal || !!scene?.tokens.some(token => token.fall) || physicsDecisions.includes('structural-impact')
+  const physicsDecisions = [...ruleDecisions.values()].flatMap(d => d.kind === 'ability' && d.physics ? [d.physics] : [])
+  const dosingReagent = physicsDecisions.some(effect => effect.kind === 'add-substance' && isWaterReagent(effect.substance))
+  const variableWater = thermalEnabled || dosingReagent || !!scene?.objects.some(object => isVariableWater(object.water))
+  const horizontal = !!scene?.objects.some(o => isSliding(o.physics?.sliding)) || physicsDecisions.some(effect => effect.kind === 'push-object')
+  const structural = horizontal || !!scene?.tokens.some(token => token.fall) || physicsDecisions.some(effect => effect.kind === 'structural-impact')
   const dynamicSupports = variableWater || structural
   const waterSupports = new Map<string, WaterSupportChange>(), routeSupports = new Map<string, SceneSupport>()
   const wetRoutes = new Map<string, WetRouteContact>()
@@ -368,8 +369,9 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         const slide = planSlide(activeScene()!)
         if (slide?.endSeconds === 0) commitSlide(slideStep(slide, 0), at)
       }
-      if (result.outcome.physics?.kind === 'heat' || result.outcome.physics?.kind === 'water' &&
-          (result.outcome.physics.change === 'filled' || thermalEnabled && result.outcome.physics.change === 'created')) advanceEnvironment(0, at)
+      const physical = result.outcome.physics
+      if (physical?.kind === 'heat' || physical?.kind === 'water' &&
+          (physical.reaction || physical.change === 'filled' || thermalEnabled && physical.change === 'created')) advanceEnvironment(0, at)
       if (thermalEnabled && result.outcome.environment?.some(effect => effect.operation === 'ignite')) settleFire(activeScene()!)
       events.push({actorId:work.actorId,actionIndex:work.origin.actionIndex,workId:work.id,atMs:at,kind:result.outcome.kind,...(result.outcome.castId?{castId:result.outcome.castId}:{})})
       continue

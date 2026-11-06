@@ -89,6 +89,7 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
       else if (object.water && before?.water) {
         if (object.water.flow === undefined && before.water.flow !== undefined) object.water.flow = before.water.flow
         if (object.water.enthalpyJKg === undefined && before.water.enthalpyJKg !== undefined) object.water.enthalpyJKg = before.water.enthalpyJKg
+        if (object.water.reagentMol === undefined && before.water.reagentMol !== undefined) object.water.reagentMol = before.water.reagentMol
       }
       if (object.physics === undefined && before?.physics !== undefined) object.physics = copyPhysicsBody(before.physics)
       else if (object.physics && before?.physics) {

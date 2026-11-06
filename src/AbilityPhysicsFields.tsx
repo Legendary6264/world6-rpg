@@ -1,4 +1,5 @@
 import { emptyAbilityPhysicsForm, physicsFields } from './roundRuleForms'
+import {waterReagents} from './waterPhysics'
 import type { AbilityPhysicsForm } from './roundRuleForms'
 
 const modeLabels = {
@@ -12,8 +13,8 @@ const modeLabels = {
 } satisfies Record<AbilityPhysicsForm['kind'], string>
 const hints = {
   'create-water': 'Точка выпуска станет центром основания нового объёма. Укажи его размеры.',
-  'fill-water': 'Выбери участок растекания или водный слой в тепловой сцене. Для сухого слоя укажи высоту его основания.',
-  'add-substance': 'Направь выпуск в существующий объём воды. Соль растворится, песок будет учтён как осадок.',
+  'fill-water': 'Выбери участок растекания, раствор или водный слой в тепловой сцене. Для сухого слоя укажи высоту его основания.',
+  'add-substance': 'Направь выпуск в жидкую воду. При встрече кислоты и щёлочи образуются вода и соль.',
   discharge: 'Точка выпуска задаёт первый контакт. Укажи положение обратной клеммы. Импульс должен помещаться во время выпуска, порог операций — в предел тока источника.',
   heat: 'Выбери точку внутри воды или объекта с теплоёмкостью. Плюс добавляет тепло, минус отнимает. Для этого действия включи тепло и воздух в настройках сцены.',
   'structural-impact': 'Выбери точку внутри объекта с заданной прочностью. Укажи энергию, которую удар передаёт конструкции. При разрушении опоры герои на ней начнут падать.',
@@ -39,6 +40,7 @@ export default function AbilityPhysicsFields({ title, value, onChange }: {
       {value.kind === 'add-substance' && <label className="w6-field"><span>Примесь</span>
         <select aria-label={'Примесь ' + title} value={value.substance} onChange={event => onChange({ ...value, substance: event.currentTarget.value as AbilityPhysicsForm['substance'] })}>
           <option value="salt">Растворённая соль (NaCl)</option><option value="sediment">Песок</option>
+          {Object.entries(waterReagents).map(([key, reagent]) => <option key={key} value={key}>{reagent.label}</option>)}
         </select>
       </label>}
       <div className="gb-properties">
@@ -47,6 +49,8 @@ export default function AbilityPhysicsFields({ title, value, onChange }: {
             onChange={event => onChange({ ...value, fields: { ...value.fields, [key]: event.currentTarget.value } })}/>
         </label>)}
       </div>
+      {value.kind === 'add-substance' && (value.substance === 'acid' || value.substance === 'alkali') &&
+        <p className="w6-copy">Укажи массу самого вещества в растворе. Соль, которая образуется при реакции, тоже проводит ток.</p>}
       {value.kind === 'discharge' && <p className="w6-copy">Операции с объектами сработают на найденном пути при достижении заданного тока. Последствия для существ задаются в параметрах выпуска.</p>}
     </>}
   </details>

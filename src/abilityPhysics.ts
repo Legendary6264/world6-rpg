@@ -10,19 +10,31 @@ import { strikeStructure } from './structuralPhysics'
 import type { StructuralImpactOutcome } from './structuralPhysics'
 import { pushObject } from './horizontalPhysics'
 import type { PushOutcome } from './horizontalPhysics'
-import { isVariableWater, isWaterComposition, liquidEnthalpy, liquidWaterHeight, MAX_WATER_ADDITIVE_KG, MIN_WATER_HEIGHT_M, pureWater, waterConductivitySM, waterEnthalpy, waterVolumeM3 } from './waterPhysics'
-import type { WaterComposition } from './waterPhysics'
+import {
+  FUSION_J_KG, MAX_WATER_ADDITIVE_KG, MAX_WATER_REAGENT_MOL, MIN_WATER_HEIGHT_M, WATER_MASS_KG_M3,
+  isVariableWater, isWaterComposition, isWaterReagent, liquidEnthalpy, liquidWaterHeight, pureWater,
+  reactWaterReagents, waterConductivitySM, waterEnthalpy, waterPH, waterReagents, waterVolumeM3,
+} from './waterPhysics'
+import type { WaterComposition, WaterReagent } from './waterPhysics'
+
+export type WaterAdditive = 'salt' | 'sediment' | WaterReagent
+export const isWaterAdditive = (value: unknown): value is WaterAdditive =>
+  value === 'salt' || value === 'sediment' || isWaterReagent(value)
+type Neutralization = Pick<ReturnType<typeof reactWaterReagents>, 'neutralizedMol' | 'saltKg' | 'waterKg'>
 
 export type AbilityPhysicsEffect =
   | { kind: 'create-water'; widthM: number; depthM: number; heightM: number }
   | { kind: 'fill-water'; volumeL: number }
-  | { kind: 'add-substance'; substance: 'salt' | 'sediment'; massKg: number }
+  | { kind: 'add-substance'; substance: WaterAdditive; massKg: number }
   | ({ kind: 'discharge' } & DischargeSettings)
   | { kind: 'heat'; energyKJ: number }
   | { kind: 'structural-impact'; energyJ: number }
   | { kind: 'push-object'; impulseNs: number }
 export type AbilityPhysicsOutcome =
-  | { kind: 'water'; change: 'created' | 'filled' | 'salt' | 'sediment'; objectId: string; volumeL: number; composition: WaterComposition; conductivitySM: number | null }
+  | {
+      kind: 'water'; change: 'created' | 'filled' | WaterAdditive; objectId: string; volumeL: number
+      composition: WaterComposition; conductivitySM: number | null; ph?: number | null; reaction?: Neutralization
+    }
   | { kind: 'discharge'; circuit: CircuitResult; thresholdA: number }
   | HeatOutcome
   | StructuralImpactOutcome
@@ -43,7 +55,8 @@ export function isAbilityPhysicsEffect(value: unknown): value is AbilityPhysicsE
       return physicsKeys(value, ['kind', 'volumeL']) && physicsNumber(value.volumeL, .001, 1e12)
     case 'add-substance':
       return physicsKeys(value, ['kind', 'substance', 'massKg']) &&
-        (value.substance === 'salt' || value.substance === 'sediment') && physicsNumber(value.massKg, 1e-9, MAX_WATER_ADDITIVE_KG)
+        isWaterAdditive(value.substance) && physicsNumber(value.massKg, 1e-9, isWaterReagent(value.substance) ?
+          MAX_WATER_REAGENT_MOL * waterReagents[value.substance].molarMassKg : MAX_WATER_ADDITIVE_KG)
     case 'discharge':
       return physicsKeys(value, ['kind', 'returnContact', 'voltageV', 'limitA', 'durationMs', 'thresholdA']) && isPoint(value.returnContact) &&
         physicsNumber(value.voltageV, 1e-6, 1e6) && physicsNumber(value.limitA, 1e-9, 1e6) &&
@@ -59,11 +72,36 @@ export function isAbilityPhysicsEffect(value: unknown): value is AbilityPhysicsE
   }
 }
 
-function waterOutcome(object: SceneObject, composition: WaterComposition, change: Extract<AbilityPhysicsOutcome, { kind: 'water' }>['change']): AbilityPhysicsOutcome {
+function waterOutcome(object: SceneObject, composition: WaterComposition, change: Extract<AbilityPhysicsOutcome, { kind: 'water' }>['change'], reaction?: Neutralization): AbilityPhysicsOutcome {
   return {
     kind: 'water', change, objectId: object.id, volumeL: cubicMetresToLitres(waterVolumeM3(object)),
     composition: { ...composition }, conductivitySM: waterConductivitySM(composition, object),
+    ...(composition.reagentMol !== undefined ? {ph:waterPH(composition, object)} : {}),
+    ...(reaction ? {reaction} : {}),
   }
+}
+
+function addWaterReagent(scene: Scene, object: SceneObject, current: WaterComposition, substance: WaterReagent, massKg: number) {
+  const moles = massKg / waterReagents[substance].molarMassKg
+  const balance = current.reagentMol ?? 0
+  const {reagentMol, neutralizedMol, saltKg, waterKg} = reactWaterReagents(
+    Math.max(0, balance) + (substance === 'acid' ? moles : 0),
+    Math.max(0, -balance) + (substance === 'alkali' ? moles : 0),
+  )
+  const productM3 = waterKg / WATER_MASS_KG_M3
+  const height = object.height + productM3 / (object.width * object.depth)
+  const water = {...current, reagentMol, saltKg:current.saltKg + saltKg}
+  // Water formed in slush is liquid. Mix its enthalpy at the liquid's temperature.
+  if (productM3 > 0 && water.enthalpyJKg != null && water.enthalpyJKg < FUSION_J_KG) {
+    const productFraction = productM3 / (waterVolumeM3(object) + productM3)
+    water.enthalpyJKg += (FUSION_J_KG - water.enthalpyJKg) * productFraction
+  }
+  const lostProducts = neutralizedMol > 0 && (water.saltKg === current.saltKg || height === object.height)
+  if (reagentMol === balance || lostProducts || !isWaterComposition(water) || object.z + height > scene.maxZ) {
+    throw Error('Результат реакции выходит за пределы сцены или учёта состава.')
+  }
+  Object.assign(object, {height, water})
+  return waterOutcome(object, water, substance, neutralizedMol > 0 ? {neutralizedMol, saltKg, waterKg} : undefined)
 }
 
 // Only called on the private candidate of a confirmed release, at its exact
@@ -91,7 +129,7 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
     }
     case 'fill-water': {
       const cells = scene.objects.filter(o => o.water && (isVariableWater(o.water) || scene.physics?.atmosphere) && pointInObject(o, aim)), cell = cells[0]
-      if (cells.length !== 1 || !cell.water) throw Error('Выбери один участок растекания или водный слой в тепловой сцене.')
+      if (cells.length !== 1 || !cell.water) throw Error('Выбери один участок растекания, раствор или водный слой в тепловой сцене.')
       const height = cell.height + litresToCubicMetres(effect.volumeL) / (cell.width * cell.depth)
       if (height === cell.height || cell.z + height > scene.maxZ) throw Error('Проверь объём и верхнюю границу сцены.')
       const current = cell.water, ambient = scene.physics?.ambientTemperatureK ?? 293.15
@@ -107,6 +145,7 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
       const volumes = scene.objects.filter(o => o.water && liquidWaterHeight(o.water, o.height) > 0 &&
         pointInObject({ ...o, height:liquidWaterHeight(o.water, o.height) }, aim)), volume = volumes[0]
       if (volumes.length !== 1 || !volume.water) throw Error('Выбери точку внутри одного жидкого объёма воды с заданным составом.')
+      if (isWaterReagent(effect.substance)) return addWaterReagent(scene, volume, volume.water, effect.substance, effect.massKg)
       const field = effect.substance === 'salt' ? 'saltKg' : 'sedimentKg'
       const water = { ...volume.water, [field]: volume.water[field] + effect.massKg }
       if (!isWaterComposition(water) || water[field] === volume.water[field]) throw Error('Масса примеси выходит за пределы учёта.')
@@ -137,10 +176,13 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
 export function physicsOutcomeDetails(outcome: AbilityPhysicsOutcome): string {
   const number = (v: number) => v.toLocaleString('ru-RU', { maximumSignificantDigits: 4 })
   if (outcome.kind === 'water') {
-    const change = { created: 'Создан объём чистой воды', filled: 'Долита чистая вода', salt: 'Добавлена растворённая соль', sediment: 'Добавлен песок' }[outcome.change]
-    const { volumeL, composition, conductivitySM } = outcome
+    const change = { created: 'Создан объём чистой воды', filled: 'Долита чистая вода', salt: 'Добавлена растворённая соль', sediment: 'Добавлен песок',
+      acid: 'Добавлена соляная кислота', alkali: 'Добавлена щёлочь' }[outcome.change]
+    const { volumeL, composition, conductivitySM, ph, reaction } = outcome
     return change + ' · ' + number(volumeL) + ' л · соль ' + number(composition.saltKg) + ' кг · песок ' + number(composition.sedimentKg) +
-      ' кг · проводимость ' + (conductivitySM === null ? 'не определена' : number(conductivitySM) + ' См/м')
+      ' кг · проводимость ' + (conductivitySM === null ? 'не определена' : number(conductivitySM) + ' См/м') +
+      (ph === undefined ? '' : ' · pH при 25 °C ' + (ph === null ? 'не определён' : number(ph))) +
+      (reaction ? ' · нейтрализовано ' + number(reaction.neutralizedMol) + ' моль · образовалось ' + number(reaction.saltKg) + ' кг NaCl' : '')
   }
   if (outcome.kind === 'heat') {
     return (outcome.energyKJ > 0 ? 'Нагрев' : 'Охлаждение') + ' · ' + number(Math.abs(outcome.energyKJ)) + ' кДж · ' +

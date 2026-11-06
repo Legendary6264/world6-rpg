@@ -5,7 +5,10 @@ import {copyPhysicsMaterial} from './physicsMaterials'
 import {DEFAULT_BACKGROUND_NOISE_DB,MAX_AEROSOL_KG,MAX_SOUND_LEVEL_DB,OUTSIDE_OXYGEN_FRACTION,isPhysicsBody,isPhysicsEnvironment} from './physicsState'
 import type {PhysicsBody,PhysicsEnvironment} from './physicsState'
 import {celsiusToKelvin,cubicMetresToLitres,kelvinToCelsius,physicsNumber} from './physicsUnits'
-import {FUSION_J_KG,ICE_HEAT_J_KG_K,isWaterComposition,liquidEnthalpy,MAX_WATER_ADDITIVE_KG,validWaterHeight,waterConductivitySM,waterPhase,waterVolumeM3} from './waterPhysics'
+import {
+  FUSION_J_KG, ICE_HEAT_J_KG_K, MAX_WATER_ADDITIVE_KG, isWaterComposition, isWaterReagent, liquidEnthalpy,
+  validWaterHeight, waterConductivitySM, waterPhase, waterPH, waterReagents, waterVolumeM3,
+} from './waterPhysics'
 import type {SceneObject} from './sceneTypes'
 import {bodyRegions} from './bodyRegions'
 import {isLandingProfile,isSliding,MAX_SLIDE_FRICTION,MAX_STRUCTURAL_ENERGY_J} from './mechanicalProfiles'
@@ -26,6 +29,9 @@ export function WaterVolumePanel({ object, thermal, disabled, onChange }: { obje
   const value = object.water
   const phase = value?.enthalpyJKg != null && object.height > 0 ? waterPhase(value.enthalpyJKg) : undefined
   const canSetTemperature = thermal || value?.enthalpyJKg != null
+  const balance = value?.reagentMol ?? 0
+  const reagent = balance > 0 ? 'acid' : balance < 0 ? 'alkali' : 'none'
+  const ph = value?.reagentMol !== undefined ? waterPH(value, object) : undefined
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (disabled) return
@@ -44,8 +50,16 @@ export function WaterVolumePanel({ object, thermal, disabled, onChange }: { obje
           enthalpyJKg = c < 0 ? c * ICE_HEAT_J_KG_K : c === 0 ? (1 - ice / 100) * FUSION_J_KG : liquidEnthalpy(celsiusToKelvin(c))
         } else enthalpyJKg = value?.enthalpyJKg === undefined ? undefined : null
       }
+      const chosen = data.get('waterReagent')
+      let reagentMol: number | undefined
+      if (isWaterReagent(chosen)) {
+        const massKg = number(data, 'waterReagentMassKg')
+        if (!physicsNumber(massKg, 1e-9, MAX_WATER_ADDITIVE_KG)) throw Error('Укажи положительную массу кислоты или щёлочи.')
+        reagentMol = (chosen === 'acid' ? massKg : -massKg) / waterReagents[chosen].molarMassKg
+      } else if (value?.reagentMol !== undefined) reagentMol = 0
       const water = { version: 1, base: data.get('waterBase'), saltKg: number(data, 'waterSalt'), sedimentKg: number(data, 'waterSediment'),
-        ...(flow || value?.flow !== undefined ? { flow } : {}), ...(enthalpyJKg !== undefined ? {enthalpyJKg} : {}) }
+        ...(flow || value?.flow !== undefined ? { flow } : {}), ...(enthalpyJKg !== undefined ? {enthalpyJKg} : {}),
+        ...(reagentMol !== undefined ? {reagentMol} : {}) }
       if (!isWaterComposition(water) || !physicsNumber(height, 0, 1e6) || !validWaterHeight(water, height)) throw Error('Проверь глубину слоя и массы примесей.')
       if (!onChange({ ...object, height, water })) setError('Проверь границы сцены, стыки участков и опоры персонажей.')
     } catch (cause) {
@@ -54,9 +68,10 @@ export function WaterVolumePanel({ object, thermal, disabled, onChange }: { obje
   }
   return <details className="gb-scene-details"><summary>Объём и состав воды</summary>
     {value && <p className="w6-copy">{display(cubicMetresToLitres(waterVolumeM3(object)), 'л')} · проводимость {display(waterConductivitySM(value, object), 'См/м')}</p>}
+    {ph !== undefined && <p className="w6-copy">pH при 25 °C · {ph === null ? 'нет оценки' : ph.toLocaleString('ru-RU',{maximumFractionDigits:3})}</p>}
     {phase && <p className="w6-copy">{display(kelvinToCelsius(phase.temperatureK), '°C')} · льда {display(phase.iceFraction * 100, '%')}</p>}
-    {value?.enthalpyJKg != null && object.height === 0 && <p className="w6-copy">Сухой слой. Соль и осадок останутся здесь при доливе.</p>}
-    <p className="w6-copy">Объём определяется размерами слоя. Проводимость рассчитана для чистой воды и раствора NaCl до 50 г/л при комнатной температуре.</p>
+    {value?.enthalpyJKg != null && object.height === 0 && <p className="w6-copy">Сухой слой. Примеси останутся здесь при доливе.</p>}
+    <p className="w6-copy">Объём определяется размерами слоя. Для соли оценка проводимости действует до 50 г/л. С кислотой или щёлочью оценка доступна для разбавленного раствора известного состава.</p>
     <form key={JSON.stringify([object.height, value])} onSubmit={submit} aria-label="Объём и состав воды"><fieldset className="gb-properties gb-physics-properties" disabled={disabled}>
       <label className="w6-field"><span>Глубина слоя, м</span><input name="waterHeight" type="number" step="any" min={0} defaultValue={value ? object.height : object.height || .05} required/></label>
       <label className="w6-field"><span>Исходная вода</span><select name="waterBase" defaultValue={value?.base ?? 'unknown'}>
@@ -65,6 +80,16 @@ export function WaterVolumePanel({ object, thermal, disabled, onChange }: { obje
       </select></label>
       <label className="w6-field"><span>Растворённая соль (NaCl), кг</span><input name="waterSalt" type="number" step="any" min="0" max={MAX_WATER_ADDITIVE_KG} defaultValue={value?.saltKg ?? 0} required/></label>
       <label className="w6-field"><span>Песок, кг</span><input name="waterSediment" type="number" step="any" min="0" max={MAX_WATER_ADDITIVE_KG} defaultValue={value?.sedimentKg ?? 0} required/></label>
+      <details className="gb-scene-details gb-wide" open={balance !== 0 ? true : undefined}>
+        <summary>Кислота и щёлочь</summary>
+        <label className="w6-field"><span>Что растворено в воде</span><select name="waterReagent" defaultValue={reagent}>
+          <option value="none">Без кислоты и щёлочи</option>
+          {Object.entries(waterReagents).map(([key, entry]) => <option key={key} value={key}>{entry.label}</option>)}
+        </select></label>
+        <label className="w6-field"><span>Масса выбранного вещества, кг</span><input name="waterReagentMassKg" type="number" step="any" min={1e-9} max={MAX_WATER_ADDITIVE_KG}
+          defaultValue={reagent === 'none' ? '' : Math.abs(balance) * waterReagents[reagent].molarMassKg}/></label>
+        <p className="w6-copy">Это исходный состав слоя. Реакция произойдёт в раунде, когда в воду попадёт второй реагент.</p>
+      </details>
       <label className="w6-check gb-wide"><input name="waterFlow" type="checkbox" defaultChecked={value?.flow}/>Участок растекания</label>
       <p className="w6-copy gb-wide">Соединяй участки общей стороной. Для сухого участка задай глубину 0 м. Уровни пересчитываются в раунде.</p>
       {canSetTemperature && <details className="gb-scene-details gb-wide">

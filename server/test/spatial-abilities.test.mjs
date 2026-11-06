@@ -78,7 +78,7 @@ for(const dialect of ['sqlite','postgres'])test('Пространственны�
  })
 })
 
-for (const dialect of ['sqlite', 'postgres']) test('Вода и разряд меняют один раунд и сохраняются при повторе · ' + dialect, async t => {
+for (const dialect of ['sqlite', 'postgres']) test('Вода, нейтрализация и разряд меняют один раунд и сохраняются при повторе · ' + dialect, async t => {
  const f = await fixture(t, dialect), {api} = f, gm = await f.register('water-owner'), player = await f.register('water-player')
  const {id} = await api('/lobbies', gm.token, 'POST', lobbyBody, 201), root = '/lobbies/' + id
  await api(root + '/join', player.token, 'POST')
@@ -89,7 +89,7 @@ for (const dialect of ['sqlite', 'postgres']) test('Вода и разряд м�
  const world = () => api(root + '/world', gm.token)
  await api(actorRoute + '/review', gm.token, 'POST', {revision:(await world()).revision, decision:'approve', note:''})
  const initial = await world(), actor = initial.characters[0]
- actor.rpg.formulas = []; actor.statistics.energyRegeneration = '0'; actor.resources.mana = {maximum:'50',current:'50'}
+ actor.rpg.formulas = []; actor.statistics.energyRegeneration = '0'; actor.resources.mana = {maximum:'100',current:'100'}
  actor.rpg.abilities = [{...emptyAbility(), id:'spell', templateId:'spell-template', name:'Опыт с водой', approved:true,
    spatial:{shape:'sphere', includeCaster:false, radiusM:1}, rangeM:10, mechanism:'effect', cost:{mana:7,shadow:0,stamina:0}}]
  initial.campaign.scenes = createScene(emptyScenes(), 'water-scene', 'Площадка', 'top')
@@ -101,14 +101,18 @@ for (const dialect of ['sqlite', 'postgres']) test('Вода и разряд м�
  await api(actorRoute + '/disclosure', gm.token, 'PUT', {revision:(await world()).revision,draft:{activeSceneId:scene.id,scenes:[{
    sceneId:scene.id,title:'Площадка',description:'',areas:[{id:'area',x:0,y:0,z:-5,width:20,depth:20,height:25,visible:true}],objects:[],contacts:[]
  }]}})
- await api(root + '/declarations', gm.token, 'POST', {sceneId:scene.id,participantIds:[actorId],durationSeconds:5,allowReplace:true,revision:(await world()).revision},201)
+ await api(root + '/declarations', gm.token, 'POST', {sceneId:scene.id,participantIds:[actorId],durationSeconds:9,allowReplace:true,revision:(await world()).revision},201)
  const view = await api(actorRoute + '/declarations', player.token)
  const waterPoint = {x:6.5,y:6,z:0}, electrode = {x:5,y:6,z:.05}
  const discharge = {kind:'discharge',returnContact:{x:7.25,y:6,z:.05},voltageV:24,limitA:.5,durationMs:100,thresholdA:.02}
  const operations = [
    {point:waterPoint,physics:{kind:'create-water',widthM:2,depthM:1,heightM:.1}},
    {point:electrode,physics:discharge},
-   {point:waterPoint,physics:{kind:'add-substance',substance:'salt',massKg:.2}},
+   {point:waterPoint,physics:{kind:'add-substance',substance:'salt',massKg:.05}},
+   {point:electrode,physics:discharge},
+   {point:waterPoint,physics:{kind:'add-substance',substance:'acid',massKg:.0072922}},
+   {point:electrode,physics:discharge},
+   {point:waterPoint,physics:{kind:'add-substance',substance:'alkali',massKg:.00799942}},
    {point:electrode,physics:discharge},
  ]
  const actions = operations.flatMap(({point})=>[
@@ -127,7 +131,7 @@ for (const dialect of ['sqlite', 'postgres']) test('Вода и разряд м�
      ...(physics.kind==='discharge'?{environment:[{objectId:'electrode',operation:'ignite',reason:'PRIVATE-WATER-RULE'}]}:{})},
  ])
  const request = {revision:before.revision,collectionId:collection.id,epoch:collection.epoch,input:{
-   timings:[{actorId,entryRevision:1,budgetMs:5000,costs:actions.map((_,index)=>({index,personalMs:500}))}],
+   timings:[{actorId,entryRevision:1,budgetMs:9000,costs:actions.map((_,index)=>({index,personalMs:500}))}],
    continuations:[],missingDecisions:[],interactionsConfirmed:false,rules,
  }}
  const calculate = (body, token=gm.token, status=200) => api(root + '/rounds/calculate', token, 'POST', body, status)
@@ -136,26 +140,33 @@ for (const dialect of ['sqlite', 'postgres']) test('Вода и разряд м�
  await calculate(long, gm.token, 400)
  const outOfBounds = structuredClone(request); outOfBounds.input.rules[1].physics.widthM=20
  await calculate(outOfBounds, gm.token, 400)
+ const invalidReagent = structuredClone(request); invalidReagent.input.rules[9].physics.massKg=-1
+ await calculate(invalidReagent, gm.token, 400)
  const preview = await calculate(request), releases = preview.summary.rules.filter(rule=>rule.kind==='release')
  assert.equal(releases[0].physics.volumeL,200)
  assert.equal(releases[1].physics.circuit.status,'closed')
  assert(releases[1].physics.circuit.currentA<discharge.thresholdA)
  assert.equal(releases[1].environment,undefined)
- assert.equal(releases[2].physics.composition.saltKg,.2)
+ assert.equal(releases[2].physics.composition.saltKg,.05)
  assert(releases[3].physics.circuit.currentA>discharge.thresholdA)
  assert.deepEqual(releases[3].physics.circuit.path.map(part=>part.id),['electrode',releases[0].physics.objectId])
  assert.equal(releases[3].environment[0].operation,'ignite')
+ assert(Math.abs(releases[4].physics.ph-3)<1e-6)
+ const neutral = releases[6].physics, acidCurrent = releases[5].physics.circuit.currentA
+ assert(Math.abs(neutral.ph-7)<1e-6);assert(Math.abs(neutral.reaction.neutralizedMol-.2)<1e-10)
+ assert(Math.abs(neutral.composition.saltKg-.06168856)<1e-10)
+ assert(releases[7].physics.circuit.currentA<acidCurrent && releases[7].physics.circuit.currentA>discharge.thresholdA)
  assert.deepEqual(await world(),before)
 
  const command = {previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()}
  const apply = (body=command,path='/rounds/apply') => api(root+path,gm.token,'POST',body)
  const result = await apply(), after = await world(), objects = after.campaign.scenes.scenes[0].objects
- assert.equal(objects.length,2);assert.equal(objects[0].active,true);assert.equal(objects[1].water.saltKg,.2)
- assert.equal(after.characters[0].resources.mana.current,'22')
+ assert.equal(objects.length,2);assert.equal(objects[0].active,true);assert.deepEqual(objects[1].water,neutral.composition)
+ assert.equal(after.characters[0].resources.mana.current,'44')
  await f.restart()
  assert.equal((await apply()).duplicate,true);assert.deepEqual(await world(),after)
  const personal = JSON.stringify(await api(root+'/world',player.token))
- for (const secret of ['PRIVATE-WATER-ELECTRODE','PRIVATE-WATER-RULE','saltKg','currentA']) assert(!personal.includes(secret),secret)
+ for (const secret of ['PRIVATE-WATER-ELECTRODE','PRIVATE-WATER-RULE','saltKg','currentA','reagentMol','neutralizedMol']) assert(!personal.includes(secret),secret)
 
  const history = await api(root+'/rounds/history',gm.token)
  const rollback = await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:history.revision,receiptId:result.receipt.id,reason:'Повторить опыт'})
