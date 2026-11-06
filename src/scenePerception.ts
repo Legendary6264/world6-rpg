@@ -8,6 +8,8 @@ import {sceneEnvironment,validSceneEnvironment} from './sceneEnvironment'
 import {smokeVisibilityM} from './thermalPhysics'
 import {isVariableWater,waterIceCover} from './waterPhysics'
 import {isSliding} from './mechanicalProfiles'
+import {sceneOptics,visibleLightLevel} from './sceneOptics'
+import type {LightLevel} from './opticalProfiles'
 // These built-in terrain paintings contain no campaign objects or private labels.
 const mapBackground = (value: unknown): value is string => isTiledArtwork(value) || value === 'pixel-ground-stone' || value === 'pixel-ground-yard'
 
@@ -23,7 +25,9 @@ export type ScenePerceptions = { version: 1; heroes: HeroPerception[] }
 export type PerceptionDraft = { activeSceneId: string | null; scenes: (Omit<KnownScene, 'frame' | 'objects' | 'contacts'> & {
   objects: Pick<ObjectDisclosure, 'objectId' | 'visible'>[]; contacts: Omit<ContactDisclosure, 'id'>[] })[] }
 export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; falling?: true; support?: 'ground' | 'air' | 'object'; portrait?: string; radius?: number; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
-export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; title: string; description: string; frame: MapFrame; areas: KnownArea[]; objects: (ObservedObject & { visible: boolean; sliding?: true })[]; contacts: VisibleContact[] }
+export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; optics?: {dim:boolean; smoke?:true; unplaced?:true};
+  title: string; description: string; frame: MapFrame; areas: KnownArea[];
+  objects: (ObservedObject & { visible: boolean; sliding?: true; light?:LightLevel })[]; contacts: VisibleContact[] }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const id = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(v)
 const text = (v: unknown, n: number): v is string => typeof v === 'string' && v.length <= n
@@ -124,21 +128,30 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
   const knowledge = value.scenes.find(s => s.sceneId === value.activeSceneId), live = scenes?.scenes.find(s => s.id === value.activeSceneId)
   if (!knowledge || !live) return null
   const self = live.tokens.find(t => t.actorId === value.actorId), actor = actors.find(a => a.id === value.actorId)
-  const visibility = self ? smokeVisibilityM(live) : undefined
-  const inSight = (p: ScenePosition) => !self || visibility === undefined || Math.hypot(p.x - self.x, p.y - self.y, p.z - self.z) <= visibility
+  const optics = self ? sceneOptics(live, self) : undefined, unplaced = !!live.physics?.vision && !self
+  const visibility = self && !optics ? smokeVisibilityM(live) : undefined
+  const inSight = (p: ScenePosition) => !unplaced && (optics ? optics.seesPoint(p) :
+    !self || visibility === undefined || Math.hypot(p.x - self.x, p.y - self.y, p.z - self.z) <= visibility)
+  const tokenInSight = (p: ScenePosition) => optics ? optics.seesToken(p) : inSight(p)
   const inArea = (p: ScenePosition, visible: boolean) => knowledge.areas.some(a => (!visible || a.visible) && withinArea(p, a))
   const objects = knowledge.objects.flatMap(o => {
-    const current = o.visible ? live.objects.find(c => c.id === o.objectId) : o.snapshot
-    if (!current || !inArea(current, o.visible) || o.visible && !inSight(current)) return []
+    const liveObject = o.visible ? live.objects.find(c => c.id === o.objectId) : undefined
+    const current = o.visible ? liveObject : o.snapshot
+    if (!current || !inArea(current, o.visible)) return []
+    if (liveObject && !(optics ? optics.seesObject(liveObject) : inSight(liveObject))) return []
     const visible = publicObject(current)
-    const sliding = o.visible && 'physics' in current && isSliding(current.physics?.sliding)
-    return visible.waterVolume && visible.height === 0 ? [] : [{ ...visible, visible: o.visible, ...(sliding ? {sliding:true as const} : {}) }]
+    const sliding = liveObject && isSliding(liveObject.physics?.sliding)
+    const light = optics && liveObject ? visibleLightLevel(liveObject) : undefined
+    return visible.waterVolume && visible.height === 0 ? [] : [{ ...visible, visible: o.visible,
+      ...(sliding ? {sliding:true as const} : {}), ...(light ? {light} : {}) }]
   })
+  const visibleActors = new Set<string>()
   const contacts: VisibleContact[] = knowledge.contacts.flatMap(c => {
     const token = live.tokens.find(t => t.actorId === c.actorId), actor = actors.find(a => a.id === c.actorId)
     const point = c.kind === 'sound' ? c.point : token
-    if (!point || !inArea(point, true) || c.actorId === value.actorId || c.kind !== 'sound' && !inSight(point)) return []
+    if (!point || !inArea(point, true) || c.actorId === value.actorId || c.kind !== 'sound' && !tokenInSight(point)) return []
     const identity = c.kind === 'identified' && actor
+    if (identity && c.showHeight) visibleActors.add(c.actorId)
     return [{ id: c.id, kind: c.kind, label: c.label || (identity ? actor.name : c.kind === 'sound' ? 'Источник звука' : 'Неизвестный силуэт'), signs: c.signs, x: point.x, y: point.y,
       ...(c.showHeight ? { z: point.z, ...(token && c.kind !== 'sound' ?
         { flying: token.support.kind === 'air' && !token.fall, ...(token.fall ? {falling:true as const} : {}) } : {}) } : {}),
@@ -154,20 +167,25 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
     const source=actors[actorIndex],own=source.id===value.actorId,disclosed=knowledge.contacts.find(c=>c.actorId===source.id&&c.kind==='identified'&&c.showHeight&&c.showVisuals)
     if(!own&&!disclosed)continue
     const start=live.tokens.find(t=>t.actorId===source.id)
-    if(!start||!inArea(start,true)||!inSight(start))continue
+    if(!start||!inArea(start,true)||!(optics&&own||tokenInSight(start)))continue
     const casts=source.rpg?.casts??[],last=casts.findLast(c=>c.status==='ended'&&!c.interruption)
     for(let index=0;index<casts.length;index++) {
       const cast=casts[index],prepared=cast.status==='preparing'||cast.status==='ready',persistent=cast.status==='maintaining'||cast.status==='ended'&&cast.endsAt!==null&&cast.endsAt>seconds
       if(cast.status==='interrupted'||cast.spatialRelease&&cast.spatialRelease.sceneId!==live.id||cast.visualRelease&&cast.visualRelease.sceneId!==live.id||!prepared&&!persistent&&(cast!==last||!cast.visualRelease))continue
-      const target=live.tokens.find(t=>t.actorId===cast.targetId),targetKnown=cast.targetId===value.actorId||knowledge.contacts.some(c=>c.actorId===cast.targetId&&c.kind==='identified'&&c.showHeight)
+      const target=live.tokens.find(t=>t.actorId===cast.targetId)
+      const targetKnown=cast.targetId===value.actorId||(optics?visibleActors.has(cast.targetId):knowledge.contacts.some(c=>c.actorId===cast.targetId&&c.kind==='identified'&&c.showHeight))
       const origin=!prepared&&(!persistent||!!cast.spatialRelease)?cast.visualRelease?.start??start:start
       const end=prepared?start:!persistent?cast.visualRelease?.end:cast.spatialRelease?.point??(targetKnown?target:undefined)
       if(!prepared&&!cast.spatialRelease&&!targetKnown)continue
-      if(!end||!inArea(end,true)||!inArea(origin,true)||!inSight(end)||!inSight(origin))continue
+      const endInSight=(point:ScenePosition)=>!!(optics&&own&&prepared)||inSight(point)
+      if(!end||!inArea(end,true)||!inArea(origin,true)||!endInSight(end)||!(optics&&own||inSight(origin)))continue
       const effect=castSceneVisual(cast,origin,end,sceneAbilityVisualId(value.actorId+':'+live.id,source.id,cast),prepared?'preparation':'sequence')
-      if(effect&&inArea(effect.end,true)&&inSight(effect.end))visuals.push({...effect,...(persistent?{persistent:true}:{})})
+      if(effect&&inArea(effect.end,true)&&endInSight(effect.end))visuals.push({...effect,...(persistent?{persistent:true}:{})})
     }
   }
   return { title: knowledge.title, description: knowledge.description, frame: mapFrame(knowledge.frame), areas: knowledge.areas.map(copyArea), objects, contacts,
-    ...(visibility !== undefined ? {smokeVisibilityM:Number(visibility.toPrecision(2))} : {}), ...(visuals.length?{visuals:visuals.slice(-40)}:{}) }
+    ...(visibility !== undefined ? {smokeVisibilityM:Number(visibility.toPrecision(2))} : {}),
+    ...(optics ? {optics:{dim:optics.dim,...(live.physics?.atmosphere?.smokeKg ? {smoke:true as const} : {})}} :
+      unplaced ? {optics:{dim:false,unplaced:true as const}} : {}),
+    ...(visuals.length?{visuals:visuals.slice(-40)}:{}) }
 }

@@ -7,6 +7,7 @@ import { emptyAbility } from '../generated/rpgSchema.mjs'
 import { parseLobbyBackup } from '../generated/lobbyBackup.mjs'
 import {isKnowledgeAck,knowledgeEntryId} from '../generated/knowledgeCommands.mjs'
 import {invalidateRoundGeneration} from '../rounds.mjs'
+import {physicsMaterialPreset} from '../generated/physicsMaterials.mjs'
 
 async function setup(t, dialect) {
   const f = await fixture(t, dialect), { api } = f
@@ -41,6 +42,66 @@ async function setup(t, dialect) {
 }
 
 for (const dialect of ['sqlite', 'postgres']) {
+  test('Свет и видимость: дверь, фонарь и доступность цели после применения раунда · ' + dialect, async t => {
+    const f = await setup(t, dialect), { api, gm, player, root } = f
+    const actorId = f.heroes[0], route = f.route(actorId), world = () => api(root + '/world', gm.token)
+    await api(route + '/review', gm.token, 'POST', {revision:await f.revision(),decision:'approve',note:''})
+    const initial = await world(), scene = initial.campaign.scenes.scenes[0]
+    scene.physics = {version:1,gravityMs2:9.81,ambientTemperatureK:293.15,vision:{ambientLux:.02,detectionLux:1}}
+    const gate = scene.objects[0]
+    Object.assign(gate,{x:5,y:5,width:.2,depth:2,height:2,blocksSight:true,open:false})
+    const torch = {...sceneObject('lamp','torch',{x:2,y:5.7,z:0}),height:1.5,active:true,
+      physics:{version:1,material:physicsMaterialPreset('steel'),massKg:1,temperatureK:293.15,wetnessFraction:0,lightIntensityCd:160}}
+    scene.objects.push(torch)
+    Object.assign(scene.tokens[0],{x:2,y:5})
+    Object.assign(scene.tokens[1],{x:8,y:5,z:0,support:{kind:'ground'}})
+    await api(root + '/world', gm.token, 'PUT', {world:initial,revision:initial.revision})
+    const draft = f.draft(), revealed = draft.scenes[0]
+    revealed.objects.push({objectId:torch.id,visible:true})
+    Object.assign(revealed.contacts[0],{kind:'identified',showHeight:true})
+    await f.disclose(draft)
+    const contactId = (await world()).campaign.perceptions.heroes.find(h => h.actorId === actorId).scenes[0].contacts[0].id
+    const view = () => api(route + '/declarations', player.token)
+    const start = async () => {
+      await api(root + '/declarations', gm.token, 'POST', {sceneId:scene.id,participantIds:[actorId],durationSeconds:3,allowReplace:true,revision:await f.revision()}, 201)
+      return view()
+    }
+    const phase = ({id,epoch},operation) => api(root + '/declarations', gm.token, 'PATCH', {collectionId:id,epoch,operation})
+    const send = (current,action,status=200) => api(route + '/declarations', player.token, 'PUT',
+      {collectionId:current.collection.id,epoch:current.collection.epoch,baseVersion:0,controlStamp:current.controlStamp,actions:[action]},status)
+    const run = async (current, operation, objectId) => {
+      await send(current,{kind:'interact',operation,target:{kind:'object',id:objectId},note:''})
+      await phase(current.collection,'close')
+      const closed = (await world()).campaign.declarations.active
+      const preview = await api(root + '/rounds/calculate', gm.token, 'POST', {revision:await f.revision(),collectionId:closed.id,epoch:closed.epoch,
+        input:{timings:[{actorId,entryRevision:1,budgetMs:3000,costs:[{index:0,personalMs:300}]}],
+          continuations:[],missingDecisions:[],interactionsConfirmed:true,rules:[]}})
+      await api(root + '/rounds/apply', gm.token, 'POST', {previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()})
+      return (await world()).campaign.declarations.active
+    }
+    const speaks = {kind:'speak',target:{kind:'contact',id:contactId},volume:'normal',text:'Приветствую.',note:''}
+    const before = await start()
+    assert(!before.options.targets.some(target => target.id === contactId))
+    assert.deepEqual((await f.see()).map.contacts.map(c => c.kind),['self'])
+    await send(before,speaks,409)
+    const opened = await run(before,'open',gate.id)
+    const clear = (await f.see()).map
+    assert(clear.contacts.some(c => c.id === contactId && c.label === f.npc.name))
+    assert.equal(clear.objects.find(o => o.id === torch.id).light,'bright')
+    assert.doesNotMatch(JSON.stringify(clear),/lightIntensityCd|detectionLux|secret-npc-id|secret-box/)
+
+    await phase(opened,'archive')
+    const lit = await start()
+    assert(lit.options.targets.some(target => target.id === contactId))
+    await run(lit,'extinguish',torch.id)
+    const dark = (await f.see()).map
+    assert.deepEqual(dark.contacts.map(c => c.kind),['self'])
+    assert.equal(dark.objects.some(o => o.id === torch.id),false)
+    await f.restart()
+    assert.deepEqual((await f.see()).map,dark)
+    assert.equal((await f.see(f.other.token,f.heroes[1])).map,null)
+  })
+
   test('Индивидуальная сцена и защита скрытых данных · ' + dialect, async t => {
     const f = await setup(t, dialect), { api, gm, player, other, helper } = f
     await t.test('Без раскрытия нет карты, имён чужих героев и NPC; чужой герой недоступен по прямому URL', async () => {

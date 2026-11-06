@@ -25,10 +25,12 @@ const surfaceM2 = ({ width, depth, height }: SceneObject) => 2 * (width * depth 
 export const thermalTarget = (object: SceneObject) => object.kind === 'water'
   ? !!object.water && waterVolumeM3(object) > 0 : bodyCapacity(object) > 0
 
+export function smokeExtinctionPerM(scene: Scene) {
+  return SMOKE_EXTINCTION_M2_KG * (scene.physics?.atmosphere?.smokeKg ?? 0) / volumeM3(scene)
+}
+
 export function smokeVisibilityM(scene: Scene): number | undefined {
-  const smoke = scene.physics?.atmosphere?.smokeKg
-  if (!smoke) return undefined
-  const distance = VISIBILITY_FACTOR / (SMOKE_EXTINCTION_M2_KG * smoke / volumeM3(scene))
+  const distance = VISIBILITY_FACTOR / smokeExtinctionPerM(scene)
   return distance < Math.hypot(scene.width, scene.depth, scene.maxZ - scene.minZ) ? distance : undefined
 }
 

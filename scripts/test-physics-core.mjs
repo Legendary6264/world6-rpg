@@ -29,6 +29,8 @@ const {advanceWaterFlow,settleWaterSupports}=await load('waterFlow')
 const {advanceMovement}=await load('sceneMovement')
 const {perceivedMap,preparePerception,emptyPerception}=await load('scenePerception')
 const {advanceThermal,applyHeat,smokeVisibilityM}=await load('thermalPhysics')
+const {sceneOptics}=await load('sceneOptics')
+const {perceivedRenderModel}=await load('scene3dModel')
 const {advanceFalls,nextFallSeconds}=await load('structuralPhysics')
 const {planSlide,slideStep,applySlide,checkDoorSlideClearance}=await load('horizontalPhysics')
 const {duplicateEditorGroup}=await load('sceneEditorCommands')
@@ -360,6 +362,95 @@ test('Дым: проекция скрывает далёкую цель, сох�
  assert(remembered.objects.some(o=>o.id==='far'&&!o.visible));assert(remembered.contacts.some(c=>c.kind==='sound'))
  air.smokeKg=0
  assert(perceivedMap(sight,state,[self,other]).contacts.some(c=>c.kind==='identified'))
+})
+
+function opticsRoom(ambientLux=0) {
+ const room=thermalRoom()
+ room.scene.physics.vision={ambientLux,detectionLux:1}
+ return room
+}
+const lamp=(id,x,intensity,y=3)=>({...sceneObject('lamp',id,{x,y,z:0}),height:1.5,physics:{...body('steel'),lightIntensityCd:intensity}})
+
+test('Оптика: освещённость убывает с квадратом расстояния, источники складываются и гаснут',()=>{
+ const {scene}=opticsRoom(),eye={x:1,y:3,z:0},at=x=>({x,y:3,z:0})
+ const first=lamp('first',1,4),second=lamp('second',1,5)
+ scene.objects=[first]
+ assert(sceneOptics(scene,eye).seesToken(at(2.99)))
+ assert(!sceneOptics(scene,eye).seesToken(at(3.01)))
+ assert(!sceneOptics(scene,eye).seesToken(at(3.99)))
+ scene.objects.push(second)
+ assert(sceneOptics(scene,eye).seesToken(at(3.99)))
+ assert(!sceneOptics(scene,eye).seesToken(at(4.01)))
+ second.active=false
+ assert(!sceneOptics(scene,eye).seesToken(at(3.99)))
+ first.physics.lightIntensityCd=0
+ assert(!sceneOptics(scene,eye).seesObject(first))
+})
+
+test('Оптика: дверь блокирует луч от лампы и луч от цели; дым ослабляет свет на обоих отрезках',()=>{
+ const {scene,air}=opticsRoom(),eye={x:2,y:3,z:0},target={x:5,y:3,z:0}
+ const door={...sceneObject('door','door',{x:4,y:3,z:0}),width:.2,depth:2,height:2,blocksSight:true,open:false}
+ scene.objects=[door]
+ scene.physics.vision.ambientLux=10
+ assert(!sceneOptics(scene,eye).seesToken(target))
+ door.open=true
+ assert(sceneOptics(scene,eye).seesToken(target))
+
+ scene.physics.vision.ambientLux=0
+ scene.objects.push(lamp('behind',7,36))
+ door.x=6;door.open=false
+ assert(!sceneOptics(scene,eye).seesToken(target))
+ door.open=true
+ assert(sceneOptics(scene,eye).seesToken(target))
+
+ scene.objects=[lamp('front',1,36)]
+ assert(sceneOptics(scene,eye).seesToken(target))
+ // In this room either leg by itself leaves over 1 lx, both together leave less.
+ air.smokeKg=.003
+ assert(!sceneOptics(scene,eye).seesToken(target))
+ air.smokeKg=0
+ assert(sceneOptics(scene,eye).seesToken(target))
+})
+
+test('Оптика: проекция не выдаёт скрытый источник, сохраняет память и слух',()=>{
+ const {state,scene,air}=opticsRoom(),self={id:'viewer',name:'Герой',profile:{}},other={id:'other',name:'Дозорный',profile:{}}
+ scene.tokens=[{actorId:self.id,x:2,y:3,z:0},{actorId:other.id,x:5,y:3,z:0}]
+   .map(t=>({...t,diameter:1,support:{kind:'ground'}}))
+ const secret=lamp('SECRET-LIGHT',1,100),known=lamp('known',2,4,4),memory=sceneObject('crate','memory',{x:6,y:3,z:0})
+ scene.objects=[secret,known,memory]
+ const disclosure=kind=>preparePerception({activeSceneId:scene.id,scenes:[{sceneId:scene.id,title:'Зал',description:'',
+   areas:[{id:'area',x:0,y:0,z:0,width:8,depth:6,height:3,visible:true}],objects:[{objectId:known.id,visible:true},{objectId:memory.id,visible:false}],
+   contacts:[{actorId:other.id,kind,label:'Дозорный',signs:'',showHeight:true,point:{x:5,y:3,z:0},radius:1}]}]},emptyPerception(self.id),state,[self.id,other.id])
+ const vision=disclosure('identified'),hearing=disclosure('sound')
+ let map=perceivedMap(vision,state,[self,other]),model=perceivedRenderModel(map)
+ assert(map.contacts.some(c=>c.kind==='identified'));assert.equal(map.objects[0].light,'faint');assert(model.dim)
+ assert.equal(model.entities.find(o=>o.id===known.id).appearance.light,'faint')
+ for(const view of [map,model])assert.doesNotMatch(JSON.stringify(view),/SECRET-LIGHT|ambientLux|detectionLux|lightIntensityCd|atmosphere/)
+ air.smokeKg=.02
+ map=perceivedMap(vision,state,[self,other])
+ assert.deepEqual(map.optics,{dim:true,smoke:true});assert.equal(map.smokeVisibilityM,undefined)
+ assert.deepEqual(map.contacts.map(c=>c.kind),['self'])
+ map=perceivedMap(hearing,state,[self,other])
+ assert(map.objects.some(o=>o.id===memory.id&&!o.visible));assert(map.contacts.some(c=>c.kind==='sound'))
+ air.smokeKg=0;scene.tokens.shift()
+ map=perceivedMap(vision,state,[self,other])
+ assert.deepEqual(map.optics,{dim:false,unplaced:true})
+ assert.deepEqual(map.contacts,[]);assert.deepEqual(map.objects.map(o=>o.id),[memory.id])
+})
+
+test('Оптика: профиль сохраняется при копировании и обновлении со старого клиента',()=>{
+ const {state,scene}=opticsRoom(.25)
+ scene.objects=[lamp('source',1,0)]
+ assert(isSceneState(state));assert(!isPhysicsEnvironment({...scene.physics,vision:{ambientLux:0,detectionLux:0}}))
+ assert(!isPhysicsBody({...scene.objects[0].physics,lightIntensityCd:-1}))
+ const old=copySceneState(state),copy=old.scenes[0]
+ assert.notEqual(copy.physics.vision,scene.physics.vision);assert.equal(copy.objects[0].physics.lightIntensityCd,0)
+ delete copy.physics.vision;delete copy.objects[0].physics.lightIntensityCd
+ preserveScenePhysics(state,old)
+ assert.deepEqual(copy.physics.vision,{ambientLux:.25,detectionLux:1});assert.equal(copy.objects[0].physics.lightIntensityCd,0)
+ copy.physics.vision=null;copy.objects[0].physics.lightIntensityCd=null
+ preserveScenePhysics(state,old)
+ assert(isSceneState(old));assert.equal(sceneOptics(copy,{x:1,y:3,z:0}),undefined);assert.equal(copy.objects[0].physics.lightIntensityCd,null)
 })
 
 test('Растекание: дверь меняет путь воды, переносит соль и песок, смачивает предмет и замыкает контакт',()=>{

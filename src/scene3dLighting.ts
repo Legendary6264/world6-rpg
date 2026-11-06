@@ -33,8 +33,9 @@ export function createLightingEnvironment(mode:LightingMode,tuning:LightTuning=d
  scene.add(new THREE.Mesh(geometry,material));return {scene,dispose:()=>{geometry.dispose();material.dispose()}}
 }
 
-export function createSceneLighting(frame:MapFrame,initialMode:LightingMode,quality:string,restricted:boolean,initialTuning:LightTuning=defaultLightTuning(initialMode),environment:SceneEnvironment='surface'){
+export function createSceneLighting(frame:MapFrame,initialMode:LightingMode,quality:string,restricted:boolean,initialTuning:LightTuning=defaultLightTuning(initialMode),environment:SceneEnvironment='surface',dim=false){
  let mode=initialMode,tuning=normalizeLightTuning(initialTuning,mode)
+ const ambientScale=dim ? .30 : 1
  const group=new THREE.Group(),span=Math.max(frame.width,frame.depth,5),center=new THREE.Vector3(frame.width/2,frame.groundZ,frame.depth/2)
  const hemisphere=new THREE.HemisphereLight(),key=new THREE.DirectionalLight(),direction=new THREE.Vector3().copy(lightDirection(tuning))
  group.add(hemisphere)
@@ -57,12 +58,14 @@ export function createSceneLighting(frame:MapFrame,initialMode:LightingMode,qual
  }
  const releaseMap=(light:THREE.DirectionalLight|THREE.PointLight)=>{light.shadow.map?.dispose();light.shadow.map=null;light.shadow.mapPass?.dispose();light.shadow.mapPass=null}
  const lamps:{light:THREE.PointLight|null;anchor:THREE.Object3D;entity:RenderEntity;position:THREE.Vector3;color:THREE.Color;near:number;selected:boolean;baseIntensity:number;phase:number}[]=[]
+ const lampIds=new Set<string>()
  const lampRange=(e:RenderEntity)=>presentationAssetId(e.geometry)==='candle'?4.5:presentationAssetId(e.geometry)==='fireplace'?8:presentationAssetId(e.geometry)==='brazier'?7.5:Math.min(14,Math.max(5,e.geometry.height*3.8))
- const lampPower=(e:RenderEntity)=>presentationAssetId(e.geometry)==='candle'?.18:presentationAssetId(e.geometry)==='brazier'?.75:1
+ const lampPower=(e:RenderEntity)=>e.appearance.light==='faint'?.28:e.appearance.light==='bright'?2:e.appearance.light==='normal'?1:
+  presentationAssetId(e.geometry)==='candle'?.18:presentationAssetId(e.geometry)==='brazier'?.75:1
  const lampHeight=(e:RenderEntity)=>e.geometry.asset==='fireplace'?e.geometry.height*.3:e.geometry.asset==='brazier'?e.geometry.height*.84:e.geometry.height-Math.min(e.geometry.height*.39,Math.min(e.geometry.width,e.geometry.depth)*1.4)*.58
  function configureLamp(entry:typeof lamps[number]){
   let {light}=entry
-  if(!entry.selected||mode==='studio'&&!presentationAssetId(entry.entity.geometry)||tuning.lamps===0){
+  if(!entry.selected||mode==='studio'&&!entry.entity.appearance.light&&!presentationAssetId(entry.entity.geometry)||tuning.lamps===0){
    if(light){light.removeFromParent();light.castShadow=false;releaseMap(light)}
    return
   }
@@ -81,19 +84,21 @@ export function createSceneLighting(frame:MapFrame,initialMode:LightingMode,qual
  function configure(nextMode:LightingMode,nextTuning:LightTuning){
   mode=nextMode;tuning=normalizeLightTuning(nextTuning,mode)
   const s=settings[mode];group.name='lighting:'+mode
-  hemisphere.color.set(s.sky);hemisphere.groundColor.set(s.ground);hemisphere.intensity=s.ambient*tuning.ambient*(environment==='underground'?.32:1)
-  key.color.set(s.key);key.intensity=s.power*tuning.sun*(environment==='underground'?.14:1);direction.copy(lightDirection(tuning))
+  hemisphere.color.set(s.sky);hemisphere.groundColor.set(s.ground);hemisphere.intensity=s.ambient*tuning.ambient*(environment==='underground'?.32:1)*ambientScale
+  key.color.set(s.key);key.intensity=s.power*tuning.sun*(environment==='underground'?.14:1)*ambientScale;direction.copy(lightDirection(tuning))
   key.castShadow=!restricted&&quality!=='low'&&tuning.sun>0
   if(!key.castShadow)releaseMap(key)
   key.shadow.radius=(mode==='studio'?3.5:mode==='day'?1.6:2.4)*tuning.softness
-  fill.color.set(mode==='night'?'#789ad2':mode==='tavern'?'#eee0be':'#bdceda');fill.intensity=s.fill*tuning.ambient*(environment==='underground'?.22:1)
-  rim.color.set(mode==='studio'?'#e8f2ff':mode==='tavern'?'#e9d4b4':'#c9d4d4');rim.intensity=s.rim*tuning.ambient*(environment==='underground'?.3:1)
+  fill.color.set(mode==='night'?'#789ad2':mode==='tavern'?'#eee0be':'#bdceda');fill.intensity=s.fill*tuning.ambient*(environment==='underground'?.22:1)*ambientScale
+  rim.color.set(mode==='studio'?'#e8f2ff':mode==='tavern'?'#e9d4b4':'#c9d4d4');rim.intensity=s.rim*tuning.ambient*(environment==='underground'?.3:1)*ambientScale
   softboxes.forEach((box,index)=>{box.visible=mode==='studio'&&environment!=='underground';box.intensity=(index===0?1.8:1.1)*tuning.ambient})
   lamps.forEach(configureLamp)
  }
  configure(mode,tuning)
  function addLamp(e:RenderEntity,anchor:THREE.Object3D,emission?:SceneEmission){
-  if(restricted||e.appearance.remembered||e.geometry.active===false||lamps.length>=64)return
+  const light=e.appearance.light
+  if((restricted&&(!light||lampIds.has(e.id)))||light==='off'||e.appearance.remembered||e.geometry.active===false||lamps.length>=64)return
+  if(restricted)lampIds.add(e.id)
   const entry={light:null,anchor,entity:e,position:emission?.position.clone()??new THREE.Vector3(0,lampHeight(e),0),color:emission?.color.clone()??new THREE.Color('#ffb75f'),near:emission?Math.max(.004,Math.min(.04,emission.radius*.08)):.04,selected:lamps.length<8,baseIntensity:0,phase:visualSeed(e.id??e.interaction?.id??String(lamps.length))};lamps.push(entry);configureLamp(entry)
  }
  function update(camera:THREE.Camera,target:THREE.Vector3){
@@ -116,11 +121,11 @@ export function createSceneLighting(frame:MapFrame,initialMode:LightingMode,qual
    return {entry,position,score:(distance+4)*(1+distance/(range*range))/(lampPower(entry.entity)*(entry.selected?1.15:1))}
   }).sort((a,b)=>a.score-b.score||a.entry.phase-b.entry.phase)
   const visible=new Set(rank.slice(0,quality==='low'?4:8).map(r=>r.entry));for(const entry of lamps){const selected=visible.has(entry);if(selected!==entry.selected){entry.selected=selected;configureLamp(entry)}}
-  const budget=quality==='high'?2:quality==='low'?0:1
+  const budget=restricted||quality==='low'?0:quality==='high'?2:1
   const active=rank.flatMap(({entry,position})=>entry.light?.parent===entry.anchor?[{light:entry.light,phase:entry.phase,score:(1+.8*position.distanceToSquared(camera.position)+.2*position.distanceToSquared(target))/(lampPower(entry.entity)*Math.sqrt(lampRange(entry.entity)))*(entry.light.castShadow?.8:1)}]:[]).sort((a,b)=>a.score-b.score||a.phase-b.phase)
   active.forEach(({light},index)=>{const enabled=index<budget;if(light.castShadow&&!enabled)releaseMap(light);light.castShadow=enabled})
  }
  function animate(seconds:number|null){for(const {light,anchor,entity,baseIntensity,phase} of lamps)if(light?.parent===anchor)light.intensity=baseIntensity*(seconds!==null&&flameAssets.has(presentationAssetId(entity.geometry)??'')?flamePulse(seconds,phase):1)}
  function dispose(){key.shadow.dispose();lamps.forEach(({light})=>{light?.removeFromParent();light?.shadow.dispose()})}
- return {group,get environmentIntensity(){return settings[mode].environment*tuning.ambient*(environment==='underground'?.23:1)},get exposure(){return settings[mode].exposure},get background(){return environment==='underground'?'#10181d':settings[mode].background},configure,addLamp,update,animate,dispose}
+ return {group,get environmentIntensity(){return settings[mode].environment*tuning.ambient*(environment==='underground'?.23:1)*ambientScale},get exposure(){return settings[mode].exposure},get background(){return environment==='underground'?'#10181d':settings[mode].background},configure,addLamp,update,animate,dispose}
 }

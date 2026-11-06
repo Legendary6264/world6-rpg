@@ -10,6 +10,7 @@ import type {SceneObject} from './sceneTypes'
 import {bodyRegions} from './bodyRegions'
 import {isLandingProfile,isSliding,MAX_SLIDE_FRICTION,MAX_STRUCTURAL_ENERGY_J} from './mechanicalProfiles'
 import type {LandingProfile} from './mechanicalProfiles'
+import {DEFAULT_LIGHT_CD,MAX_ILLUMINANCE_LUX,MAX_LIGHT_CD,MIN_SIGHT_LUX} from './opticalProfiles'
 
 const number = (data: FormData, key: string): number => {
   const text = data.get(key)
@@ -17,7 +18,7 @@ const number = (data: FormData, key: string): number => {
   return Number(text)
 }
 const display = (value: number | null, unit: string) => value === null ? 'Не задано' : value.toLocaleString('ru-RU',{maximumSignificantDigits:5}) + ' ' + unit
-const soundLevel = (data: FormData, key: string, previous: number | null | undefined) =>
+const optionalNumber = (data: FormData, key: string, previous: number | null | undefined) =>
   data.get(key) ? number(data, key) : previous === undefined ? undefined : null
 
 export function WaterVolumePanel({ object, thermal, disabled, onChange }: { object: SceneObject; thermal?: boolean; disabled: boolean; onChange: (next: SceneObject) => boolean }) {
@@ -80,7 +81,7 @@ export function WaterVolumePanel({ object, thermal, disabled, onChange }: { obje
   </details>
 }
 
-export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,canBreak,canSlide,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;canBurn?:boolean;canBreak?:boolean;canSlide?:boolean;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
+export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,canEmitLight,canBreak,canSlide,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;canBurn?:boolean;canEmitLight?:boolean;canBreak?:boolean;canSlide?:boolean;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
   const [materialId,setMaterialId]=useState(value?.material.id??''),[message,setMessage]=useState(''),[failed,setFailed]=useState(false),presets=physicsMaterialPresets()
   // A saved snapshot wins over a later catalogue default, including custom values.
   const materials=value?[...presets.filter(material=>material.id!==value.material.id),value.material]:presets
@@ -95,8 +96,10 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,can
     try {
       if (!material) throw Error('Выбери физический материал.')
       const data=new FormData(event.currentTarget),next:PhysicsBody={version:1,material:copyPhysicsMaterial(material),massKg:number(data,'physicsMassKg'),temperatureK:celsiusToKelvin(number(data,'physicsTemperatureC')),wetnessFraction:number(data,'physicsWetnessPercent')/100}
-      const noise = soundLevel(data, 'noiseLevelDbAt1m', value?.noiseLevelDbAt1m)
+      const noise = optionalNumber(data, 'noiseLevelDbAt1m', value?.noiseLevelDbAt1m)
       if (noise !== undefined) next.noiseLevelDbAt1m = noise
+      const light = optionalNumber(data, 'lightIntensityCd', value?.lightIntensityCd)
+      if (light !== undefined) next.lightIntensityCd = light
       if (canBurn || value?.combustion) {
         if (data.has('simulateCombustion')) next.combustion = {fuelKg:number(data,'fuelKg'),burnRateKgS:number(data,'burnRateKgS'),ignitionTemperatureK:celsiusToKelvin(number(data,'ignitionTemperatureC'))}
         else if (value?.combustion !== undefined) next.combustion = null
@@ -108,7 +111,7 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,can
         next.sliding = {dryFriction:number(data,'dryFriction'), wetFriction:data.get('wetFriction') === '' ? null : number(data,'wetFriction'),
           impactTransfer:number(data,'impactTransfer') / 100, vxMs:value?.sliding?.vxMs ?? 0, vyMs:value?.sliding?.vyMs ?? 0}
       } else if (value?.sliding !== undefined) next.sliding = null
-      if (!isPhysicsBody(next)) throw Error('Проверь физические параметры, предел прочности и трение.')
+      if (!isPhysicsBody(next)) throw Error('Проверь физические параметры объекта.')
       if (onChange(next)) setMessage('Физический профиль объекта сохранён.');else {setFailed(true);setMessage('Профиль не сохранён. Проверь сообщение редактора.')}
     } catch(error) {setFailed(true);setMessage((error as Error).message)}
   }
@@ -120,6 +123,10 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,can
       <label className="w6-field"><span>Температура, °C</span><input aria-label="Температура объекта (°C)" name="physicsTemperatureC" type="number" step="any" min="-273.15" max="999726.85" defaultValue={kelvinToCelsius(value?.temperatureK??ambientTemperatureK)} required/></label>
       <label className="w6-field gb-wide"><span>Влажность поверхности, %</span><input aria-label="Влажность поверхности (%)" name="physicsWetnessPercent" type="number" step="any" min="0" max="100" defaultValue={(value?.wetnessFraction??0)*100} required/></label>
       <label className="w6-field gb-wide"><span>Постоянный шум на расстоянии 1 м, дБ</span><input name="noiseLevelDbAt1m" type="number" step="any" min="0" max={MAX_SOUND_LEVEL_DB} defaultValue={value?.noiseLevelDbAt1m??''} placeholder="Без источника шума"/><small>Например, шум водопада. Оставь поле пустым для тихого объекта.</small></label>
+      {(canEmitLight || value?.lightIntensityCd !== undefined) && <details className="gb-scene-details gb-wide"><summary>Источник света</summary>
+        <label className="w6-field"><span>Сила света, кд</span><input name="lightIntensityCd" type="number" step="any" min="0" max={MAX_LIGHT_CD} defaultValue={value?.lightIntensityCd??''} placeholder={String(DEFAULT_LIGHT_CD)}/>
+          <small>Учитывается, когда включён расчёт видимости. Пустое поле — {DEFAULT_LIGHT_CD} кд, ноль — источник не освещает сцену.</small></label>
+      </details>}
       {(canBurn || !!value?.combustion) && <details className="gb-scene-details gb-wide"><summary>Топливо и горение</summary>
         <label className="w6-check"><input name="simulateCombustion" type="checkbox" checked={burning} onChange={event=>setBurning(event.currentTarget.checked)}/>Учитывать горение в тепловой сцене</label>
         {burning && <>
@@ -188,6 +195,7 @@ export function LandingPhysicsPanel({value,falling,disabled,onChange}:{value?:La
 export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:PhysicsEnvironment|null;disabled:boolean;onChange:(value:PhysicsEnvironment|null)=>boolean}) {
   const [message,setMessage]=useState(''),[failed,setFailed]=useState(false)
   const [simulate, setSimulate] = useState(!!value?.atmosphere)
+  const [simulateVision, setSimulateVision] = useState(!!value?.vision)
   const air = value?.atmosphere
   function submit(event:FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -195,12 +203,14 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
     setMessage('');setFailed(false)
     try {
       const data=new FormData(event.currentTarget),next:PhysicsEnvironment={version:1,gravityMs2:number(data,'physicsGravityMs2'),ambientTemperatureK:celsiusToKelvin(number(data,'physicsAmbientC'))}
-      const noise = soundLevel(data, 'backgroundNoiseDb', value?.backgroundNoiseDb)
+      const noise = optionalNumber(data, 'backgroundNoiseDb', value?.backgroundNoiseDb)
       if (noise !== undefined) next.backgroundNoiseDb = noise
       if (data.has('simulateThermal')) next.atmosphere = {oxygenFraction:number(data,'oxygenPercent')/100, smokeKg:number(data,'smokeKg'), steamKg:number(data,'steamKg'),
         outsideTemperatureK:celsiusToKelvin(number(data,'outsideC')), doorVentilation:data.has('doorVentilation')}
       else if (air !== undefined) next.atmosphere = null
-      if (!isPhysicsEnvironment(next)) throw Error('Проверь гравитацию, температуру, шум и параметры воздуха.')
+      if (data.has('simulateVision')) next.vision = {ambientLux:number(data,'ambientLux'),detectionLux:number(data,'detectionLux')}
+      else if (value?.vision !== undefined) next.vision = null
+      if (!isPhysicsEnvironment(next)) throw Error('Проверь значения среды, в том числе освещённость и порог видимости.')
       if (onChange(next)) setMessage('Физические условия сцены сохранены.');else {setFailed(true);setMessage('Условия не сохранены. Проверь сообщение редактора.')}
     } catch(error) {setFailed(true);setMessage((error as Error).message)}
   }
@@ -218,6 +228,14 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
           <label className="w6-field"><span>Доля кислорода, %</span><input name="oxygenPercent" type="number" step="any" min="0" max="100" defaultValue={(air?.oxygenFraction ?? OUTSIDE_OXYGEN_FRACTION)*100} required/></label>
           <label className="w6-field"><span>Дым, кг</span><input name="smokeKg" type="number" step="any" min="0" max={MAX_AEROSOL_KG} defaultValue={air?.smokeKg ?? 0} required/></label>
           <label className="w6-field"><span>Водяной пар, кг</span><input name="steamKg" type="number" step="any" min="0" max={MAX_AEROSOL_KG} defaultValue={air?.steamKg ?? 0} required/></label>
+        </>}
+      </details>
+      <details className="gb-scene-details gb-wide"><summary>Свет и видимость{value?.vision ? ' · включено' : ''}</summary>
+        <label className="w6-check"><input name="simulateVision" type="checkbox" checked={simulateVision} onChange={event=>setSimulateVision(event.currentTarget.checked)}/>Учитывать освещение, преграды и дым</label>
+        {simulateVision && <>
+          <label className="w6-field"><span>Фоновый свет, лк</span><input name="ambientLux" type="number" min="0" max={MAX_ILLUMINANCE_LUX} step="any" defaultValue={value?.vision?.ambientLux??.2} required/><small>Общий свет сцены без фонарей.</small></label>
+          <label className="w6-field"><span>Порог видимости, лк</span><input name="detectionLux" type="number" min={MIN_SIGHT_LUX} max={MAX_ILLUMINANCE_LUX} step="any" defaultValue={value?.vision?.detectionLux??1} required/><small>Ниже этого порога цель теряется из виду.</small></label>
+          <p className="w6-copy">Герой видит только раскрытые цели, если хватает света и ничто не закрывает обзор. Схема местности и отметки звука остаются доступны.</p>
         </>}
       </details>
       <div className="w6-buttons gb-wide"><button className="w6-button w6-primary" type="submit">Сохранить условия среды</button><button className="w6-button" type="button" disabled={!value} onClick={()=>{if(onChange(null)){setFailed(false);setMessage('Условия среды сняты; профили объектов сохранены.')}}}>Снять условия среды</button></div>

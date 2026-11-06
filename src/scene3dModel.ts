@@ -4,6 +4,8 @@ import type { SceneAbilityVisual } from './sceneAbilityVisuals'
 import { objectEntity } from './worldEntities'
 import {legacyAsset} from './legacyAssets'
 import {waterIceCover} from './waterPhysics'
+import {visibleLightLevel} from './sceneOptics'
+import type {LightLevel} from './opticalProfiles'
 
 // Render components are an adapter over existing version-1 saves. They do not
 // migrate authoritative entities or infer information absent from a disclosure.
@@ -13,12 +15,12 @@ export type RenderEntity = {
   supportObjectId?:string
   transform: { position: ScenePosition }
   geometry: { kind: Scene['objects'][number]['kind'] | 'actor' | 'sound'; width: number; depth: number; height: number; open?: boolean; asset?:string;artwork?:string;facing?:number;active?:boolean;locked?:boolean;waterVolume?:true;iceCover?:'ice'|'slush';characterModel?:string;characterAnimation?: import('./characterAppearance').CharacterAnimation }
-  appearance: { color: string; remembered: boolean; heightKnown: boolean }
+  appearance: { color: string; remembered: boolean; heightKnown: boolean; light?: LightLevel }
   identity: { label: string }
   interaction: RenderSelection
 }
 export type SceneRenderModel = {
-  frame: MapFrame; title: string; restricted: boolean
+  frame: MapFrame; title: string; restricted: boolean; dim?: boolean
   areas: KnownArea[]; entities: RenderEntity[]; visuals: SceneAbilityVisual[]
 }
 const colors = { wall: '#69748c', door: '#b38b63', tree: '#3d806c', rock: '#8b93a7',
@@ -29,9 +31,10 @@ export function masterRenderModel(scene: Scene, actors: SceneActor[], visuals: S
       height: scene.maxZ - scene.minZ, visible: true }],
     entities: [...scene.objects.map(o => {
       const c = objectEntity(scene.id, o).components, p = c.position.data, g = c.geometry.data
+      const light = scene.physics?.vision ? visibleLightLevel(o) : undefined
       return { id: c.identity.data.id, transform: { position: { x: p.x, y: p.y, z: p.z } },
         geometry: { ...g, open: c.collision.data.open,...(c.appearance.data.artwork?{artwork:c.appearance.data.artwork}:{}),...(o.water?{waterVolume:true as const,iceCover:waterIceCover(o)}:{}) },
-        appearance: { color: colors[g.kind], remembered: false, heightKnown: true }, identity: { label: c.identity.data.name },
+        appearance: { color: colors[g.kind], remembered: false, heightKnown: true, ...(light ? {light} : {}) }, identity: { label: c.identity.data.name },
         interaction: { kind: 'object' as const, id: c.identity.data.id } }
     }),
     ...scene.tokens.map(t => ({ id: t.actorId,...(t.support.kind==='object'?{supportObjectId:t.support.objectId}:{}), transform: { position: { x: t.x, y: t.y, z: t.z } },
@@ -42,10 +45,11 @@ export function masterRenderModel(scene: Scene, actors: SceneActor[], visuals: S
 }
 export function perceivedRenderModel(map: PerceivedMap): SceneRenderModel {
   return { frame: { ...map.frame }, title: map.title, restricted: true,
+    ...(map.optics?.dim ? {dim:true} : {}),
     areas: map.areas.map(a => ({ ...a })),
     entities: [...map.objects.map(o => ({ id: o.id, transform: { position: { x: o.x, y: o.y, z: o.z } },
       geometry: { kind: o.kind, width: o.width, depth: o.depth, height: o.height, open: o.open,asset:o.asset,artwork:o.artwork,facing:o.facing,active:o.active,locked:o.locked,...(o.waterVolume?{waterVolume:o.waterVolume,iceCover:o.iceCover}:{}) },
-      appearance: { color: colors[o.kind], remembered: !o.visible, heightKnown: true }, identity: { label: o.name + (o.sliding ? ' · скользит' : '') },
+      appearance: { color: colors[o.kind], remembered: !o.visible, heightKnown: true, ...(o.visible && o.light ? {light:o.light} : {}) }, identity: { label: o.name + (o.sliding ? ' · скользит' : '') },
       interaction: { kind: 'object' as const, id: o.id } })),
     ...map.contacts.map(c => ({ id: c.id, transform: { position: { x: c.x, y: c.y, z: c.z ?? map.frame.groundZ } },
       geometry: { kind: c.kind === 'sound' ? 'sound' as const : 'actor' as const,

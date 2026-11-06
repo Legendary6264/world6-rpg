@@ -171,7 +171,7 @@ export default function Scene3D(props: Props) {
       }
       controls.update()
     }
-    const lighting=createSceneLighting(f,lightingState.current.mode,quality,model.restricted,lightingState.current.tuning,environmentKind)
+    const lighting=createSceneLighting(f,lightingState.current.mode,quality,model.restricted,lightingState.current.tuning,environmentKind,model.dim)
     const backdrop=createSceneBackdrop(f,environmentKind,lightingState.current.mode,lightingState.current.tuning,model.restricted,quality)
     scene.add(lighting.group,backdrop.group);backdrop.group.visible=!abilityStudio;renderer.setClearColor(abilityStudio?'#101a28':backdrop.background)
     if(!model.restricted&&!videoReference&&!abilityStudio)scene.fog=new THREE.FogExp2(backdrop.fogColor,environmentKind==='underground'?.009:.005)
@@ -284,7 +284,8 @@ export default function Scene3D(props: Props) {
           if(disposed||!detailed)return
           const old=new Set<THREE.BufferGeometry|THREE.Material>()
           group.traverse(part=>{if(part instanceof THREE.Mesh){old.add(part.geometry);for(const mat of Array.isArray(part.material)?part.material:[part.material])old.add(mat)}})
-          group.clear();old.forEach(resource=>{resources.delete(resource);resource.dispose()})
+          for(const child of [...group.children])if(!(child instanceof THREE.PointLight))group.remove(child)
+          old.forEach(resource=>{resources.delete(resource);resource.dispose()})
           group.add(detailed);requestDraw()
         }).catch(()=>{assetsFailed++}).finally(()=>{assetsPending--;assetNotice()})
       }

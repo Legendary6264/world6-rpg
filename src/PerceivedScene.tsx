@@ -13,7 +13,12 @@ import {isFloorAsset} from './tabletopCatalog'
 import SceneFloorPatterns from './SceneFloorPatterns'
 import './sceneStyle.css'
 type Props = { effectTimeMs?:number;abilityAim?:SceneAbilityAim|null; onObjectMove?:(id:string,point:ScenePosition)=>boolean; map: PerceivedMap; selected?: string; onSelect?: (id: string) => void; onPoint?: (p: ScenePosition) => void; onObject?: (id: string) => void; selectedObject?: string; pickedPoint?: ScenePosition | null; plannedRoute?: ScenePosition[] }
-function SmokeNotice({ distance }: { distance?: number }) {
+function VisibilityNotice({ map }: { map: PerceivedMap }) {
+  if (map.optics) return <p className="gb-smoke-notice" role="status">
+    <strong>Свет и обзор</strong><span>{map.optics.unplaced ? 'Обзор появится, когда мастер разместит героя.' :
+      map.optics.dim ? 'В полумраке видны освещённые цели.' : 'Преграды закрывают обзор.'}{map.optics.smoke ? ' Дым ослабляет свет.' : ''}</span>
+  </p>
+  const distance = map.smokeVisibilityM
   return distance === undefined ? null : <p className="gb-smoke-notice" role="status">
     <strong>Дым</strong><span>Видимость {distance < .1 ? 'меньше 0,1' : 'около ' + distance.toLocaleString('ru-RU')} м</span>
   </p>
@@ -34,7 +39,7 @@ export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSel
   function scale(next:number){const anchor=pickedPoint?{x:pickedPoint.x,y:yPoint(pickedPoint)}:center;setCamera({sceneId:f.id,zoom:Math.max(1,Math.min(4,next)),center:anchor})}
   function pan(dx:number,dy:number){setCamera({sceneId:f.id,zoom,center:{x:Math.max(viewWidth/2,Math.min(f.width-viewWidth/2,origin.x+viewWidth/2+dx*viewWidth*.3)),y:Math.max(viewHeight/2,Math.min(vertical-viewHeight/2,origin.y+viewHeight/2+dy*viewHeight*.3))}})}
   return <section aria-label="Доступная сцена"><h3>{map.title}</h3><p className="w6-prose">{map.description}</p>
-    <SmokeNotice distance={map.smokeVisibilityM}/>
+    <VisibilityNotice map={map}/>
     <div className="gb-map-tools" aria-label="Масштаб и обзор карты"><button type="button" className="w6-button" aria-label="Уменьшить карту" disabled={zoom===1} onClick={()=>scale(zoom/1.5)}>−</button><span>{Math.round(zoom*100)}%</span><button type="button" className="w6-button" aria-label="Увеличить карту" disabled={zoom===4} onClick={()=>scale(zoom*1.5)}>+</button><button type="button" className="w6-button" onClick={()=>setCamera({sceneId:f.id,zoom:1,center:null})}>Вся сцена</button>{zoom>1&&<>{([[-1,0,'Обзор влево','←'],[0,-1,'Обзор вверх','↑'],[0,1,'Обзор вниз','↓'],[1,0,'Обзор вправо','→']] as const).map(([x,y,label,icon])=><button key={label} type="button" className="w6-button" aria-label={label} onClick={()=>pan(x,y)}>{icon}</button>)}</>}</div>
     <div className={'gb-scene-viewport gb-player-map gb-palette-' + f.palette}><svg viewBox={`${origin.x} ${origin.y} ${viewWidth} ${viewHeight}`} onClick={event => {
       if (!onPoint) return
@@ -55,6 +60,7 @@ export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSel
       {map.areas.map(a => <rect key={a.id} x={a.x} y={side ? f.maxZ - a.z - a.height : a.y} width={a.width} height={side ? a.height : a.depth} className={a.visible ? 'gb-ground' : 'gb-known-ground'}/>)}
       {!tiled&&f.background&&<g clipPath={'url(#'+clip+')'}><image href={artworkSource(f.background)} width={f.width} height={vertical} preserveAspectRatio="none"/>{map.areas.filter(a=>!a.visible).map(a=><rect key={a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth} fill="#10121d" opacity=".55"/>)}</g>}
       {tiled&&map.areas.map(a=><rect key={'texture-'+a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth} fill={'url(#'+clip+'-texture)'} opacity={a.visible?1:.45}/>)}
+      {map.optics?.dim && <rect width={f.width} height={vertical} fill="#10121d" opacity=".28" clipPath={'url(#'+visualClip+')'} pointerEvents="none" aria-hidden="true"/>}
       {smoke && <g pointerEvents="none" clipPath={'url(#'+visualClip+')'} aria-hidden="true">
         <defs><radialGradient id={clip+'-smoke'} gradientUnits="userSpaceOnUse" cx={smoke.x} cy={smoke.y} r={smoke.radius}>
           <stop offset="0%" stopColor="#605960" stopOpacity="0.07"/>
@@ -97,7 +103,7 @@ export default function PerceivedScene(props: Props) {
   }, [map, props.plannedRoute])
   return <div><SceneRenderMode mode={mode} onChange={next => { setUnavailable(false); setMode(next) }}/>{unavailable && <p role="status">3D недоступно: открыта схема. Проверь аппаратное ускорение браузера, чтобы включить 3D.</p>}{mode === 'map' ? <SvgPerceivedScene {...props}/> :
     <section aria-label="Доступная сцена"><h3>{map.title}</h3><p className="w6-prose">{map.description}</p>
-      <SmokeNotice distance={map.smokeVisibilityM}/>
+      <VisibilityNotice map={map}/>
       <Suspense fallback={<p role="status">Загружаем 3D-сцену…</p>}><Scene3D effectTimeMs={props.effectTimeMs} abilityAim={props.abilityAim} model={model} marker={props.pickedPoint} route={route}
         selection={props.selectedObject ? { kind: 'object', id: props.selectedObject } : props.selected ? { kind: 'contact', id: props.selected } : null}
         onPoint={props.onPoint} onRequestMove={props.onObjectMove?(s,p)=>s.kind==='object'?props.onObjectMove?.(s.id,p):false:undefined} onUnavailable={() => { setUnavailable(true); setMode('map') }} onSelect={s => {

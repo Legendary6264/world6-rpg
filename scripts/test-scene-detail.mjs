@@ -300,6 +300,26 @@ test('Освещение: ночные локальные источники, б
  for(const mode of ['day','night','studio']){const env=createLightingEnvironment(mode);assert(env.scene.isScene);env.dispose()}
 })
 
+test('Освещение игрока: только видимые источники, один свет на объект, фоновый свет слабее в полумраке',()=>{
+ const ordinary=createSceneLighting(frame,'night','high',true)
+ const dim=createSceneLighting(frame,'night','high',true,undefined,'surface',true)
+ assert(dim.environmentIntensity<ordinary.environmentIntensity)
+ const add=(id,appearance,active=true)=>{
+  const anchor=new THREE.Group()
+  dim.addLamp({...lamp,id,appearance:{...lamp.appearance,...appearance},geometry:{...lamp.geometry,active}},anchor)
+  return anchor
+ }
+ const visible=add('light',{light:'bright'}),faint=add('faint',{light:'faint'})
+ for(const rejected of [add('light',{light:'bright'}),add('unknown',{}),add('off',{light:'off'}),add('inactive',{light:'bright'},false),
+  add('memory',{remembered:true,light:'bright'})])assert.equal(rejected.children.length,0)
+ const camera=new THREE.PerspectiveCamera();camera.position.set(5,5,5)
+ dim.update(camera,new THREE.Vector3())
+ assert(visible.children[0].isPointLight&&faint.children[0].isPointLight)
+ assert(visible.children[0].intensity>faint.children[0].intensity)
+ assert(!visible.children[0].castShadow)
+ ordinary.dispose();dim.dispose()
+})
+
 test('Таверна: восемь ближайших источников из большого набора, два теневых бюджета и смена области обзора',()=>{
  const lighting=createSceneLighting(frame,'tavern','balanced',false,defaultLightTuning('tavern'))
  const entries=Array.from({length:24},(_,i)=>{const anchor=new THREE.Group();anchor.position.set(i*2,0,0);lighting.addLamp({...lamp,geometry:{...lamp.geometry,asset:i===22?'chandelier':'candle'}},anchor);return anchor})

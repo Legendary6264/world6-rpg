@@ -11,7 +11,7 @@ async function field(label,value){await flush(()=>{const element=input(label);as
 async function submit(){await flush(()=>document.querySelector('form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})))}
 async function fixture(Panel=ObjectPhysicsPanel,initial,options={}){
   await flush(()=>root.render(null));const observed={value:initial,changes:[]}
-  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),value,canBreak:options.canBreak,canSlide:options.canSlide,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
+  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),value,canEmitLight:options.canEmitLight,canBreak:options.canBreak,canSlide:options.canSlide,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
   await flush(()=>root.render(React.createElement(Wrapper)));return observed
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
@@ -25,6 +25,21 @@ test('Акустика UI: источник и фон редактируются
   const environment=await fixture(EnvironmentPhysicsPanel),background=()=>document.querySelector('[name="backgroundNoiseDb"]')
   await flush(()=>{background().value='0'});await submit();assert.equal(environment.value.backgroundNoiseDb,0)
   await flush(()=>{background().value=''});await submit();assert.equal(environment.value.backgroundNoiseDb,null)
+})
+
+test('Оптика UI: мастер включает и отключает видимость и отдельно задаёт свет фонаря',async()=>{
+  const env=await fixture(EnvironmentPhysicsPanel),named=name=>document.querySelector('[name="'+name+'"]')
+  assert(!named('ambientLux'))
+  await flush(()=>named('simulateVision').click())
+  await flush(()=>{named('ambientLux').value='.12';named('detectionLux').value='.8'})
+  await submit();assert.deepEqual(env.value.vision,{ambientLux:.12,detectionLux:.8})
+  await flush(()=>named('simulateVision').click())
+  await submit();assert.equal(env.value.vision,null)
+  const source=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('steel'),massKg:2,temperatureK:293.15,wetnessFraction:0},{canEmitLight:true})
+  await flush(()=>{named('lightIntensityCd').value='0'})
+  await submit();assert.equal(source.value.lightIntensityCd,0)
+  await flush(()=>{named('lightIntensityCd').value=''})
+  await submit();assert.equal(source.value.lightIntensityCd,null)
 })
 
 test('Физика UI: выбор материала не назначает массу или профиль автоматически',async()=>{
