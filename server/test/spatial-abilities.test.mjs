@@ -6,6 +6,7 @@ import {createScene,emptyScenes,sceneObject} from '../generated/scenes.mjs'
 import {emptyAbility,emptyItem} from '../generated/rpgSchema.mjs'
 import {createDetailedAnatomy} from '../generated/anatomyModel.mjs'
 import {physicsMaterialPreset} from '../generated/physicsMaterials.mjs'
+import {BOILING_ENTHALPY_J_KG,liquidEnthalpy} from '../generated/waterPhysics.mjs'
 const fields={region:'torso',distanceM:999,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:'SPATIAL-SECRET-NOTE'}
 for(const dialect of ['sqlite','postgres'])test('Пространственный выпуск: API, снимок и повтор · '+dialect,async t=>{
  const f=await fixture(t,dialect),{api}=f,gm=await f.register('space-owner'),player=await f.register('space-player')
@@ -94,6 +95,9 @@ for (const dialect of ['sqlite', 'postgres']) test('Вода, нейтрализ
    spatial:{shape:'sphere', includeCaster:false, radiusM:1}, rangeM:10, mechanism:'effect', cost:{mana:7,shadow:0,stamina:0}}]
  initial.campaign.scenes = createScene(emptyScenes(), 'water-scene', 'Площадка', 'top')
  const scene = initial.campaign.scenes.scenes[0]
+ scene.physics = {version:1,gravityMs2:9.81,ambientTemperatureK:293.15,atmosphere:{
+   oxygenFraction:.2095,smokeKg:0,steamKg:0,outsideTemperatureK:293.15,doorVentilation:false,reactionHeat:true,
+ }}
  scene.tokens = [{actorId, x:2, y:2, z:0, diameter:1, support:{kind:'ground'}}]
  scene.objects = [{...sceneObject('lamp','electrode',{x:5,y:6,z:0}), width:1,depth:1,height:.2,
    name:'PRIVATE-WATER-ELECTRODE', active:false, physics:{version:1, material:physicsMaterialPreset('copper'), massKg:1, temperatureK:298.15, wetnessFraction:0}}]
@@ -155,13 +159,20 @@ for (const dialect of ['sqlite', 'postgres']) test('Вода, нейтрализ
  const neutral = releases[6].physics, acidCurrent = releases[5].physics.circuit.currentA
  assert(Math.abs(neutral.ph-7)<1e-6);assert(Math.abs(neutral.reaction.neutralizedMol-.2)<1e-10)
  assert(Math.abs(neutral.composition.saltKg-.06168856)<1e-10)
+ assert(Math.abs(neutral.reaction.heating.energyKJ-11.208)<1e-10)
+ assert(neutral.reaction.heating.temperatureK>293.15);assert.equal(neutral.reaction.heating.evaporatedKg,0)
+ assert.match(releases[6].details,/Тепло реакции/)
  assert(releases[7].physics.circuit.currentA<acidCurrent && releases[7].physics.circuit.currentA>discharge.thresholdA)
  assert.deepEqual(await world(),before)
 
  const command = {previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()}
  const apply = (body=command,path='/rounds/apply') => api(root+path,gm.token,'POST',body)
  const result = await apply(), after = await world(), objects = after.campaign.scenes.scenes[0].objects
- assert.equal(objects.length,2);assert.equal(objects[0].active,true);assert.deepEqual(objects[1].water,neutral.composition)
+ assert.equal(objects.length,2);assert.equal(objects[0].active,true)
+ assert.equal(objects[1].water.saltKg,neutral.composition.saltKg)
+ assert.equal(objects[1].water.reagentMol,neutral.composition.reagentMol)
+ assert(objects[1].water.enthalpyJKg>liquidEnthalpy(293.15))
+ assert(objects[1].water.enthalpyJKg<=neutral.composition.enthalpyJKg)
  assert.equal(after.characters[0].resources.mana.current,'44')
  await f.restart()
  assert.equal((await apply()).duplicate,true);assert.deepEqual(await world(),after)
@@ -261,7 +272,7 @@ for (const dialect of ['sqlite','postgres']) test('Растекание в ра�
  assert.deepEqual((await world()).campaign.scenes.scenes[0].tokens,after.campaign.scenes.scenes[0].tokens)
 })
 
-for (const dialect of ['sqlite','postgres']) test('Тепло в раунде: лёд размыкает цепь, дверь проветривает, повтор сохраняет результат · '+dialect,async t=>{
+for (const dialect of ['sqlite','postgres']) test('Тепло в раунде: лёд размыкает цепь, потоки реагируют, дверь проветривает · '+dialect,async t=>{
  const f=await fixture(t,dialect),{api}=f,gm=await f.register('thermal-owner'),player=await f.register('thermal-player')
  const {id}=await api('/lobbies',gm.token,'POST',lobbyBody,201),root='/lobbies/'+id
  await api(root+'/join',player.token,'POST')
@@ -278,7 +289,7 @@ for (const dialect of ['sqlite','postgres']) test('Тепло в раунде: �
  const scene=initial.campaign.scenes.scenes[0]
  Object.assign(scene,{width:8,depth:6,minZ:0,maxZ:3})
  scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:273.15,atmosphere:{
-   oxygenFraction:.18,smokeKg:.014,steamKg:.02,outsideTemperatureK:280,doorVentilation:true,
+   oxygenFraction:.18,smokeKg:.014,steamKg:.02,outsideTemperatureK:280,doorVentilation:true,reactionHeat:true,
  }}
  scene.tokens=[{actorId,x:1,y:1,z:0,diameter:.5,support:{kind:'ground'}}]
  const gate={...sceneObject('door','gate',{x:.2,y:1.2,z:0}),width:.2,depth:2,height:2.5}
@@ -289,7 +300,11 @@ for (const dialect of ['sqlite','postgres']) test('Тепло в раунде: �
    combustion:{fuelKg:.003,burnRateKgS:.006,ignitionTemperatureK:600},
  }}
  const distant=sceneObject('crate','distant',{x:4.65,y:1,z:0})
- scene.objects=[gate,water,fire,distant]
+ const hotLayer=(id,x,height,reagentMol)=>({
+   ...sceneObject('water',id,{x,y:4.8,z:0}),width:1,depth:.4,height,
+   water:{version:1,base:'pure',saltKg:0,sedimentKg:0,flow:true,enthalpyJKg:BOILING_ENTHALPY_J_KG,reagentMol},
+ })
+ scene.objects=[gate,water,fire,distant,hotLayer('acid-flow',4,.1,1),hotLayer('alkali-flow',5,.03,-1)]
  await api(root+'/world',gm.token,'PUT',{world:initial,revision:initial.revision})
  await api(route+'/disclosure',gm.token,'PUT',{revision:(await world()).revision,draft:{activeSceneId:scene.id,scenes:[{sceneId:scene.id,
    title:scene.name,description:'',areas:[{id:'hall',x:0,y:0,z:0,width:8,depth:6,height:3,visible:true}],
@@ -323,17 +338,21 @@ for (const dialect of ['sqlite','postgres']) test('Тепло в раунде: �
  assert.equal(thermal.water[0].iceFraction,1);assert.equal(thermal.fires[0].lit,false)
  const opened=preview.summary.events.find(e=>e.kind==='open').atMs
  const ventSeconds=12-Number(opened.numerator)/Number(opened.denominator)/1000
- const smokeAfter=(.014+.003*.025)*Math.exp(-.3*5*ventSeconds/144)
+ const ventilation=Math.exp(-.3*5*ventSeconds/144)
+ const smokeAfter=(.014+.003*.025)*ventilation
  assert(Math.abs(thermal.smokeKg-smokeAfter)<1e-10)
+ assert(thermal.flowReactionHeatKJ>0);assert(thermal.steamKg>.02*ventilation)
  const command={previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()}
  const apply=body=>api(root+'/rounds/apply',gm.token,'POST',body)
  const {receipt}=await apply(command),after=await world(),result=after.campaign.scenes.scenes[0]
  assert(result.objects[0].open);assert.equal(result.objects[2].active,false)
+ assert(result.objects.find(o=>o.id==='alkali-flow').water.saltKg>0)
+ assert.equal(result.physics.atmosphere.steamKg,thermal.steamKg)
  const viewAfter=await playerMap()
  assert(viewAfter.smokeVisibilityM>smoky.smokeVisibilityM)
  assert(viewAfter.objects.some(o=>o.id==='distant'))
  assert.equal(viewAfter.objects.find(o=>o.id==='pool').iceCover,'ice')
- assert(!JSON.stringify(viewAfter).includes('enthalpyJKg'));assert(!JSON.stringify(viewAfter).includes('oxygenFraction'))
+ assert.doesNotMatch(JSON.stringify(viewAfter),/enthalpyJKg|oxygenFraction|reactionHeat|reagentMol/)
  await f.restart()
  assert.equal((await apply(command)).duplicate,true);assert.deepEqual(await world(),after)
  const history=await api(root+'/rounds/history',gm.token)

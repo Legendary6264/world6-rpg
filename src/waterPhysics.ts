@@ -29,6 +29,8 @@ export const waterReagents = {
 export type WaterReagent = keyof typeof waterReagents
 export const isWaterReagent = (value: unknown): value is WaterReagent => value === 'acid' || value === 'alkali'
 const WATER_KG_MOL = .0180153
+// Reverse of aqueous water ionization at 298.15 K (Argonne ATcT 1.140).
+const NEUTRALIZATION_J_MOL = 56040
 // Use consistent rounding for the products so the reaction conserves mass.
 const SALT_KG_MOL = waterReagents.acid.molarMassKg + waterReagents.alkali.molarMassKg - WATER_KG_MOL
 
@@ -37,6 +39,7 @@ export function reactWaterReagents(acidMol: number, alkaliMol: number) {
   return {
     reagentMol:acidMol - alkaliMol, neutralizedMol,
     saltKg:neutralizedMol * SALT_KG_MOL, waterKg:neutralizedMol * WATER_KG_MOL,
+    heatJ:neutralizedMol * NEUTRALIZATION_J_MOL,
   }
 }
 

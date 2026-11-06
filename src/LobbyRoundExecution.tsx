@@ -234,6 +234,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         return <section aria-label="Тепло и воздух">
           <h4>Тепло и воздух</h4>
           <p>{quantity(thermal.fromK - 273.15)} → {quantity(thermal.toK - 273.15)} °C · кислород {quantity(thermal.oxygenFraction * 100)} % · дым {quantity(thermal.smokeKg)} кг · пар {quantity(thermal.steamKg)} кг</p>
+          {thermal.flowReactionHeatKJ !== undefined && <p>Тепло при смешивании потоков · {quantity(thermal.flowReactionHeatKJ)} кДж</p>}
           {thermal.visibilityM !== undefined && <p>Видимость в дыму ≈ {quantity(thermal.visibilityM)} м</p>}
           {thermal.fires.map(fire => <p key={fire.id}>{fire.name} · {fire.lit ? 'горит' : 'погас'} · осталось топлива {quantity(fire.fuelKg)} кг</p>)}
           {thermal.water.map(layer => <p key={layer.id}>{layer.name} · {layer.volumeL > 0 ? quantity(layer.temperatureK - 273.15) + ' °C · лёд ' + quantity(layer.iceFraction * 100) + ' % · ' + quantity(layer.volumeL) + ' л' : 'вода испарилась'}</p>)}

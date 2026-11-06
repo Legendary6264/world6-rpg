@@ -5,6 +5,7 @@ import { MAX_SCENE_OBJECTS, sceneObject } from './scenes'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
 import { applyHeat, MAX_ABILITY_HEAT_KJ, thermalTarget } from './thermalPhysics'
 import type { HeatOutcome } from './thermalPhysics'
+import { applyWaterHeat } from './waterHeating'
 import { MAX_PUSH_IMPULSE_NS, MAX_STRUCTURAL_ENERGY_J } from './mechanicalProfiles'
 import { strikeStructure } from './structuralPhysics'
 import type { StructuralImpactOutcome } from './structuralPhysics'
@@ -20,7 +21,9 @@ import type { WaterComposition, WaterReagent } from './waterPhysics'
 export type WaterAdditive = 'salt' | 'sediment' | WaterReagent
 export const isWaterAdditive = (value: unknown): value is WaterAdditive =>
   value === 'salt' || value === 'sediment' || isWaterReagent(value)
-type Neutralization = Pick<ReturnType<typeof reactWaterReagents>, 'neutralizedMol' | 'saltKg' | 'waterKg'>
+type Neutralization = Pick<ReturnType<typeof reactWaterReagents>, 'neutralizedMol' | 'saltKg' | 'waterKg'> & {
+  heating?: {energyKJ:number} & ReturnType<typeof applyWaterHeat>
+}
 
 export type AbilityPhysicsEffect =
   | { kind: 'create-water'; widthM: number; depthM: number; heightM: number }
@@ -84,7 +87,7 @@ function waterOutcome(object: SceneObject, composition: WaterComposition, change
 function addWaterReagent(scene: Scene, object: SceneObject, current: WaterComposition, substance: WaterReagent, massKg: number) {
   const moles = massKg / waterReagents[substance].molarMassKg
   const balance = current.reagentMol ?? 0
-  const {reagentMol, neutralizedMol, saltKg, waterKg} = reactWaterReagents(
+  const {reagentMol, neutralizedMol, saltKg, waterKg, heatJ} = reactWaterReagents(
     Math.max(0, balance) + (substance === 'acid' ? moles : 0),
     Math.max(0, -balance) + (substance === 'alkali' ? moles : 0),
   )
@@ -100,8 +103,12 @@ function addWaterReagent(scene: Scene, object: SceneObject, current: WaterCompos
   if (reagentMol === balance || lostProducts || !isWaterComposition(water) || object.z + height > scene.maxZ) {
     throw Error('Результат реакции выходит за пределы сцены или учёта состава.')
   }
-  Object.assign(object, {height, water})
-  return waterOutcome(object, water, substance, neutralizedMol > 0 ? {neutralizedMol, saltKg, waterKg} : undefined)
+  const next = {...object, height, water}
+  const heating = heatJ > 0 && scene.physics?.atmosphere?.reactionHeat ?
+    {energyKJ:heatJ / 1000, ...applyWaterHeat(scene, next, heatJ)} : undefined
+  Object.assign(object, {height:next.height, water:next.water})
+  return waterOutcome(object, next.water, substance,
+    neutralizedMol > 0 ? {neutralizedMol, saltKg, waterKg, ...(heating ? {heating} : {})} : undefined)
 }
 
 // Only called on the private candidate of a confirmed release, at its exact
@@ -179,10 +186,15 @@ export function physicsOutcomeDetails(outcome: AbilityPhysicsOutcome): string {
     const change = { created: 'Создан объём чистой воды', filled: 'Долита чистая вода', salt: 'Добавлена растворённая соль', sediment: 'Добавлен песок',
       acid: 'Добавлена соляная кислота', alkali: 'Добавлена щёлочь' }[outcome.change]
     const { volumeL, composition, conductivitySM, ph, reaction } = outcome
+    const heating = reaction?.heating
     return change + ' · ' + number(volumeL) + ' л · соль ' + number(composition.saltKg) + ' кг · песок ' + number(composition.sedimentKg) +
       ' кг · проводимость ' + (conductivitySM === null ? 'не определена' : number(conductivitySM) + ' См/м') +
       (ph === undefined ? '' : ' · pH при 25 °C ' + (ph === null ? 'не определён' : number(ph))) +
-      (reaction ? ' · нейтрализовано ' + number(reaction.neutralizedMol) + ' моль · образовалось ' + number(reaction.saltKg) + ' кг NaCl' : '')
+      (reaction ? ' · нейтрализовано ' + number(reaction.neutralizedMol) + ' моль · образовалось ' + number(reaction.saltKg) + ' кг NaCl' : '') +
+      (heating ? '\nТепло реакции ' + number(heating.energyKJ) + ' кДж · ' +
+        (volumeL ? number(heating.temperatureK - 273.15) + ' °C' : 'слой испарился') +
+        (heating.iceFraction > 0 ? ' · лёд ' + number(heating.iceFraction * 100) + ' %' : '') +
+        (heating.evaporatedKg > 0 ? ' · образовалось пара ' + number(heating.evaporatedKg) + ' кг' : '') : '')
   }
   if (outcome.kind === 'heat') {
     return (outcome.energyKJ > 0 ? 'Нагрев' : 'Охлаждение') + ' · ' + number(Math.abs(outcome.energyKJ)) + ' кДж · ' +

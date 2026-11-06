@@ -1,6 +1,7 @@
 import { objectBounds, overlapLength } from './sceneGeometry'
 import type { ObjectBounds } from './sceneGeometry'
 import type { Scene, SceneObject, SceneSupport } from './sceneTypes'
+import { addSteamFromWater, resolveWaterEnergy } from './waterHeating'
 import {
   BOILING_ENTHALPY_J_KG, FUSION_J_KG, WATER_EDGE_TOLERANCE_M, WATER_MASS_KG_M3, isVariableWater,
   isWaterComposition, liquidWaterHeight, reactWaterReagents, supportsSceneTokens, validWaterHeight,
@@ -21,6 +22,7 @@ type Cell = ObjectBounds & {
 }
 type Spillway = { widthM: number; sillZ: number }
 type Connection = { a: number; b: number; spillways: Spillway[] }
+type ReactionHeat = { energyJ: number; evaporatedKg: number; excessJ: number }
 const EPS = WATER_EDGE_TOLERANCE_M
 export const MAX_WATER_FLOW_STEPS = 64
 const STEP_SECONDS = .25
@@ -53,7 +55,7 @@ function spillways(a: Cell, b: Cell, barriers: ObjectBounds[]): Spillway[] {
 
 const surface = (cell: Cell) => cell.min.z + cell.volumeM3 / cell.areaM2
 
-function exchange(cells: Cell[], connections: Connection[], neighbours: number[], factor: number): boolean {
+function exchange(cells: Cell[], connections: Connection[], neighbours: number[], factor: number, heat?: ReactionHeat): boolean {
   const changes = cells.map(() => ({ volumeM3: 0, saltKg: 0, sedimentKg: 0, acidMol: 0, alkaliMol: 0, unknown: false, energy: 0, thermal: false }))
   let moved = false
   for (const { a, b, spillways } of connections) {
@@ -116,6 +118,16 @@ function exchange(cells: Cell[], connections: Connection[], neighbours: number[]
         // The new liquid takes the temperature of the local mixture.
         cell.energy += (cell.energy / cell.volumeM3) * productM3
         cell.volumeM3 += productM3
+        if (heat) {
+          const massKg = cell.volumeM3 * WATER_MASS_KG_M3
+          const state = resolveWaterEnergy(massKg, cell.energy * WATER_MASS_KG_M3 + reaction.heatJ)
+          if (state.evaporatedKg > 0) cell.volumeM3 = (massKg - state.evaporatedKg) / WATER_MASS_KG_M3
+          cell.energy = state.enthalpyJKg * cell.volumeM3
+          cell.thermal = true
+          heat.energyJ += reaction.heatJ
+          heat.evaporatedKg += state.evaporatedKg
+          heat.excessJ += state.excessJ
+        }
       }
     }
   }
@@ -170,13 +182,13 @@ export function advanceWaterFlow(scene: Scene, seconds: number, stepLimit = MAX_
     const height = liquidWaterHeight(o.water, o.height)
     return height > 0 ? [objectBounds({ ...o, height })] : []
   }) : []
-  if (!cells.length && !stationary.length) return
+  if (!cells.length && !stationary.length) return 0
   const peak = cells.map(surface)
   const wet = () => wetObjects(scene, [...stationary, ...cells.flatMap((cell, i) => peak[i] > cell.min.z ? [{
     ...cell, max: { ...cell.max, z: peak[i] },
   }] : [])])
   const gravity = scene.physics?.gravityMs2 ?? 9.81
-  if (seconds <= 0 || gravity === 0 || cells.length < 2) { wet(); return }
+  if (seconds <= 0 || gravity === 0 || cells.length < 2) { wet(); return 0 }
   const barriers = scene.objects.filter(o => o.kind !== 'water' && o.blocksMovement && o.height > EPS && !(o.kind === 'door' && o.open)).map(objectBounds)
   const connections: Connection[] = [], neighbours = cells.map(() => 0)
   for (const [a, cell] of cells.entries()) for (let b = 0; b < a; b++) {
@@ -188,9 +200,10 @@ export function advanceWaterFlow(scene: Scene, seconds: number, stepLimit = MAX_
   }
   const steps = Math.min(stepLimit, Math.ceil(seconds / STEP_SECONDS))
   const factor = (2 / 3) * .6 * Math.sqrt(2 * gravity) * seconds / steps
+  const heat = scene.physics?.atmosphere?.reactionHeat ? {energyJ:0, evaporatedKg:0, excessJ:0} : undefined
   let changed = false
   for (let step = 0; step < steps; step++) {
-    if (!exchange(cells, connections, neighbours, factor)) break
+    if (!exchange(cells, connections, neighbours, factor, heat)) break
     changed = true
     cells.forEach((cell, i) => { peak[i] = Math.max(peak[i], surface(cell)) })
   }
@@ -210,8 +223,12 @@ export function advanceWaterFlow(scene: Scene, seconds: number, stepLimit = MAX_
     }
     return [{ object: cell.object, height, water }]
   }) : []
+  // Each contribution leaves at the boiling point, so the room can receive
+  // them together once all the layer updates have passed validation.
+  if (heat) addSteamFromWater(scene, heat.evaporatedKg, heat.excessJ)
   for (const { object, height, water } of updates) Object.assign(object, { height, water })
   wet()
+  return heat?.energyJ ?? 0
 }
 
 export type WaterSupportChange = { actorId: string; waterId: string; fromZ: number; toZ: number; lostSupport: boolean }

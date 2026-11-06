@@ -40,8 +40,8 @@ import { applySlide, checkDoorSlideClearance, planSlide, slideStep, slideSweep }
 import type { SlideStep } from './horizontalPhysics'
 import { isSliding } from './mechanicalProfiles'
 import { removeLiveObjectDisclosure } from './scenePerception'
-export const ROUND_EXECUTOR_VERSION = 'r16-aqueous-chemistry-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+export const ROUND_EXECUTOR_VERSION = 'r17-reaction-heat-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -240,6 +240,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const wetRoutes = new Map<string, WetRouteContact>()
   const landings: RoundFallLanding[] = []
   const slideStops: SlideStop[] = []
+  let flowReactionHeatJ = 0
   const activeScene = () => candidate.campaign.scenes?.scenes.find(s => s.id === collection.sceneId)
   function settleFalls(seconds: number, at: ExactAmount) {
     const current = activeScene()
@@ -274,7 +275,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     if (!variableWater) return
     const current = activeScene()
     if (!current) return
-    if (thermalEnabled) advanceThermal(current, seconds)
+    if (thermalEnabled) flowReactionHeatJ += advanceThermal(current, seconds)
     else advanceWaterFlow(current, seconds)
     for (const change of settleWaterSupports(current)) {
       if (movements.some(p => p.work.actorId === change.actorId && compareAmounts(p.endMs, at) > 0)) {
@@ -421,7 +422,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       support: routeSupports.get(m.work.id) ?? (m.work.action.kind === 'move' && m.work.action.support === 'air' ? { kind: 'air' } : supportAt(scene!, to)), completed: compareAmounts(m.endMs, duration) <= 0 }
   })
   const water = variableWater ? waterRoundChanges(scene!, activeScene()!, [...waterSupports.values()], [...wetRoutes.values()]) : undefined
-  const thermal = thermalEnabled ? thermalRoundChanges(scene!, activeScene()!) : undefined
+  const thermal = thermalEnabled ? thermalRoundChanges(scene!, activeScene()!, flowReactionHeatJ) : undefined
   const falling = structural ? (activeScene()?.tokens ?? []).flatMap(token => token.fall ?
     [{ actorId:token.actorId, fromZ:token.fall.fromZ, toZ:token.z, speedMs:token.fall.speedMs }] : []) : []
   const moving = horizontal ? (activeScene()?.objects ?? []).flatMap(object => {

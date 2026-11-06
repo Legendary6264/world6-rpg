@@ -230,8 +230,14 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
       const data=new FormData(event.currentTarget),next:PhysicsEnvironment={version:1,gravityMs2:number(data,'physicsGravityMs2'),ambientTemperatureK:celsiusToKelvin(number(data,'physicsAmbientC'))}
       const noise = optionalNumber(data, 'backgroundNoiseDb', value?.backgroundNoiseDb)
       if (noise !== undefined) next.backgroundNoiseDb = noise
-      if (data.has('simulateThermal')) next.atmosphere = {oxygenFraction:number(data,'oxygenPercent')/100, smokeKg:number(data,'smokeKg'), steamKg:number(data,'steamKg'),
-        outsideTemperatureK:celsiusToKelvin(number(data,'outsideC')), doorVentilation:data.has('doorVentilation')}
+      if (data.has('simulateThermal')) {
+        const reactionHeat = data.has('reactionHeat')
+        next.atmosphere = {
+          oxygenFraction:number(data,'oxygenPercent')/100, smokeKg:number(data,'smokeKg'), steamKg:number(data,'steamKg'),
+          outsideTemperatureK:celsiusToKelvin(number(data,'outsideC')), doorVentilation:data.has('doorVentilation'),
+          ...(reactionHeat || air?.reactionHeat !== undefined ? {reactionHeat} : {}),
+        }
+      }
       else if (air !== undefined) next.atmosphere = null
       if (data.has('simulateVision')) next.vision = {ambientLux:number(data,'ambientLux'),detectionLux:number(data,'detectionLux')}
       else if (value?.vision !== undefined) next.vision = null
@@ -249,6 +255,8 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
         {simulate && <>
           <p className="w6-copy">Воздух перемешивается по всей сцене. Вентиляция подходит для сцены, где открываемые двери ведут наружу.</p>
           <label className="w6-check"><input name="doorVentilation" type="checkbox" defaultChecked={air?.doorVentilation}/>Проветривать через открытые двери</label>
+          <label className="w6-check"><input name="reactionHeat" type="checkbox" defaultChecked={air?.reactionHeat}/>Учитывать нагрев при нейтрализации</label>
+          <p className="w6-copy">Кислота и щёлочь выделяют тепло и при выпуске, и при смешивании потоков. Тепло сначала плавит лёд или нагревает воду, а при кипении образуется пар.</p>
           <label className="w6-field"><span>Температура снаружи, °C</span><input name="outsideC" type="number" step="any" min="-273.15" max="999726.85" defaultValue={air ? kelvinToCelsius(air.outsideTemperatureK) : 20} required/></label>
           <label className="w6-field"><span>Доля кислорода, %</span><input name="oxygenPercent" type="number" step="any" min="0" max="100" defaultValue={(air?.oxygenFraction ?? OUTSIDE_OXYGEN_FRACTION)*100} required/></label>
           <label className="w6-field"><span>Дым, кг</span><input name="smokeKg" type="number" step="any" min="0" max={MAX_AEROSOL_KG} defaultValue={air?.smokeKg ?? 0} required/></label>

@@ -12,7 +12,7 @@ export const DEFAULT_BACKGROUND_NOISE_DB = 30
 export const MAX_SOUND_LEVEL_DB = 160
 export const OUTSIDE_OXYGEN_FRACTION = .2095
 export const MAX_AEROSOL_KG = 1e15
-export type RoomAtmosphere = {oxygenFraction:number;smokeKg:number;steamKg:number;outsideTemperatureK:number;doorVentilation:boolean}
+export type RoomAtmosphere = {oxygenFraction:number;smokeKg:number;steamKg:number;outsideTemperatureK:number;doorVentilation:boolean;reactionHeat?:boolean}
 export type Combustion = {fuelKg:number;burnRateKgS:number;ignitionTemperatureK:number}
 export type PhysicsEnvironment = {version:1;gravityMs2:number;ambientTemperatureK:number;backgroundNoiseDb?:number|null;
   atmosphere?:RoomAtmosphere|null;vision?:VisionProfile|null}
@@ -20,7 +20,13 @@ export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temp
   noiseLevelDbAt1m?:number|null;combustion?:Combustion|null;structure?:StructureProfile|null;sliding?:SlidingProfile|null;lightIntensityCd?:number|null}
 
 export function isRoomAtmosphere(value: unknown): value is RoomAtmosphere {
-  return physicsRecord(value) && physicsKeys(value, ['oxygenFraction','smokeKg','steamKg','outsideTemperatureK','doorVentilation']) &&
+  if (!physicsRecord(value)) return false
+  const keys = ['oxygenFraction','smokeKg','steamKg','outsideTemperatureK','doorVentilation']
+  if (Object.hasOwn(value, 'reactionHeat')) {
+    if (typeof value.reactionHeat !== 'boolean') return false
+    keys.push('reactionHeat')
+  }
+  return physicsKeys(value, keys) &&
     physicsNumber(value.oxygenFraction, 0, 1) && physicsNumber(value.smokeKg, 0, MAX_AEROSOL_KG) &&
     physicsNumber(value.steamKg, 0, MAX_AEROSOL_KG) && physicsNumber(value.outsideTemperatureK, 0, MAX_TEMPERATURE_K) &&
     typeof value.doorVentilation === 'boolean'
@@ -77,6 +83,8 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
       if (scene.physics.atmosphere === undefined && previous.physics.atmosphere !== undefined) {
         scene.physics.atmosphere = previous.physics.atmosphere && {...previous.physics.atmosphere}
       }
+      const air = scene.physics.atmosphere, oldAir = previous.physics.atmosphere
+      if (air && air.reactionHeat === undefined && oldAir?.reactionHeat !== undefined) air.reactionHeat = oldAir.reactionHeat
       if (scene.physics.vision === undefined && previous.physics.vision !== undefined) {
         scene.physics.vision = previous.physics.vision && {...previous.physics.vision}
       }

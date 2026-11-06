@@ -90,12 +90,17 @@ test('Физика UI: среда допускает нулевую гравит
   await flush(()=>button('Снять условия среды').click());assert.equal(state.value,null)
 })
 
-test('Тепло UI: проветривание сохраняет параметры воздуха, отключение очищает тепловой профиль',async()=>{
+test('Тепло UI: проветривание и нагрев при реакции сохраняются независимо',async()=>{
   const state=await fixture(EnvironmentPhysicsPanel,{version:1,gravityMs2:9.81,ambientTemperatureK:293.15,backgroundNoiseDb:35,
     atmosphere:{oxygenFraction:.18,smokeKg:.02,steamKg:.5,outsideTemperatureK:280,doorVentilation:false}})
   const name=key=>document.querySelector('[name="'+key+'"]')
   await flush(()=>{name('doorVentilation').click()});await submit()
   assert.equal(state.value.atmosphere.doorVentilation,true)
+  assert.equal(state.value.atmosphere.reactionHeat,undefined)
+  await flush(()=>name('reactionHeat').click());await submit()
+  assert.equal(state.value.atmosphere.reactionHeat,true);assert.equal(state.value.atmosphere.doorVentilation,true)
+  await flush(()=>name('reactionHeat').click());await submit()
+  assert.equal(state.value.atmosphere.reactionHeat,false)
   assert.equal(state.value.atmosphere.smokeKg,.02);assert.equal(state.value.atmosphere.steamKg,.5)
   await flush(()=>{name('simulateThermal').click()});assert.equal(name('doorVentilation'),null)
   await submit();assert.equal(state.value.atmosphere,null);assert.equal(state.value.backgroundNoiseDb,35)

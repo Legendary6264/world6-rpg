@@ -28,7 +28,7 @@ const {applyAbilityPhysics}=await load('abilityPhysics')
 const {advanceWaterFlow,settleWaterSupports,waterRoundChanges}=await load('waterFlow')
 const {advanceMovement}=await load('sceneMovement')
 const {perceivedMap,preparePerception,emptyPerception}=await load('scenePerception')
-const {advanceThermal,applyHeat,smokeVisibilityM}=await load('thermalPhysics')
+const {advanceThermal,applyHeat,smokeVisibilityM,thermalRoundChanges}=await load('thermalPhysics')
 const {sceneOptics}=await load('sceneOptics')
 const {perceivedRenderModel}=await load('scene3dModel')
 const {advanceFalls,nextFallSeconds}=await load('structuralPhysics')
@@ -292,6 +292,56 @@ test('Тепло: при кипении сохраняются вода с па�
  applyAbilityPhysics(scene,{x:4,y:5,z:0},'unused',{kind:'fill-water',volumeL:2})
  assert.equal(water.water.saltKg,.003);assert.equal(water.water.sedimentKg,.007)
  assert.equal(water.water.enthalpyJKg,liquidEnthalpy(scene.physics.ambientTemperatureK))
+})
+
+test('Тепло реакции: при выключенном нагреве сохраняется прежний режим, лёд тает, при кипении масса переходит в пар',()=>{
+ const {state,scene,air}=thermalRoom()
+ const layer={...pool('reaction',4),height:.001,water:{...pureWater(),reagentMol:.5,enthalpyJKg:FUSION_J_KG/2}}
+ scene.objects=[layer]
+ const original=copySceneState(state),point={x:4,y:5,z:.0002}
+ const dose=(target,moles)=>applyAbilityPhysics(target,point,'unused',{
+  kind:'add-substance',substance:'alkali',massKg:moles*waterReagents.alkali.molarMassKg,
+ })
+ const cold=dose(original.scenes[0],.5)
+ assert(cold.reaction);assert.equal(cold.reaction.heating,undefined)
+
+ air.reactionHeat=true
+ const warmed=dose(scene,.5).reaction
+ closeTo(warmed.heating.energyKJ,28.02)
+ closeTo(warmed.heating.temperatureK,273.15)
+ closeTo(warmed.heating.iceFraction*(2+warmed.waterKg),1-28020/FUSION_J_KG)
+ closeTo(air.steamKg,0)
+
+ layer.height=.001;layer.water={...pureWater(),reagentMol:.2,enthalpyJKg:BOILING_ENTHALPY_J_KG}
+ const boiling=dose(scene,.2).reaction
+ closeTo(boiling.heating.temperatureK,373.15)
+ closeTo(boiling.heating.evaporatedKg,11208/VAPORIZATION_J_KG)
+ closeTo(air.steamKg,boiling.heating.evaporatedKg)
+ closeTo(waterVolumeM3(layer)*1000+air.steamKg,2+boiling.waterKg)
+ assert(isSceneState(state))
+
+ const old=copySceneState(state),oldAir=old.scenes[0].physics.atmosphere
+ delete oldAir.reactionHeat;preserveScenePhysics(state,old);assert.equal(oldAir.reactionHeat,true)
+ oldAir.reactionHeat=false;preserveScenePhysics(state,old);assert.equal(oldAir.reactionHeat,false)
+ oldAir.reactionHeat='yes';assert(!isSceneState(old))
+})
+
+test('Тепло реакции: смешивание встречных потоков сохраняет тепло и воду с учётом пара',()=>{
+ const {scene,air}=thermalRoom()
+ const acid=flowCell('acid',2,.15),alkali=flowCell('alkali',6,.15),middle=flowCell('middle',4,0)
+ acid.water.reagentMol=1;alkali.water.reagentMol=-1
+ acid.water.enthalpyJKg=alkali.water.enthalpyJKg=BOILING_ENTHALPY_J_KG
+ scene.objects=[acid,middle,alkali];air.reactionHeat=true
+ const before=structuredClone(scene)
+ const mass=()=>scene.objects.reduce((total,layer)=>total+waterVolumeM3(layer)*1000,0)+air.steamKg
+ const heat=advanceWaterFlow(scene,.25)
+ const reacted=1-acid.water.reagentMol
+ assert(reacted>0);assert(middle.water.saltKg>0);assert.equal(middle.water.reagentMol,0)
+ closeTo(heat,reacted*56040)
+ closeTo(air.steamKg,heat/VAPORIZATION_J_KG)
+ closeTo(mass(),600+reacted*.0180153)
+ closeTo(thermalRoundChanges(before,scene,heat).flowReactionHeatKJ,heat/1000)
+ assert.equal(middle.water.enthalpyJKg,BOILING_ENTHALPY_J_KG)
 })
 
 test('Тепло: закрытая сцена сохраняет тепло при обмене, поток переносит его вместе с водой',()=>{
