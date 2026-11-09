@@ -20,6 +20,7 @@ export const physicsFields = {
   heat: { energyKJ: 'Изменение тепловой энергии, кДж' },
   'structural-impact': { energyJ: 'Энергия удара по конструкции, Дж' },
   'push-object': { impulseNs: 'Импульс толчка, Н·с' },
+  sound: { levelDbAt1m: 'Уровень звука на 1 м, дБ' },
 } satisfies Record<AbilityPhysicsEffect['kind'], Record<string, string>>
 export type AbilityPhysicsForm = { kind: AbilityPhysicsEffect['kind']; fields: Record<string, string>; substance: WaterAdditive }
 
@@ -64,6 +65,9 @@ function physicsFormEffect(form: AbilityPhysicsForm): AbilityPhysicsEffect | nul
       break
     case 'push-object':
       effect = { kind: form.kind, impulseNs: n('impulseNs') }
+      break
+    case 'sound':
+      effect = {kind:form.kind,levelDbAt1m:n('levelDbAt1m')}
       break
   }
   return isAbilityPhysicsEffect(effect) ? effect : null

@@ -3,6 +3,7 @@ import type { CircuitResult, DischargeSettings } from './electricalCircuit'
 import { physicsId, physicsKeys, physicsNumber, physicsRecord, cubicMetresToLitres, litresToCubicMetres } from './physicsUnits'
 import { MAX_SCENE_OBJECTS, sceneObject } from './scenes'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
+import { MAX_SOUND_LEVEL_DB } from './physicsState'
 import { sceneAir } from './sceneAir'
 import { applyHeat, MAX_ABILITY_HEAT_KJ, thermalTarget } from './thermalPhysics'
 import type { HeatOutcome } from './thermalPhysics'
@@ -34,12 +35,14 @@ export type AbilityPhysicsEffect =
   | { kind: 'heat'; energyKJ: number }
   | { kind: 'structural-impact'; energyJ: number }
   | { kind: 'push-object'; impulseNs: number }
+  | { kind: 'sound'; levelDbAt1m: number }
 export type AbilityPhysicsOutcome =
   | {
       kind: 'water'; change: 'created' | 'filled' | WaterAdditive; objectId: string; volumeL: number
       composition: WaterComposition; conductivitySM: number | null; ph?: number | null; reaction?: Neutralization
     }
   | { kind: 'discharge'; circuit: CircuitResult; thresholdA: number }
+  | { kind: 'sound'; position: ScenePosition; levelDbAt1m: number }
   | HeatOutcome
   | StructuralImpactOutcome
   | PushOutcome
@@ -72,6 +75,8 @@ export function isAbilityPhysicsEffect(value: unknown): value is AbilityPhysicsE
       return physicsKeys(value, ['kind', 'energyJ']) && physicsNumber(value.energyJ, .001, MAX_STRUCTURAL_ENERGY_J)
     case 'push-object':
       return physicsKeys(value, ['kind', 'impulseNs']) && physicsNumber(value.impulseNs, .001, MAX_PUSH_IMPULSE_NS)
+    case 'sound':
+      return physicsKeys(value, ['kind','levelDbAt1m']) && physicsNumber(value.levelDbAt1m, 0, MAX_SOUND_LEVEL_DB)
     default: return false
   }
 }
@@ -179,6 +184,9 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
       if (!origin || targets.length !== 1) throw Error('Укажи точку внутри одного предмета с настройками скольжения.')
       return pushObject(scene, targets[0], origin, aim, effect.impulseNs)
     }
+    case 'sound':
+      if (!scene.physics?.eventSounds) throw Error('Включи звуки событий в разделе «Акустика» сцены.')
+      return {kind:'sound',position:{...aim},levelDbAt1m:effect.levelDbAt1m}
   }
 }
 
@@ -213,6 +221,7 @@ export function physicsOutcomeDetails(outcome: AbilityPhysicsOutcome): string {
   }
   if (outcome.kind === 'push-object') return outcome.name + ' · толчок ' + number(outcome.impulseNs) +
     ' Н·с · скорость после толчка ' + number(outcome.speedMs) + ' м/с'
+  if (outcome.kind === 'sound') return 'Короткий звук · ' + number(outcome.levelDbAt1m) + ' дБ на 1 м'
   const { circuit, thresholdA } = outcome
   if (circuit.status === 'open') {
     const frozen = circuit.frozenContacts

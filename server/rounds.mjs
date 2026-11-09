@@ -100,6 +100,10 @@ export async function createRoundCalculation(tx,lobby,authorId,input,executionSe
     if(!Array.isArray(input.speech)||!input.speech.every(isSpeechDecision))fail(400,'Проверь решения о слышимости.')
     const recordedAt=now();input={...input,speech:input.speech.map(d=>({...d,recordedAt}))}
   }
+  if(executionSeed===undefined&&input&&typeof input==='object'&&!Array.isArray(input)&&
+     state.campaign.scenes?.scenes.some(scene=>scene.id===c.sceneId&&scene.physics?.eventSounds)){
+    input={...input,soundRecordedAt:now()}
+  }
   const previewId=id(),seed=executionSeed??previewId;let result
   try{result=calculateRound(state,c,input,seed);validateWorld(result.world)}catch(error){fail(400,error.message)}
   const worldJson=JSON.stringify(result.world),summaryJson=JSON.stringify(result.summary),inputJson=JSON.stringify(input),bytes=Buffer.byteLength(worldJson+summaryJson+inputJson+seed)

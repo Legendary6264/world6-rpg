@@ -23,7 +23,8 @@ export type RoomAtmosphere = AirContents & {
 }
 export type Combustion = {fuelKg:number;burnRateKgS:number;ignitionTemperatureK:number}
 export type PhysicsEnvironment = {version:1;gravityMs2:number;ambientTemperatureK:number;backgroundNoiseDb?:number|null;
-  atmosphere?:RoomAtmosphere|null;vision?:VisionProfile|null;airRooms?:AirRoom[]|null;exposure?:ExposureProfile|null;traction?:TractionProfile|null}
+  eventSounds?:true|null;atmosphere?:RoomAtmosphere|null;vision?:VisionProfile|null;airRooms?:AirRoom[]|null;
+  exposure?:ExposureProfile|null;traction?:TractionProfile|null}
 export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temperatureK:number;wetnessFraction:number;
   noiseLevelDbAt1m?:number|null;combustion?:Combustion|null;structure?:StructureProfile|null;sliding?:SlidingProfile|null;lightIntensityCd?:number|null}
 
@@ -59,7 +60,7 @@ const isSoundLevel = (v: unknown) => physicsNumber(v, 0, MAX_SOUND_LEVEL_DB)
 
 export function isPhysicsEnvironment(value: unknown): value is PhysicsEnvironment {
   if (!physicsRecord(value) || !withOptionalProfiles(value, ['version','gravityMs2','ambientTemperatureK'], {
-    backgroundNoiseDb:isSoundLevel, atmosphere:isRoomAtmosphere, vision:isVisionProfile, airRooms:isAirRoomList,
+    backgroundNoiseDb:isSoundLevel, eventSounds:v=>v===true, atmosphere:isRoomAtmosphere, vision:isVisionProfile, airRooms:isAirRoomList,
     exposure:isExposureProfile, traction:isTractionProfile,
   }) || value.version !== 1 || !physicsNumber(value.gravityMs2, 0, 1e6) ||
     !physicsNumber(value.ambientTemperatureK, 0, MAX_TEMPERATURE_K)) return false
@@ -99,6 +100,7 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
     if (scene.physics === undefined && previous.physics !== undefined) scene.physics = copyPhysicsEnvironment(previous.physics)
     else if (scene.physics && previous.physics) {
       if (scene.physics.backgroundNoiseDb === undefined && previous.physics.backgroundNoiseDb !== undefined) scene.physics.backgroundNoiseDb = previous.physics.backgroundNoiseDb
+      if (scene.physics.eventSounds === undefined && previous.physics.eventSounds !== undefined) scene.physics.eventSounds = previous.physics.eventSounds
       if (scene.physics.atmosphere === undefined && previous.physics.atmosphere !== undefined) {
         scene.physics.atmosphere = previous.physics.atmosphere && {...previous.physics.atmosphere}
       }

@@ -49,6 +49,7 @@ test('Физика в редакторе: профили объекта и ср�
  await flush(()=>button('Добавить комнату').click())
  await flush(()=>document.querySelector('[name=simulateExposure]').click())
  await flush(()=>document.querySelector('[name=simulateTraction]').click())
+ await flush(()=>document.querySelector('[name=eventSounds]').click())
  await flush(()=>{
   const room=document.querySelector('[data-air-room]')
   room.querySelector('[name$="-name"]').value='Кузня'
@@ -60,6 +61,7 @@ test('Физика в редакторе: профили объекта и ср�
  assert.equal(writes,count+1);assert.equal(active().physics.airRooms[0].name,'Кузня');assert.equal(active().physics.airRooms[0].air.steamKg,.5)
  assert.equal(active().physics.exposure.responseSeconds,5)
  assert.equal(active().physics.traction.iceFactor,.2)
+ assert.equal(active().physics.eventSounds,true)
  await key('z',{ctrlKey:true});assert.deepEqual(current,withoutRooms)
  await key('z',{ctrlKey:true,shiftKey:true});assert.deepEqual(current,withRoom)
 })

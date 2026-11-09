@@ -44,13 +44,16 @@ import { exposureChanges, roundExposureObserver } from './environmentExposure'
 import type { ExposureChange, ExposureFallStart } from './environmentExposure'
 import { tractionLabels } from './surfaceTraction'
 import type { TractionTravel } from './surfaceTraction'
-export const ROUND_EXECUTOR_VERSION = 'r21-surface-traction-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+import { doorSound, impactSoundDb, landingSoundDb, roundAcoustics } from './roundSound'
+import type { RoundSound, SoundSource } from './roundSound'
+export const ROUND_EXECUTOR_VERSION = 'r22-event-acoustics-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
   missingDecisions: { actorId: string; reason: string }[]; interactionsConfirmed: boolean;
-  movement?: { confirmed: boolean; bodies: MovementBody[] }; rules?: RuleDecision[]; charges?: ChargeDecision[]; replay?: RoundReplay; speech?: SpeechDecision[]; inspections?: InspectionDecision[] }
+  movement?: { confirmed: boolean; bodies: MovementBody[] }; rules?: RuleDecision[]; charges?: ChargeDecision[]; replay?: RoundReplay; speech?: SpeechDecision[]; inspections?: InspectionDecision[];
+  soundRecordedAt?:string }
 export type RoundExecutionEvent = { actorId: string; actionIndex: number; workId: string; atMs: ExactAmount;
   kind: 'inspect' | 'speak' | 'wait' | ObjectOperation | 'relocate' | 'move' | 'item' | 'prepare' | 'ready' | 'release'; objectId?: string; castId?:string; listening?:'listen'|'eavesdrop' }
 type RoundFallLanding = FallLanding & { atMs: ExactAmount; impact?: LandingImpactResult; region?: string }
@@ -64,7 +67,7 @@ export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speec
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
   movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls;
   slides?: { stops:SlideStop[]; moving:SlideStatus[] }; exposure?: ExposureChange[];
-  traction?: {walks:WalkTraction[]; slides:SlideTraction[]} }
+  traction?: {walks:WalkTraction[]; slides:SlideTraction[]}; sounds?:RoundSound[] }
 export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
 const zero = exactAmount(0n), thousand = exactAmount(1000n)
@@ -251,16 +254,24 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const landings: RoundFallLanding[] = []
   const slideStops: SlideStop[] = []
   const walkTraction = new Map<string,WalkTraction>(), slideTraction = new Map<string,SlideTraction>()
+  const acoustics = scene?.physics?.eventSounds ? roundAcoustics(seed,input.soundRecordedAt,listeningWindows) : undefined
   let flowReactionHeatJ = 0
   const activeScene = () => candidate.campaign.scenes?.scenes.find(s => s.id === collection.sceneId)
+  function emitSound(at:ExactAmount,sound:SoundSource|undefined) {
+    if (acoustics && sound) acoustics.emit(candidate,activeScene()!,at,sound)
+  }
   function settleFalls(seconds: number, at: ExactAmount) {
     const current = activeScene()
     if (!structural || !current) return
     for (const landing of advanceFalls(current, seconds)) {
-      const profile = current.tokens.find(t => t.actorId === landing.actorId)?.landing
+      const token = current.tokens.find(t => t.actorId === landing.actorId)!
+      const profile = token.landing
       const impact = profile && landing.support.kind !== 'air' && landing.speedMs > 0 ?
         applyLandingImpact(candidate, landing.actorId, profile, landing.speedMs, 'round-' + seed + '-land-' + landings.length) : undefined
       landings.push({ ...landing, atMs:at, ...(impact && profile ? {impact, region:profile.region} : {}) })
+      if (acoustics && landing.support.kind!=='air' && landing.speedMs>0) {
+        emitSound(at,{kind:'landing',point:{x:token.x,y:token.y,z:token.z},levelDbAt1m:landingSoundDb(landing.speedMs)})
+      }
     }
   }
   function resolveLostSupport(outcome: StructuralImpactOutcome, at: ExactAmount) {
@@ -273,6 +284,9 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   function commitSlide(step: SlideStep, at: ExactAmount) {
     const current = activeScene()!
     const impact = applySlide(current, step)
+    if (acoustics && step.collision?.energyJ) {
+      emitSound(at,{kind:'impact',objectId:step.objectId,point:step.point,levelDbAt1m:impactSoundDb(step.collision.energyJ)})
+    }
     for (const contact of step.traction ?? []) {
       const key = JSON.stringify([step.objectId,contact.objectId,contact.kind])
       const previous = slideTraction.get(key)
@@ -396,15 +410,27 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         if (hasMovement) checkClosingDoor(current, effect.objectId, bodies, movementCheck)
         checkDoorSlideClearance(current, effect.objectId)
       }
+      const beforeEffects = acoustics && result.outcome.environment?.length ? activeScene() : undefined
       candidate=result.world;ruleOutcomes.push({...result.outcome,atMs:at})
-      if (result.outcome.physics?.kind === 'structural-impact' && result.outcome.physics.collapsed) {
-        resolveLostSupport(result.outcome.physics, at)
+      if (beforeEffects) {
+        const current = activeScene()!
+        for (const effect of result.outcome.environment!) {
+          const previous = beforeEffects.objects.find(o=>o.id===effect.objectId), next = current.objects.find(o=>o.id===effect.objectId)
+          if (previous && next) emitSound(at,doorSound(next,previous.open))
+        }
       }
-      if (result.outcome.physics?.kind === 'push-object') {
+      const physical = result.outcome.physics
+      if (physical?.kind==='sound') emitSound(at,{kind:'ability',point:physical.position,levelDbAt1m:physical.levelDbAt1m})
+      if (physical?.kind==='structural-impact') {
+        if (acoustics && 'point' in a.target) {
+          emitSound(at,{kind:'impact',objectId:physical.objectId,point:a.target.point,levelDbAt1m:impactSoundDb(physical.energyJ)})
+        }
+        if (physical.collapsed) resolveLostSupport(physical,at)
+      }
+      if (physical?.kind === 'push-object') {
         const slide = planSlide(activeScene()!)
         if (slide?.endSeconds === 0) commitSlide(slideStep(slide, 0), at)
       }
-      const physical = result.outcome.physics
       if (physical?.kind === 'heat' || physical?.kind === 'water' &&
           (physical.reaction || physical.change === 'filled' || thermalEnabled && physical.change === 'created')) advanceEnvironment(0, at)
       if (thermalEnabled && result.outcome.environment?.some(effect => effect.operation === 'ignite')) settleFire(activeScene()!)
@@ -434,7 +460,11 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         if (isSliding(object.physics?.sliding)) throw Error('Предмет ещё скользит. Согласуй перенос после остановки.')
         candidate.campaign.scenes = moveSceneObject(candidate.campaign.scenes!,work.sceneId!,{...object,...a.destination})
       }
-      else Object.assign(object,operateSceneObject(object,a.operation as ObjectOperation))
+      else {
+        const wasOpen = object.open
+        Object.assign(object,operateSceneObject(object,a.operation as ObjectOperation))
+        if (acoustics) emitSound(at,doorSound(object,wasOpen))
+      }
       if (thermalEnabled && a.operation === 'ignite') settleFire(activeScene()!)
       events.push({ actorId: work.actorId, actionIndex: work.origin.actionIndex, workId: work.id, atMs: at, kind: a.operation as ObjectOperation|'relocate', objectId: object.id })
     }
@@ -470,6 +500,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     ...(water ? { water } : {}),
     ...(thermal ? { thermal } : {}),
     ...(exposure.length ? { exposure } : {}),
+    ...(acoustics?.sounds.length ? {sounds:acoustics.sounds} : {}),
     ...(walkTraction.size || slideTraction.size ? {traction:{walks:[...walkTraction.values()],slides:[...slideTraction.values()]}} : {}),
     ...(landings.length || falling.length ? { falls:{landings,falling} } : {}),
     ...(slideStops.length || moving.length ? { slides:{stops:slideStops,moving} } : {}),

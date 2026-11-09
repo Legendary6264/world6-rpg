@@ -24,6 +24,9 @@ export type SpeechForecast = {
   barriers: number
   viaDoor?: string
 }
+export type ImpulseForecast = Pick<SpeechForecast, 'signalDb' | 'noiseDb' | 'arrivalMs' | 'barriers' | 'viaDoor'> & {
+  apparentOrigin: ScenePosition
+}
 
 // Approximate two-band game profiles at normal incidence, in dB.
 const partitionLoss = { low: 21, speech: 39 }
@@ -79,11 +82,12 @@ function thicknessOnPath(a: ScenePosition, b: ScenePosition, barrier: Barrier, d
   return Math.max(0, fraction * distanceM)
 }
 
-type Path = { lengthM: number; loss: Bands; barriers: number; viaDoor?: string }
-function bestPath(scene: AcousticScene, a: ScenePosition, b: ScenePosition, sourceId?: string): Path {
+type Path = { lengthM: number; loss: Bands; barriers: number; apparentOrigin:ScenePosition; viaDoor?: string }
+function bestPath(scene: AcousticScene, a: ScenePosition, b: ScenePosition, sourceId?: string, check?:()=>void, impulse=false): Path {
   const lengthM = distance(a, b), spreading = spreadLoss(lengthM)
-  const direct: Path = { lengthM, loss: { low: spreading, speech: spreading }, barriers: 0 }
+  const direct: Path = { lengthM, loss: { low: spreading, speech: spreading }, barriers: 0, apparentOrigin:a }
   for (const barrier of scene.barriers) {
+    check?.()
     if (barrier.id === sourceId) continue
     const thickness = thicknessOnPath(a, b, barrier, lengthM)
     if (thickness <= EPS_M) continue
@@ -94,26 +98,73 @@ function bestPath(scene: AcousticScene, a: ScenePosition, b: ScenePosition, sour
   }
   if (!direct.barriers || !scene.openings.length) return direct
 
-  // Try a bounded number of single-opening detours. Each leg needs a clear path.
+  // A turn at an opening weakens both bands. The last opening is the apparent
+  // direction of the signal. Bound the candidates and trace each end leg once.
+  const lossAt = (metres:number, bends:number) => {
+    const spread = spreadLoss(metres)
+    return {low:spread+3*bends,speech:spread+6*bends}
+  }
+  const score = (loss:Bands) => impulse ? -addDb(-loss.low,-loss.speech) : loss.speech
+  if (score(lossAt(lengthM,1)) >= score(direct.loss)) return direct
   const candidates = scene.openings.map(opening => {
     const { x, y, z } = opening.position
     const margin = opening.heightM * .1
     const point = { x, y, z: Math.min(z + opening.heightM - margin, Math.max(z + margin, (a.z + b.z) / 2)) }
     const first = distance(a, point), second = distance(point, b)
     return { opening, point, first, second, lengthM: first + second }
-  }).sort((a, b) => a.lengthM - b.lengthM)
+  }).sort((a, b) => a.lengthM - b.lengthM).slice(0,MAX_PORTAL_PATHS)
+  const clearLeg = (from:ScenePosition,to:ScenePosition,metres:number) => !scene.barriers.some(barrier=>{
+    check?.()
+    return barrier.id!==sourceId && thicknessOnPath(from,to,barrier,metres)>EPS_M
+  })
+  const legs = candidates.map(candidate=>({...candidate,
+    enter:clearLeg(a,candidate.point,candidate.first),leave:clearLeg(candidate.point,b,candidate.second),
+  }))
   let best = direct
-  for (const candidate of candidates.slice(0, MAX_PORTAL_PATHS)) {
-    const { opening, point, first, second, lengthM } = candidate
-    const spreading = spreadLoss(lengthM)
-    const loss = { low: spreading + 3, speech: spreading + 6 }
-    if (loss.speech >= best.loss.speech) break
-    const blocked = scene.barriers.some(barrier => barrier.id !== sourceId && (
-      thicknessOnPath(a, point, barrier, first) > EPS_M || thicknessOnPath(point, b, barrier, second) > EPS_M
-    ))
-    if (!blocked) best = { lengthM, loss, barriers: 0, viaDoor: opening.name }
+  for (const {enter,leave,opening,point,lengthM} of legs) {
+    const loss = lossAt(lengthM,1)
+    if (score(loss) >= score(best.loss)) break
+    if (enter && leave) best = {lengthM,loss,barriers:0,apparentOrigin:point,viaDoor:opening.name}
+  }
+  if (score(lossAt(lengthM,2)) >= score(best.loss)) return best
+  for (const entry of legs.filter(leg=>leg.enter)) {
+    for (const exit of legs.filter(leg=>leg.leave && leg!==entry)) {
+      const middle = distance(entry.point,exit.point), total = entry.first+middle+exit.second
+      const loss = lossAt(total,2)
+      if (score(loss) < score(best.loss) && clearLeg(entry.point,exit.point,middle)) {
+        best = {lengthM:total,loss,barriers:0,apparentOrigin:exit.point,viaDoor:entry.opening.name+' → '+exit.opening.name}
+      }
+    }
   }
   return best
+}
+
+function backgroundAt(scene:AcousticScene,listener:ScenePosition,check?:()=>void):Bands {
+  const ambientBand = scene.backgroundNoiseDb - BAND_SPLIT_DB
+  const noise = {low:ambientBand,speech:ambientBand}
+  for (const source of scene.sources) {
+    check?.()
+    const { loss } = bestPath(scene, source.position, listener, source.id,check)
+    const sourceBand = source.levelDbAt1m - BAND_SPLIT_DB
+    noise.low = addDb(noise.low, sourceBand - loss.low)
+    noise.speech = addDb(noise.speech, sourceBand - loss.speech)
+  }
+  return noise
+}
+function arrivalMs(scene:AcousticScene,lengthM:number):number|null {
+  const airSpeedMs = Math.sqrt(1.4 * 287.05 * scene.temperatureK)
+  return airSpeedMs > 0 ? 1000 * lengthM / airSpeedMs : null
+}
+export const audibleSound = (signalDb:number,noiseDb:number,attentionDb=0) =>
+  signalDb+attentionDb>=20 && signalDb+attentionDb-noiseDb>=-6
+
+export function forecastImpulse(scene:AcousticScene,source:ScenePosition,listener:ScenePosition,levelDbAt1m:number,sourceBarrierId?:string,check?:()=>void):ImpulseForecast {
+  const path = bestPath(scene,source,listener,sourceBarrierId,check,true)
+  const band = levelDbAt1m-BAND_SPLIT_DB
+  const signalDb = addDb(band-path.loss.low,band-path.loss.speech)
+  const noise = backgroundAt(scene,listener,check)
+  return {signalDb,noiseDb:addDb(noise.low,noise.speech),arrivalMs:arrivalMs(scene,path.lengthM),
+    barriers:path.barriers,viaDoor:path.viaDoor,apparentOrigin:path.apparentOrigin}
 }
 
 export function forecastSpeech(scene: AcousticScene, speaker: ScenePosition, listener: ScenePosition, volume: SpeechRow['action']['volume']): SpeechForecast {
@@ -121,22 +172,12 @@ export function forecastSpeech(scene: AcousticScene, speaker: ScenePosition, lis
   const voiceBand = voiceDbAt1m[volume] - BAND_SPLIT_DB
   const speechDb = voiceBand - path.loss.speech
   const signalDb = addDb(voiceBand - path.loss.low, speechDb)
-  const ambientBand = scene.backgroundNoiseDb - BAND_SPLIT_DB
-  let noiseLowDb = ambientBand, noiseSpeechDb = ambientBand
-  for (const source of scene.sources) {
-    const { loss } = bestPath(scene, source.position, listener, source.id)
-    const sourceBand = source.levelDbAt1m - BAND_SPLIT_DB
-    noiseLowDb = addDb(noiseLowDb, sourceBand - loss.low)
-    noiseSpeechDb = addDb(noiseSpeechDb, sourceBand - loss.speech)
-  }
-  const noiseDb = addDb(noiseLowDb, noiseSpeechDb)
-  const speechSnrDb = speechDb - noiseSpeechDb
-  const audible = signalDb >= 20 && signalDb - noiseDb >= -6
-  const clarity = !audible ? 'none' : speechSnrDb >= 12 ? 'clear' : speechSnrDb >= 3 ? 'fragment' : 'sound'
-  const airSpeedMs = Math.sqrt(1.4 * 287.05 * scene.temperatureK)
+  const noise = backgroundAt(scene,listener), noiseDb = addDb(noise.low,noise.speech)
+  const speechSnrDb = speechDb - noise.speech
+  const clarity = !audibleSound(signalDb,noiseDb) ? 'none' : speechSnrDb >= 12 ? 'clear' : speechSnrDb >= 3 ? 'fragment' : 'sound'
   return {
     clarity, signalDb, noiseDb, speechSnrDb,
-    arrivalMs: airSpeedMs > 0 ? 1000 * path.lengthM / airSpeedMs : null,
+    arrivalMs: arrivalMs(scene,path.lengthM),
     barriers: path.barriers, viaDoor: path.viaDoor,
   }
 }

@@ -14,7 +14,8 @@ for(const file of await readdir('src'))if(file.endsWith('.ts')){
 const module=name=>import(pathToFileURL(join(directory,name+'.mjs')))
 const {calculateRound,compatibleRoundExecutor}=await module('roundExecution'),{createDefaultCharacter}=await module('characterModel'),{emptyCampaign}=await module('rpgSchema')
 const {createScene,emptyScenes}=await module('scenes'),{speechDistance,isSpeechJournalEntry,finishRoundSpeech}=await module('roundSpeech'),{isJournal,MAX_JOURNAL_ENTRIES}=await module('characterKnowledge')
-const {sceneAcoustics,forecastSpeech}=await module('acoustics'),{createTabletopObject}=await module('tabletopCatalog'),{physicsMaterialPreset}=await module('physicsMaterials')
+const {sceneAcoustics,forecastSpeech,forecastImpulse}=await module('acoustics'),{createTabletopObject}=await module('tabletopCatalog'),{physicsMaterialPreset}=await module('physicsMaterials')
+const {roundAcoustics,isSoundJournalEntry}=await module('roundSound'),{exactAmount}=await module('exactWork')
 function world(){const scenes=createScene(emptyScenes(),'hall','PRIVATE-SCENE','top');scenes.scenes[0].tokens=['speaker','clear','part','sound','silent'].map((actorId,index)=>({id:'token-'+actorId,actorId,x:index+2,y:5,z:0,diameter:1,support:{kind:'ground'}}));return {characters:['speaker','clear','part','sound','silent'].map(id=>({...createDefaultCharacter(),id,name:'PRIVATE-'+id})),campaign:{...emptyCampaign(),scenes}}}
 const speech=(volume='whisper')=>({kind:'speak',target:{kind:'none'},volume,text:'Встречаемся у северных ворот. Пароль: ЛУНА.',note:'PRIVATE-PLAYER-NOTE'})
 function collection(action=speech()){return {id:'collection',sceneId:'hall',sceneName:'PRIVATE-SCENE',durationSeconds:5,allowReplace:true,phase:'closed',epoch:2,participantIds:['speaker'],entries:[{actorId:'speaker',actorName:'PRIVATE-speaker',revision:1,status:'submitted',actions:[action],resolved:[],submittedBy:'account-speaker',submittedAt:'2026-10-12T00:00:00Z',note:''}],history:[]}}
@@ -119,6 +120,45 @@ test('Акустика: несколько источников складыва
  const two=forecastSpeech(sceneAcoustics(scene),speaker,listener,'normal')
  const expected=10*Math.log10(10**3+2*10**4.5)
  assert(Math.abs(two.noiseDb-expected)<1e-9);assert(two.speechSnrDb<one.speechSnrDb)
+})
+
+test('Акустика: две открытые двери проводят звук вокруг двух стен',()=>{
+ const scene=world().campaign.scenes.scenes[0],source=acousticPoint(3,3),ear=acousticPoint(18,3)
+ const partitions=[{x:8,y:5,name:'Первый проём'},{x:14,y:11,name:'Второй проём'}]
+ const doors=partitions.map(({x,y,name},i)=>({
+  ...createTabletopObject('timber-door','door-'+i,acousticPoint(x,y,0),90),name,width:.2,depth:1.2,height:3,open:true,
+ }))
+ scene.objects=doors.concat(partitions.flatMap(({x,y},i)=>[[0,y-.6],[y+.6,18]].map(([min,max],j)=>({
+  ...createTabletopObject('stone-wall','wall-'+i+'-'+j,acousticPoint(x,(min+max)/2,0),90),width:.2,depth:max-min,height:3,
+ }))))
+ const open=forecastImpulse(sceneAcoustics(scene),source,ear,85)
+ assert.equal(open.viaDoor,'Первый проём → Второй проём');assert.deepEqual(open.apparentOrigin,acousticPoint(14,11))
+ assert.equal(forecastSpeech(sceneAcoustics(scene),source,ear,'shout').viaDoor,open.viaDoor)
+ doors[1].open=false
+ const closed=forecastImpulse(sceneAcoustics(scene),source,ear,85)
+ assert.equal(closed.viaDoor,undefined);assert.equal(closed.barriers,2)
+ assert(open.signalDb>closed.signalDb+20);assert(open.arrivalMs>closed.arrivalMs)
+})
+
+test('Акустика: прислушивание действует на свой сектор и интервал, журнал скрывает источник',()=>{
+ const w=world(),scene=w.campaign.scenes.scenes[0],at=n=>exactAmount(BigInt(n))
+ scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,backgroundNoiseDb:40,eventSounds:true}
+ const stamp='2026-11-09T08:00:00.000Z'
+ const focus=(actorId,mode,point)=>({key:actorId,actorId,sceneId:scene.id,mode,target:{kind:'point',point},fromMs:at(1000),toMs:at(2000),completes:true})
+ const sound=roundAcoustics('test-sound',stamp,[
+  focus('clear','listen',acousticPoint(1,5)),
+  focus('part','listen',acousticPoint(8,5)),
+  focus('sound','eavesdrop',acousticPoint(1,5)),
+ ])
+ const source={kind:'ability',point:acousticPoint(2.5,5),levelDbAt1m:30,objectId:'HIDDEN-SOURCE'}
+ sound.emit(w,scene,at(999),source);sound.emit(w,scene,at(1000),source);sound.emit(w,scene,at(2000),source)
+ assert.deepEqual(sound.sounds.map(s=>s.heard.map(h=>h.actorId)),[[],['clear'],[]])
+ assert.equal(sound.sounds[1].heard[0].focused,true)
+ const [note]=journal(w,'clear')
+ assert(isSoundJournalEntry(note));assert(isJournal(journal(w,'clear')));assert.equal(note.createdAt,stamp)
+ assert.match(note.text,/Приглушённый звук рядом/)
+ assert.doesNotMatch(JSON.stringify(note),/HIDDEN-SOURCE|apparentOrigin|signalDb/)
+ assert(journal(w,'speaker').length===0&&journal(w,'part').length===0&&journal(w,'sound').length===0)
 })
 test('R08: заполненный журнал и повтор события не удаляют записи и блокируют весь расчёт',()=>{
  const w=world(),sample={id:'note',origin:'manual',title:'Заметка',text:'Сохранить',category:'other',certainty:'hypothesis',source:'Я',gameTime:'0 с',annotation:'',createdAt:'2026-10-12T00:00:00.000Z',updatedAt:'2026-10-12T00:00:00.000Z'}

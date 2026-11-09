@@ -16,6 +16,7 @@ import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
 import {NetworkError} from './onlineClient'
 import {isKnowledgeCommand,isKnowledgeAck,hasKnowledgeEntry} from './knowledgeCommands'
 import type {KnowledgeCommand} from './knowledgeCommands'
+import { isSoundJournalEntry } from './roundSound'
 const LobbyActionDeclarations = lazy(() => import('./LobbyActionDeclarations'))
 type PlayerView = { closed?:boolean; work?: import('./roundWork').PersonalRoundWork[]; seconds?: number; revision: number; hero: PlayerCharacter; map: PerceivedMap | null; canWriteNotes: boolean;
   knowledge: { journal: Omit<JournalEntry, 'artwork' | 'eventKey'>[]; knownEffects: Omit<KnownEffect, 'createdAt' | 'updatedAt' | 'artwork'>[] }; inventory: { id: string; name: string; description: string; quantity: number }[] }
@@ -60,13 +61,14 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
   }
   const value = remote.value, pickedPoint = pointChoice?.sceneId === value?.map?.frame.id ? pointChoice?.point ?? null : null, unavailable = checkingAccess || remote.loading || busy, stale = !note.command&&!!(note.title||note.text)&&value && note.revision !== undefined && note.revision !== value.revision
   const entries = value?.knowledge.journal.filter(e => (e.title + ' ' + e.text + ' ' + e.annotation).toLocaleLowerCase('ru').includes(query.toLocaleLowerCase('ru'))) ?? []
+  const observations = value?.knowledge.journal.filter(e=>isSoundJournalEntry(e)||e.title==='Результат осмотра').slice(-3).reverse() ?? []
   return <section className="w6-fieldset gb-player-screen"><h4>Экран героя</h4><button className="w6-button" disabled={checkingAccess || busy} onClick={() => setOpened(!opened)}>{opened ? 'Свернуть экран героя' : 'Открыть экран героя'}</button>
     {opened && <><p role="status">{remote.loading ? 'Загружаем доступные герою сведения…' : remote.error}</p>{value && <>
       <GameHeroHud hero={value.hero} map={value.map} seconds={value.seconds} work={value.work}/><p className="w6-copy">Сведения героя индивидуальны. Мастер управляет раскрытием; выбор отметки не перемещает героя и не тратит время.</p>
       <LobbyWorkbench label={'Разделы героя '+character.name} sections={[
         {id:'actions',label:'Сцена и действия',content:<>
       {value.map ? <PerceivedScene abilityAim={abilityAim} onObjectMove={value.closed?undefined:(id,point)=>{if(checkingAccess||remote.loading)return false;const accepted=appendSceneAction.current?.({kind:'interact',target:{kind:'object',id},operation:'relocate',destination:point,note:''})??false;setMessage(accepted?'Перемещение добавлено в ход. Положение изменится после исполнения раунда.':'Не удалось добавить перемещение. Проверь очередь действий.');return accepted}} map={value.map} selected={selected} onSelect={id=>{setSelected(id);setSelectedObject('')}} onObject={id=>{setSelectedObject(id);setSelected('')}} selectedObject={selectedObject} pickedPoint={pickedPoint} plannedRoute={queue.flatMap(a=>a.kind==='move'?a.route:[])} onPoint={p=>{setPointChoice({sceneId:value.map!.frame.id,point:p})}}/> : <p className="gb-scene-empty">Мастер ещё не открыл этому герою сцену.</p>}
-      {value.knowledge.journal.some(e=>e.title==='Результат осмотра')&&<section className="gb-game-feed" aria-label="Последние результаты осмотра">{value.knowledge.journal.filter(e=>e.title==='Результат осмотра').slice(-3).reverse().map(e=><article key={e.id}><strong>{e.title} · {e.gameTime}</strong><p className="w6-prose">{e.text}</p></article>)}</section>}
+      {!!observations.length&&<section className="gb-game-feed" aria-label="Последние наблюдения героя">{observations.map(e=><article key={e.id}><strong>{e.title} · {e.gameTime}</strong><p className="w6-prose">{e.text}</p></article>)}</section>}
       <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading||!!value.closed} selectedContact={selected} pickedPoint={pickedPoint} members={members} map={value.map} selectedObject={selectedObject} onAimChange={setAbilityAim} onQueue={setQueue} sceneActionRef={appendSceneAction}/></Suspense>
         </>},
         {id:'state',label:'Состояние',content:<div className="gb-player-tabs">

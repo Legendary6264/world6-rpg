@@ -29,15 +29,19 @@ test('Химия UI: мастер задаёт избыток реагента �
   await submit();assert.equal(state.value.water.reagentMol,0)
 })
 
-test('Акустика UI: источник и фон редактируются и сбрасываются независимо',async()=>{
+test('Акустика UI: источник, фон и звуки событий редактируются независимо',async()=>{
   const object=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('steel'),massKg:4,temperatureK:293.15,wetnessFraction:0})
   const noise=()=>document.querySelector('[name="noiseLevelDbAt1m"]')
   await flush(()=>{noise().value='80'});await submit();assert.equal(object.value.noiseLevelDbAt1m,80)
   await flush(()=>{noise().value='161'});await submit();assert.equal(object.value.noiseLevelDbAt1m,80);assert(document.querySelector('[role=alert]'))
   await flush(()=>{noise().value=''});await submit();assert.equal(object.value.noiseLevelDbAt1m,null)
   const environment=await fixture(EnvironmentPhysicsPanel),background=()=>document.querySelector('[name="backgroundNoiseDb"]')
-  await flush(()=>{background().value='0'});await submit();assert.equal(environment.value.backgroundNoiseDb,0)
-  await flush(()=>{background().value=''});await submit();assert.equal(environment.value.backgroundNoiseDb,null)
+  const events=()=>document.querySelector('[name="eventSounds"]')
+  await flush(()=>{background().value='0';events().click()});await submit()
+  assert.equal(environment.value.backgroundNoiseDb,0);assert.equal(environment.value.eventSounds,true)
+  await flush(()=>{background().value=''});await submit()
+  assert.equal(environment.value.backgroundNoiseDb,null);assert.equal(environment.value.eventSounds,true)
+  await flush(()=>events().click());await submit();assert.equal(environment.value.eventSounds,null)
 })
 
 test('Оптика UI: мастер включает и отключает видимость и отдельно задаёт свет фонаря',async()=>{

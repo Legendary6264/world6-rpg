@@ -107,7 +107,10 @@ async function fixture() {
     if (options?.method === 'POST' && url.endsWith('/rounds/calculate')) {
       const body=JSON.parse(options.body), w=worlds[url.split('/')[2]], id=crypto.randomUUID()
       executions.push({url,...body})
-      const result=load('roundExecution').calculateRound(w,w.campaign.declarations.active,body.input,id)
+      const collection=w.campaign.declarations.active
+      const eventSounds=w.campaign.scenes?.scenes.find(s=>s.id===collection.sceneId)?.physics?.eventSounds
+      const input=eventSounds?{...body.input,soundRecordedAt:'2026-11-09T09:00:00.000Z'}:body.input
+      const result=load('roundExecution').calculateRound(w,collection,input,id)
       roundPreviews.set(id,{world:result.world,summary:result.summary,source:w.revision})
       return {id,revision:w.revision,generation:1,collectionId:body.collectionId,epoch:body.epoch,summary:result.summary}
     }
@@ -2174,6 +2177,35 @@ test('Скольжение UI: мастер подтверждает импул�
   assert.equal(f.worlds.a.campaign.scenes.scenes[0].objects[0].x,8)
   await click('Применить рассчитанный раунд')
   assert(f.worlds.a.campaign.scenes.scenes[0].objects[0].x>8)
+ }finally{await f.close()}
+})
+test('Звуки событий UI: форма выпуска, частный расчёт и наблюдение героя после применения',async()=>{
+ const f=await fixture()
+ try{
+  executableSpatial(f,'a')
+  const scene=f.worlds.a.campaign.scenes.scenes[0]
+  scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,eventSounds:true}
+  await spatialFields(f,'a')
+  const label=name=>'[aria-label="'+name+' Hero a · 1"]'
+  const confirm=async()=>{
+   await flush(()=>document.querySelector(label('Пространство подтверждено')).click())
+   await flush(()=>document.querySelector(label('Правила подтверждены')).click())
+  }
+  await selectValue(label('Действие со средой'),'sound')
+  await input(label('Уровень звука на 1 м, дБ'),'161');await confirm()
+  assert(!enabledButton('Рассчитать последствия раунда'))
+  await input(label('Уровень звука на 1 м, дБ'),'78,5');await confirm()
+  await click('Рассчитать последствия раунда')
+  assert.deepEqual(f.executions[0].input.rules[0].physics,{kind:'sound',levelDbAt1m:78.5})
+  assert.match(document.querySelector('[aria-label="Звуки событий"]').textContent,/Звук способности.*задержка около/s)
+  assert.equal(f.worlds.a.characters[0].journal.length,0)
+  await click('Применить рассчитанный раунд')
+  const actor=f.worlds.a.characters[0]
+  assert.equal(actor.journal.length,1)
+  f.knowledge.a.push(...actor.journal);actor.ownerId=f.accountId
+  await f.role('PLAYER');await f.permissions([]);await f.open('a');await click('Открыть экран героя')
+  assert.match(document.querySelector('[aria-label="Последние наблюдения героя"]').textContent,/Услышан звук.*с востока/s)
+  assert.equal(document.querySelector('[aria-label="Звуки событий"]'),null)
  }finally{await f.close()}
 })
 test('Пространство UI: индивидуальный неверный ввод сохраняется и не смешивается между лобби',async()=>{

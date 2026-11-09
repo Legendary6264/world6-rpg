@@ -388,7 +388,7 @@ for (const dialect of ['sqlite','postgres']) test('Разрушение опор
  initial.characters.push(rider)
  initial.campaign.scenes=createScene(emptyScenes(),'structural-scene','Верхняя галерея','top')
  const scene=initial.campaign.scenes.scenes[0],point={x:5,y:5,z:7.5}
- scene.physics={version:1,gravityMs2:10,ambientTemperatureK:293.15}
+ scene.physics={version:1,gravityMs2:10,ambientTemperatureK:293.15,eventSounds:true}
  scene.objects=[
    {...sceneObject('platform','upper',{...point,z:7}),width:2,depth:2,height:1,physics:{
      version:1,material:physicsMaterialPreset('wood'),massKg:20,temperatureK:293.15,wetnessFraction:0,
@@ -427,6 +427,8 @@ for (const dialect of ['sqlite','postgres']) test('Разрушение опор
  assert.deepEqual(await world(),before)
  const strikes=preview.summary.rules.filter(rule=>rule.kind==='release').map(rule=>rule.physics)
  assert.deepEqual(strikes.map(o=>[o.absorbedJ,o.collapsed]),[[75,false],[200,true]])
+ assert.deepEqual(preview.summary.sounds.map(s=>s.kind),['impact','impact'])
+ assert(preview.summary.sounds[1].levelDbAt1m>preview.summary.sounds[0].levelDbAt1m)
  assert.deepEqual(preview.summary.falls,{landings:[],falling:[{actorId:rider.id,fromZ:8,toZ:6.75,speedMs:5}]})
  await apply(command(preview))
  const airborne=await world()
@@ -450,6 +452,8 @@ for (const dialect of ['sqlite','postgres']) test('Разрушение опор
  assert.equal(landing.impact.status,'applied');assert.equal(landing.impact.damage,16)
  assert(Math.abs(landing.impact.energyJ-3600)<1e-8)
  assert(Math.abs(landing.impact.transmittedJ-3400)<1e-8)
+ assert.deepEqual(landingPreview.summary.sounds.map(s=>s.kind),['landing'])
+ assert.deepEqual(landingPreview.summary.sounds[0].atMs,landing.atMs)
  const appliedCommand=command(landingPreview),{receipt}=await apply(appliedCommand),after=await world()
  const landed=after.characters.find(c=>c.id===rider.id),token=after.campaign.scenes.scenes[0].tokens.find(t=>t.actorId===rider.id)
  assert.equal(landed.body.parts.torso.current,84);assert.equal(landed.rpg.inventory[0].durability,90)
@@ -471,6 +475,7 @@ for (const dialect of ['sqlite','postgres']) test('Разрушение опор
  assert.deepEqual(replayed.campaign.scenes.scenes[0],after.campaign.scenes.scenes[0])
  assert.deepEqual(replayed.characters.find(c=>c.id===rider.id).body,landed.body)
  assert.deepEqual(replayed.characters.find(c=>c.id===rider.id).rpg.inventory,landed.rpg.inventory)
+ assert.deepEqual(replayed.characters.find(c=>c.id===rider.id).journal,landed.journal)
 })
 
 for (const dialect of ['sqlite','postgres']) test('Толчок в раунде: открытая вовремя дверь меняет удар, повтор сохраняет путь · '+dialect,async t=>{
@@ -490,7 +495,7 @@ for (const dialect of ['sqlite','postgres']) test('Толчок в раунде:
  initial.characters.push(guard)
  initial.campaign.scenes=createScene(emptyScenes(),'slide-scene','Шлюз','top')
  const scene=initial.campaign.scenes.scenes[0],point={x:4,y:5,z:.5}
- scene.physics={version:1,gravityMs2:10,ambientTemperatureK:293.15}
+ scene.physics={version:1,gravityMs2:10,ambientTemperatureK:293.15,eventSounds:true}
  const profile={version:1,material:physicsMaterialPreset('wood'),massKg:10,temperatureK:293.15,wetnessFraction:0}
  scene.objects=[
    {...sceneObject('crate','crate',{...point,z:0}),name:'Ящик',width:1,depth:1,height:1,
@@ -541,6 +546,7 @@ for (const dialect of ['sqlite','postgres']) test('Толчок в раунде:
  const next=await submit([{kind:'interact',operation:'open',target:{kind:'object',id:'gate'},note:''}])
  const blocked=await calculate(request(next,[500],[]))
  assert.equal(blocked.summary.slides.stops[0].collision.contact.objectId,'gate')
+ assert.deepEqual(blocked.summary.sounds.map(s=>s.kind),['impact','door'])
  const open=await calculate(request(next,[100],[]))
  const [stop]=open.summary.slides.stops
  assert.equal(stop.collision.contact.objectId,'wall')
@@ -549,6 +555,7 @@ for (const dialect of ['sqlite','postgres']) test('Толчок в раунде:
  assert(Math.abs(stop.impact.energyJ-20)<1e-8)
  assert.equal(open.summary.falls.landings[0].actorId,guard.id)
  assert.equal(open.summary.falls.landings[0].toZ,0)
+ assert.deepEqual(open.summary.sounds.map(s=>s.kind),['door','impact','landing'])
  assert.deepEqual(await world(),next)
  const appliedCommand=command(open),{receipt}=await apply(appliedCommand),after=await world()
  assert.equal(after.campaign.scenes.scenes[0].objects.some(o=>o.id==='wall'),false)

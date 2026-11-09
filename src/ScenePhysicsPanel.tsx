@@ -296,6 +296,8 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
       const data=new FormData(event.currentTarget),next:PhysicsEnvironment={version:1,gravityMs2:number(data,'physicsGravityMs2'),ambientTemperatureK:celsiusToKelvin(number(data,'physicsAmbientC'))}
       const noise = optionalNumber(data, 'backgroundNoiseDb', value?.backgroundNoiseDb)
       if (noise !== undefined) next.backgroundNoiseDb = noise
+      if (data.has('eventSounds')) next.eventSounds = true
+      else if (value?.eventSounds !== undefined) next.eventSounds = null
       if (data.has('simulateThermal')) {
         const reactionHeat = data.has('reactionHeat')
         const fogKg = useFog ? number(data, 'fogKg') : air?.fogKg === undefined ? undefined : null
@@ -342,7 +344,11 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
     <form onSubmit={submit} aria-label="Физические условия сцены"><fieldset className="gb-properties gb-physics-properties" disabled={disabled}>
       <label className="w6-field gb-wide"><span>Гравитация вниз по Z, м/с²</span><input aria-label="Гравитация сцены (м/с²)" name="physicsGravityMs2" type="number" min="0" max="1000000" step="any" defaultValue={value?.gravityMs2??9.81} required/></label>
       <label className="w6-field gb-wide"><span>Температура среды, °C</span><input aria-label="Температура среды (°C)" name="physicsAmbientC" type="number" min="-273.15" max="999726.85" step="any" defaultValue={kelvinToCelsius(value?.ambientTemperatureK??293.15)} required/></label>
-      <label className="w6-field gb-wide"><span>Фоновый шум, дБ</span><input name="backgroundNoiseDb" type="number" min="0" max={MAX_SOUND_LEVEL_DB} step="any" defaultValue={value?.backgroundNoiseDb??''} placeholder={String(DEFAULT_BACKGROUND_NOISE_DB)}/><small>Общий фон сцены. Пустое поле использует {DEFAULT_BACKGROUND_NOISE_DB} дБ для прогноза.</small></label>
+      <details className="gb-scene-details gb-wide"><summary>Акустика{value?.eventSounds ? ' · звуки включены' : ''}</summary>
+        <label className="w6-field"><span>Фоновый шум, дБ</span><input name="backgroundNoiseDb" type="number" min="0" max={MAX_SOUND_LEVEL_DB} step="any" defaultValue={value?.backgroundNoiseDb??''} placeholder={String(DEFAULT_BACKGROUND_NOISE_DB)}/><small>Пустое поле использует {DEFAULT_BACKGROUND_NOISE_DB} дБ.</small></label>
+        <label className="w6-check"><input name="eventSounds" type="checkbox" defaultChecked={!!value?.eventSounds}/>Записывать услышанные звуки событий</label>
+        <p className="w6-copy">Двери, удары, приземления и звуки способностей могут дать героям подсказку о направлении. Стены и постоянный шум ослабляют слышимость.</p>
+      </details>
       <details className="gb-scene-details gb-wide"><summary>Тепло и воздух{air ? ' · включено' : ''}</summary>
         <label className="w6-check"><input name="simulateThermal" type="checkbox" checked={simulate} onChange={event=>setSimulate(event.currentTarget.checked)}/>Рассчитывать тепло, горение и дым</label>
         {simulate && <>

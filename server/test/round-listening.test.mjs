@@ -3,6 +3,10 @@ import assert from 'node:assert/strict'
 import {fixture,lobbyBody} from './fixtures.mjs'
 import {createDefaultCharacter} from '../generated/characterModel.mjs'
 import {createScene,emptyScenes,sceneObject} from '../generated/scenes.mjs'
+import {createTabletopObject} from '../generated/tabletopCatalog.mjs'
+import {emptyAbility} from '../generated/rpgSchema.mjs'
+import {physicsMaterialPreset} from '../generated/physicsMaterials.mjs'
+import {unpackArchive} from '../campaign-archive-format.mjs'
 for(const dialect of ['sqlite','postgres'])test('R08 намерение слушать: цели, приватность и продолжение · '+dialect,async t=>{
  const f=await fixture(t,dialect),{api}=f,gm=await f.register('owner'),listener=await f.register('listen-player'),speaker=await f.register('listen-speaker')
  const {id}=await api('/lobbies',gm.token,'POST',lobbyBody,201),root='/lobbies/'+id,ids={}
@@ -71,4 +75,126 @@ for(const dialect of ['sqlite','postgres'])test('R08 намерение слуш
   await api(root+'/rounds/change/apply',gm.token,'POST',cmd(p));const restored=await world();assert.equal(restored.campaign.seconds,5);assert.equal(restored.campaign.roundWork.entries[0].action.listening.mode,'eavesdrop');assert.equal(restored.campaign.roundWork.entries[0].action.listening.target.id,chosen)
   const history=await api(root+'/rounds/history',gm.token),replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:history.revision,receiptId:continuation.id});await apply(cmd(replay));const again=await world();assert.equal(again.campaign.seconds,10);assert.deepEqual(again.characters.find(a=>a.id===ids.listener).journal,completed.characters.find(a=>a.id===ids.listener).journal)
  })
+})
+
+for(const dialect of ['sqlite','postgres'])test('Звуки событий: дверь, маршрут, фокус, маскировка и приватный журнал · '+dialect,async t=>{
+ const f=await fixture(t,dialect),{api}=f,gm=await f.register('sound-gm')
+ const caster=await f.register('sound-caster'),listener=await f.register('sound-listener')
+ const {id}=await api('/lobbies',gm.token,'POST',{...lobbyBody,visibility:'private'},201)
+ const root='/lobbies/'+id,decl=root+'/declarations',session=root+'/play/session'
+ const world=()=>api(root+'/world',gm.token),route=actorId=>root+'/characters/'+actorId
+ const {inviteCode}=await api(root,gm.token)
+ async function join(player,id,name){
+  await api('/lobbies/join',player.token,'POST',{code:inviteCode})
+  await api('/characters/'+id,player.token,'PUT',{character:{...createDefaultCharacter(),id,name},revision:-1})
+  const hero=await api(root+'/characters',player.token,'POST',{characterId:id},201)
+  await api(route(hero.id)+'/review',gm.token,'POST',{revision:(await world()).revision,decision:'approve',note:''})
+  return hero.id
+ }
+ const casterId=await join(caster,'sound-source-a','Маг'),listenerId=await join(listener,'sound-source-b','Дозорный')
+ const initial=await world(),mage=initial.characters.find(a=>a.id===casterId)
+ mage.rpg.formulas=[];mage.resources.mana={maximum:'20',current:'20'};mage.statistics.energyRegeneration='0'
+ mage.rpg.abilities=[{...emptyAbility(),id:'sound-spell',templateId:'sound-template',name:'Хлопок',approved:true,
+  rangeM:12,mechanism:'effect',spatial:{shape:'point',includeCaster:false},cost:{mana:1,shadow:0,stamina:0}}]
+ initial.campaign.scenes=createScene(emptyScenes(),'sound-hall','Коридор','top')
+ const room=snapshot=>snapshot.campaign.scenes.scenes[0],scene=room(initial),point=(x,y,z=0)=>({x,y,z})
+ Object.assign(scene,{width:16,depth:12,minZ:0,maxZ:4})
+ scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,backgroundNoiseDb:43,eventSounds:true}
+ const door={...createTabletopObject('timber-door','private-passage',point(8,5),90),
+  name:'PRIVATE-PASSAGE',width:.2,depth:1.2,height:3}
+ const walls=[[0,4.4],[5.6,12]].map(([min,max],i)=>({
+  ...createTabletopObject('stone-wall','wall-'+i,point(8,(min+max)/2),90),width:.2,depth:max-min,height:3,
+ }))
+ const fan={...sceneObject('lamp','private-fan',point(11,4)),name:'PRIVATE-FAN',active:true,blocksMovement:false,height:1.5,
+  physics:{version:1,material:physicsMaterialPreset('steel'),massKg:3,temperatureK:293.15,wetnessFraction:0,noiseLevelDbAt1m:46}}
+ scene.objects=[door,...walls,fan]
+ const token=(actorId,p)=>({actorId,...p,diameter:.6,support:{kind:'ground'}})
+ scene.tokens=[token(casterId,point(6.5,5)),token(listenerId,point(11,7))]
+ await api(root+'/world',gm.token,'PUT',{world:initial,revision:initial.revision})
+ for(const [id,user,objects] of [[casterId,caster,[{objectId:door.id,visible:true}]],[listenerId,listener,[]]]){
+  await api(route(id)+'/disclosure',gm.token,'PUT',{revision:(await world()).revision,draft:{
+   activeSceneId:scene.id,scenes:[{sceneId:scene.id,title:'Коридор',description:'',objects,contacts:[],
+    areas:[{id:'known',x:0,y:0,z:0,width:16,depth:12,height:4,visible:true}]}],
+  }})
+  await api(session+'/ready',user.token,'PUT',{ready:true})
+ }
+ await api(session+'/start',gm.token,'POST',{revision:(await world()).revision})
+ await api(decl,gm.token,'POST',{revision:(await world()).revision,sceneId:scene.id,
+  participantIds:[casterId,listenerId],durationSeconds:12,allowReplace:true},201)
+ const wait=(seconds,listening)=>({kind:'wait',seconds,note:'',...(listening?{listening}:{})})
+ const operate=operation=>({kind:'interact',target:{kind:'object',id:door.id},operation,note:''})
+ const prepare={kind:'ability',stage:'prepare',abilityId:'sound-spell',target:{kind:'none'},note:''}
+ const release={...prepare,stage:'release',target:{kind:'point',point:point(5,3,1.5)}}
+ const plans=[
+  [casterId,caster,[prepare,release,operate('open'),wait(3),prepare,release,wait(2),prepare,release,operate('open'),operate('close')]],
+  [listenerId,listener,[wait(2.75),{kind:'move',route:[point(11,3)],support:'ground',note:''},
+   wait(2.25,{mode:'listen',target:{kind:'point',point:point(8,5)}}),wait(3.5)]],
+ ]
+ for(const [id,user,actions] of plans){
+  const path=route(id)+'/declarations',v=await api(path,user.token)
+  await api(path,user.token,'PUT',{collectionId:v.collection.id,epoch:v.collection.epoch,baseVersion:0,controlStamp:v.controlStamp,actions})
+ }
+ const {id:collectionId,epoch}=(await world()).campaign.declarations.active
+ const changeCollection=(epoch,operation)=>api(decl,gm.token,'PATCH',{collectionId,epoch,operation})
+ await changeCollection(epoch,'close')
+ const before=await world()
+ const hit={region:'torso',distanceM:0,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',
+  gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,
+  bleedingMlPerSecond:0,injury:'',note:''}
+ const key=i=>'new:'+casterId+':'+i
+ const rule=(i,charge='')=>({key:key(i),kind:'ability',confirmed:true,binding:'unbound',charge,input:hit})
+ const rules=[0,4,7].flatMap(i=>[rule(i),{...rule(i+1,'prepare:'+key(i)),spatialConfirmed:true,physics:{kind:'sound',levelDbAt1m:60}}])
+ const request={revision:before.revision,collectionId,epoch:before.campaign.declarations.active.epoch,input:{
+  timings:plans.map(([actorId,,actions])=>({actorId,entryRevision:1,budgetMs:12000,
+   costs:actions.flatMap(({kind},index)=>kind==='wait'?[]:[{index,personalMs:{move:2000,ability:500,interact:1000}[kind]}]),
+  })),continuations:[],missingDecisions:[],interactionsConfirmed:true,rules,
+  soundRecordedAt:'2099-01-01T00:00:00.000Z',
+  movement:{confirmed:true,bodies:scene.tokens.map(({actorId})=>({actorId,heightM:1.8}))},
+ }}
+ const calculation=root+'/rounds/calculate',apply=body=>api(root+'/rounds/apply',gm.token,'POST',body)
+ const command=p=>({previewId:p.id,generation:p.generation,commandKey:crypto.randomUUID()})
+ await api(calculation,listener.token,'POST',request,403)
+ const preview=await api(calculation,gm.token,'POST',request)
+ assert.deepEqual(await world(),before)
+ assert.deepEqual(preview.summary.sounds.map(s=>[s.kind,s.atMs.numerator]),[
+  ['ability','1000'],['door','2000'],['ability','6000'],['ability','9000'],['door','11000'],
+ ])
+ const [first,opened,focused,masked,closed]=preview.summary.sounds
+ const heard=s=>s.heard.find(h=>h.actorId===listenerId)
+ assert.equal(heard(first),undefined);assert(heard(opened));assert.equal(heard(masked),undefined);assert(heard(closed))
+ const cue=heard(focused)
+ assert.equal(cue.focused,true);assert.equal(cue.viaDoor,door.name);assert.equal(cue.direction,'с юго-запада')
+ assert(cue.arrivalMs>20&&cue.noiseDb-cue.signalDb>6&&cue.noiseDb-cue.signalDb<12)
+ const applyBody=command(preview),{receipt}=await apply(applyBody)
+ const saved=await world(),journal=(snapshot,id)=>snapshot.characters.find(a=>a.id===id).journal
+ const personal=()=>api(route(listenerId)+'/perception',listener.token)
+ const view=await personal()
+ assert.deepEqual(view.knowledge.journal.map(n=>n.gameTime),['2 с','6 с','11 с'])
+ assert.match(view.knowledge.journal[1].text,/с юго-запада/)
+ assert(view.knowledge.journal[1].createdAt<'2099')
+ assert.doesNotMatch(JSON.stringify(view),/PRIVATE-PASSAGE|PRIVATE-FAN|private-passage|private-fan|viaDoor|signalDb|noiseDb|Хлопок/)
+ assert.equal(room(saved).tokens.find(t=>t.actorId===listenerId).y,3)
+ await f.restart()
+ assert.equal((await apply(applyBody)).duplicate,true);assert.deepEqual(await world(),saved)
+ const exported=await api(root+'/archive',gm.token)
+ assert.deepEqual(journal((await unpackArchive(Buffer.from(exported.data,'base64'))).world,listenerId),journal(saved,listenerId))
+ const rollback=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:saved.revision,receiptId:receipt.id,reason:'Проверка звуков в истории'})
+ await api(root+'/rounds/change/apply',gm.token,'POST',command(rollback))
+ assert.equal((await personal()).knowledge.journal.length,0)
+ const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:(await world()).revision,receiptId:receipt.id})
+ assert.deepEqual(replay.summary.sounds,preview.summary.sounds)
+ await apply(command(replay));const replayed=await world()
+ assert.deepEqual(replayed.characters,saved.characters)
+ const replayedCollection=replayed.campaign.declarations.active
+ await api(decl,gm.token,'PATCH',{collectionId:replayedCollection.id,epoch:replayedCollection.epoch,operation:'archive'})
+ const edit=await api(root+'/scenes',gm.token)
+ delete edit.scenes.scenes[0].physics.eventSounds
+ edit.scenes.scenes[0].physics.backgroundNoiseDb=42
+ await api(root+'/scenes',gm.token,'PUT',{scenes:edit.scenes,revision:edit.revision})
+ const final=await world()
+ assert.equal(room(final).physics.eventSounds,true)
+ await api(session+'/finish',gm.token,'POST',{revision:final.revision,title:'Дозор окончен',summary:'Сигналы записаны.',
+  keepPending:false,commandKey:crypto.randomUUID()})
+ for(const player of [caster,listener])assert.equal((await api(session,player.token)).phase,'finished')
+ assert.deepEqual((await personal()).knowledge.journal,view.knowledge.journal)
 })
