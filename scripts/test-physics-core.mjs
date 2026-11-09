@@ -41,6 +41,7 @@ const {sceneOptics}=await load('sceneOptics')
 const {perceivedRenderModel}=await load('scene3dModel')
 const {advanceFalls,nextFallSeconds}=await load('structuralPhysics')
 const {planSlide,slideStep,applySlide,checkDoorSlideClearance}=await load('horizontalPhysics')
+const {surfaceContact}=await load('surfaceTraction')
 const {duplicateEditorGroup}=await load('sceneEditorCommands')
 const {BOILING_ENTHALPY_J_KG,FUSION_J_KG,VAPORIZATION_J_KG,waterVolumeM3,liquidEnthalpy}=await load('waterPhysics')
 const environment=()=>({version:1,gravityMs2:9.81,ambientTemperatureK:293.15})
@@ -131,6 +132,76 @@ const discharge=(x,y=5,z=.05)=>({kind:'discharge',returnContact:{x,y,z},voltageV
 const flowCell=(id,x,height=.2,z=0)=>({...pool(id,x),z,height,water:{...pureWater(),flow:true}})
 const totals=cells=>['volume','saltKg','sedimentKg'].map(key=>cells.reduce((sum,c)=>sum+(key==='volume'?c.width*c.depth*c.height:c.water[key]),0))
 const closeTo=(actual,expected)=>assert(Math.abs(actual-expected)<1e-10,`${actual} differs from ${expected}`)
+
+function tractionFixture(){
+ const state=sceneState(false),scene=state.scenes[0]
+ Object.assign(scene,{width:20,depth:8,groundZ:0,minZ:0,maxZ:3})
+ scene.physics={...environment(),gravityMs2:10,ambientTemperatureK:273.15,traction:{version:1,waterFactor:.81,iceFactor:.25},
+   atmosphere:{oxygenFraction:.2095,smokeKg:0,steamKg:0,outsideTemperatureK:273.15,doorVentilation:false}}
+ const patch={...sceneObject('water','film',{x:4,y:3,z:0}),width:2,depth:1,height:.002,
+   water:{...pureWater(),enthalpyJKg:0}}
+ const crate={...sceneObject('crate','box',{x:2,y:3,z:0}),width:1,depth:1,height:.8,
+   physics:{...body('wood'),sliding:{dryFriction:.5,wetFriction:null,impactTransfer:0,vxMs:6,vyMs:0}}}
+ scene.objects=[patch,crate]
+ return {state,scene,patch,crate}
+}
+
+test('Сцепление: фаза, слой на опоре, касание угла и сохранение старым клиентом',()=>{
+ const {state,scene,patch}=tractionFixture(),profile=scene.physics.traction
+ const a={x:2,y:3,z:0},b={x:6,y:3,z:0}
+ assert.deepEqual(surfaceContact(patch,profile,a,b),{objectId:patch.id,name:patch.name,kind:'ice',factor:.25,start:.25,end:.75})
+ patch.water.enthalpyJKg=FUSION_J_KG/2
+ const slush=surfaceContact(patch,profile,a,b)
+ assert.equal(slush.kind,'slush');closeTo(slush.factor,.53)
+ const deep={...patch,height:.2,canSupport:true}
+ assert.equal(surfaceContact(deep,profile,a,b),undefined)
+ assert(surfaceContact(deep,profile,{...a,z:.2},{...b,z:.2}))
+ assert.equal(surfaceContact(patch,profile,{x:2,y:3.5,z:0},{x:4,y:1.5,z:0}),undefined)
+ const platform={...sceneObject('platform','wet-platform',{x:4,y:3,z:0}),height:1,width:2,depth:1,canSupport:true,physics:{...body('wood'),wetnessFraction:.5}}
+ closeTo(surfaceContact(platform,profile,{...a,z:1},{...b,z:1}).factor,.905)
+ const old=copySceneState(state)
+ delete old.scenes[0].physics.traction
+ preserveScenePhysics(state,old);assert.deepEqual(old,state)
+ assert.notEqual(old.scenes[0].physics.traction,profile)
+ old.scenes[0].physics.traction=null;preserveScenePhysics(state,old);assert.equal(old.scenes[0].physics.traction,null)
+ assert(!isPhysicsEnvironment({...scene.physics,traction:{...profile,iceFactor:.9}}))
+})
+
+test('Сцепление: предмет переносит скорость через границы льда, воды и сухого пола',()=>{
+ const {scene,patch,crate}=tractionFixture()
+ const ice=planSlide(scene),entry=2/(6+Math.sqrt(26))
+ closeTo(slideStep(ice,entry).point.x,3);closeTo(slideStep(ice,entry).speedMs,Math.sqrt(26))
+ const stopped=slideStep(ice,ice.endSeconds)
+ closeTo(stopped.point.x,7.1);closeTo(stopped.traction[0].distanceM,2)
+ patch.water.enthalpyJKg=FUSION_J_KG/2
+ const slush=planSlide(scene);closeTo(slideStep(slush,slush.endSeconds).point.x,6.54)
+ patch.water.enthalpyJKg=FUSION_J_KG
+ const wet=planSlide(scene);closeTo(slideStep(wet,wet.endSeconds).point.x,5.98)
+ scene.physics.traction=null
+ const legacy=planSlide(scene);closeTo(slideStep(legacy,legacy.endSeconds).point.x,5.6)
+ scene.physics.traction={version:1,waterFactor:.81,iceFactor:.25};patch.water.enthalpyJKg=0
+ scene.objects.push({...sceneObject('wall','wall',{x:7.5,y:3,z:0}),width:1,depth:1,height:1})
+ const collision=planSlide(scene),hit=slideStep(collision,collision.endSeconds)
+ assert.equal(hit.collision.contact.objectId,'wall');closeTo(hit.point.x,6.5);closeTo(hit.collision.energyJ,3*crate.physics.massKg)
+ crate.physics.sliding.vxMs=1
+ const early=planSlide(scene);assert.equal(slideStep(early,early.endSeconds).traction,undefined)
+})
+
+test('Замерзание, оттаивание и примеси меняют один и тот же путь между клеммами',()=>{
+ const {scene,patch}=tractionFixture()
+ patch.water.enthalpyJKg=FUSION_J_KG
+ const contact={x:3.5,y:3,z:.001},settings={returnContact:{x:4.5,y:3,z:.001},voltageV:24,limitA:.5,durationMs:100,thresholdA:.01}
+ const energyKJ=FUSION_J_KG*waterVolumeM3(patch)
+ const frozen=applyHeat(scene,patch,-energyKJ)
+ assert.deepEqual(frozen.waterTransition,{fromIceFraction:0,conductivitySM:0})
+ assert.deepEqual(calculateCircuit(scene,contact,settings),{status:'open',frozenContacts:['source','return']})
+ const thaw=applyHeat(scene,patch,energyKJ),pure=calculateCircuit(scene,contact,settings)
+ assert.equal(thaw.iceFraction,0);assert.equal(thaw.waterTransition.fromIceFraction,1)
+ assert(pure.currentA<1e-5)
+ applyAbilityPhysics(scene,contact,'unused',{kind:'add-substance',substance:'salt',massKg:.02})
+ const salted=calculateCircuit(scene,contact,settings)
+ assert(salted.currentA>1000*pure.currentA);assert.deepEqual(salted.path,pure.path)
+})
 
 function airRoomFixture() {
  const state=sceneState(false),scene=state.scenes[0]

@@ -6,7 +6,7 @@ import { liquidWaterHeight, waterConductivitySM } from './waterPhysics'
 type Conductor = ObjectBounds & { object: SceneObject; conductivity: number | null }
 type Link = { to: number; ohms: number | null; direct?: SceneObject }
 export type DischargeSettings = { returnContact: ScenePosition; voltageV: number; limitA: number; durationMs: number; thresholdA: number }
-export type CircuitResult = { status: 'open' } | { status: 'unknown' } | {
+export type CircuitResult = { status: 'open'; frozenContacts?: ('source'|'return')[] } | { status: 'unknown' } | {
   status: 'closed'; ohms: number; currentA: number; energyJ: number; path: { id: string; name: string }[]
 }
 
@@ -101,7 +101,18 @@ export function calculateCircuit(scene: Scene, contactPoint: ScenePosition, sett
       previous[edge.to] = { from, link: edge }
     }
   }
-  if (!Number.isFinite(dist[1])) return { status: connected(graph) ? 'unknown' : 'open' }
+  if (!Number.isFinite(dist[1])) {
+    if (connected(graph)) return {status:'unknown'}
+    const touchesIce = (point:ScenePosition) => scene.objects.some(object=>{
+      if (!object.water || object.height <= EPS_M || !pointInObject(object,point)) return false
+      const liquid = liquidWaterHeight(object.water,object.height)
+      return liquid<object.height && (liquid<=EPS_M || point.z>object.z+liquid+EPS_M)
+    })
+    const frozenContacts:('source'|'return')[] = []
+    if (touchesIce(contactPoint)) frozenContacts.push('source')
+    if (touchesIce(returnContact)) frozenContacts.push('return')
+    return {status:'open',...(frozenContacts.length ? {frozenContacts} : {})}
+  }
 
   const path: SceneObject[] = []
   for (let i = 1; previous[i];) {

@@ -4,6 +4,8 @@ import type { RoundWorkEntry } from './roundWork'
 import type { Scene, SceneObject, ScenePosition, SceneSupport, SceneToken } from './sceneTypes'
 import { segmentSlab as slab } from './sceneGeometry'
 import { liquidWaterHeight, supportsSceneTokens } from './waterPhysics'
+import { surfaceContact } from './surfaceTraction'
+import type { TractionTravel } from './surfaceTraction'
 export type MovementBody = { actorId: string; heightM: number; flightReason?: string }
 export type MovementPlan = { work: RoundWorkEntry; startMs: ExactAmount; endMs: ExactAmount; points: ScenePosition[]; lengths: number[]; distance: number }
 export type MovementChange = { workId: string; actorId: string; from: ScenePosition; to: ScenePosition; support: SceneSupport; atMs: ExactAmount; completed: boolean }
@@ -125,9 +127,11 @@ export function checkClosingDoor(scene: Scene, objectId: string, bodies: Movemen
 // A shared bounded check counter protects a free service from pathological input.
 export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: MovementBody[], from: ExactAmount, to: ExactAmount, check: () => void,
   wetContact?: (actorId: string, object: SceneObject, kind: 'water' | 'support') => void,
-  track?: (actorId:string, pieces:MovementPiece[]) => void) {
+  track?: (actorId:string, pieces:MovementPiece[]) => void,
+  onTraction?: (actorId:string, contact:TractionTravel, speedMs:number) => void) {
   const moving = new Set(plans.filter(p => compareAmounts(p.startMs, to) < 0 && compareAmounts(p.endMs, from) > 0).map(p => p.work.actorId))
   if (compareAmounts(from, to) < 0 && moving.size) {
+    const intervalSeconds = onTraction ? scalar(subtractAmounts(to,from))/1000 : 0
     const trajectories = scene.tokens.map(t => ({ token: t, height: bodies.find(b => b.actorId === t.actorId)!.heightM, pieces: pieces(t, plans, from, to) }))
     for (const t of trajectories.filter(t => moving.has(t.token.actorId))) {
       track?.(t.token.actorId,t.pieces)
@@ -136,8 +140,17 @@ export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: Mov
         const active = plans.find(m => m.work.actorId === t.token.actorId && compareAmounts(m.startMs, middle) <= 0 && compareAmounts(m.endMs, middle) >= 0)
         const walking = active?.work.action.kind === 'move' && active.work.action.support === 'ground'
         if (walking) grounded(scene, p.a, p.b, check)
+        const traction = walking && onTraction && scene.physics?.traction
+        const distance = traction ? Math.hypot(p.b.x-p.a.x,p.b.y-p.a.y) : 0
         for (const o of scene.objects) {
           check()
+          if (traction && onTraction && distance > EPS) {
+            const patch = surfaceContact(o,traction,p.a,p.b)
+            if (patch && distance*(patch.end-patch.start) > EPS) {
+              const {start,end,...contact} = patch
+              onTraction(t.token.actorId,{...contact,distanceM:distance*(end-start)},distance/(intervalSeconds*(p.end-p.start)))
+            }
+          }
           if (wetContact && walking) {
             const depth = o.water && (o.water.flow || scene.physics?.atmosphere) ? liquidWaterHeight(o.water, o.height) : 0
             const water = depth > 0 && p.a.z >= o.z - EPS && p.a.z <= o.z + depth + EPS

@@ -751,12 +751,16 @@ test('Старая мебель с kind platform: прямой жест игро
  await flush(()=>next.domElement.dispatchEvent(new dom.window.MouseEvent('pointermove',{...screenPoint(next,8,8,.98),bubbles:true})));assert.equal(next.domElement.style.cursor,'default')
 })
 
-test('Личная схема: плоские полы под предметами, отдельные SVG-шаблоны и только раскрытые данные',async()=>{
+test('Личная сцена: известные полы, слои SVG и предупреждение о льде в обоих режимах',async()=>{
  await flush(()=>root.render(null));props={}
- const {SvgPerceivedScene}=load('PerceivedScene'),{publicObject}=load('scenePerception'),{createTabletopObject}=load('tabletopCatalog'),{createEnvironmentObject}=load('sceneEditorPlacement')
+ const {default:PerceivedScene}=load('PerceivedScene'),{publicObject}=load('scenePerception'),{createTabletopObject}=load('tabletopCatalog'),{createEnvironmentObject}=load('sceneEditorPlacement')
  const floor={...publicObject(createTabletopObject('floor-stone','known-floor',{x:5,y:5,z:0})),visible:false},cabinet={...publicObject(createEnvironmentObject('platform','expanded-object-cabinet','known-cabinet',{x:5,y:5,z:0})),visible:true}
  const map={frame:{id:'player-old',view:'top',width:20,depth:20,groundZ:0,minZ:-2,maxZ:10,palette:'stone'},title:'Известная область',description:'',areas:[{id:'room',x:2,y:2,z:-2,width:8,depth:8,height:12,visible:true}],contacts:[],objects:[cabinet,floor]},before=structuredClone(map)
- await flush(()=>root.render(React.createElement(SvgPerceivedScene,{map,onObject:()=>{}})))
+ const show=sceneMap=>flush(()=>root.render(React.createElement(PerceivedScene,{map:sceneMap,onObject:()=>{}})))
+ const iceNotice=()=>[...document.querySelectorAll('.w6-notice')].some(p=>p.textContent.includes('льда сцепление ниже'))
+ await show({...map,slipperyIce:true});assert(iceNotice())
+ await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Схема').click());assert(iceNotice())
+ await show(map);assert(!iceNotice())
  const nodes=[...document.querySelectorAll('.gb-game-object')];assert.deepEqual(nodes.map(n=>n.getAttribute('aria-label')),['Объект: '+floor.name,'Объект: '+cabinet.name])
  const fill=nodes[0].querySelector('rect[fill]')?.getAttribute('fill');assert(fill?.startsWith('url(#floor-stone-'));assert(document.getElementById(fill.slice(5,-1)))
  assert.equal(nodes[0].querySelector('svg'),null);assert.equal(nodes[0].getAttribute('opacity'),'0.48');assert(nodes[0].parentNode.getAttribute('clip-path').startsWith('url(#'))

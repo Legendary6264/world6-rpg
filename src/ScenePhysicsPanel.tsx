@@ -14,6 +14,7 @@ import {airAxes,airRoomsFit,isAirRoomList,MAX_AIR_ROOMS} from './airProfiles'
 import type {AirRoom} from './airProfiles'
 import {airPortal,sceneAir} from './sceneAir'
 import {defaultExposureProfile,isExposureProfile} from './exposureProfiles'
+import {defaultTractionProfile,isTractionProfile} from './surfaceTraction'
 import {bodyRegions} from './bodyRegions'
 import {isLandingProfile,isSliding,MAX_SLIDE_FRICTION,MAX_STRUCTURAL_ENERGY_J} from './mechanicalProfiles'
 import type {LandingProfile} from './mechanicalProfiles'
@@ -271,7 +272,9 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
   const [simulate, setSimulate] = useState(!!value?.atmosphere)
   const [simulateVision, setSimulateVision] = useState(!!value?.vision)
   const [simulateExposure, setSimulateExposure] = useState(!!value?.exposure)
+  const [simulateTraction, setSimulateTraction] = useState(!!value?.traction)
   const exposure = value?.exposure ?? defaultExposureProfile
+  const traction = value?.traction ?? defaultTractionProfile
   const air = value?.atmosphere
   const [simulateFog, setSimulateFog] = useState(air?.fogKg != null)
   const [rooms,setRooms] = useState<AirRoom[]>(value?.airRooms ?? [])
@@ -324,6 +327,11 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
         if (!isExposureProfile(profile)) throw Error('Проверь пороги нагрузки и время нарастания. Порог холода должен быть ниже порога жары.')
         next.exposure = profile
       } else if (value?.exposure !== undefined) next.exposure = null
+      if (data.has('simulateTraction')) {
+        const profile = {version:1 as const,waterFactor:number(data,'gripWaterPct')/100,iceFactor:number(data,'gripIcePct')/100}
+        if (!isTractionProfile(profile)) throw Error('Сцепление должно быть от 1 до 100 %. Сцепление на льду должно быть не выше, чем на воде.')
+        next.traction = profile
+      } else if (value?.traction !== undefined) next.traction = null
       if (data.has('simulateVision')) next.vision = {ambientLux:number(data,'ambientLux'),detectionLux:number(data,'detectionLux')}
       else if (value?.vision !== undefined) next.vision = null
       if (!isPhysicsEnvironment(next)) throw Error('Проверь значения среды, в том числе освещённость и порог видимости.')
@@ -377,6 +385,14 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
             </div>}
           </details>
         </>}
+      </details>
+      <details className="gb-scene-details gb-wide"><summary>Сцепление с поверхностью{value?.traction ? ' · включено' : ''}</summary>
+        <label className="w6-check"><input name="simulateTraction" type="checkbox" checked={simulateTraction} onChange={event=>setSimulateTraction(event.currentTarget.checked)}/>Учитывать скользкие поверхности</label>
+        {simulateTraction && <div className="gb-properties">
+          <p className="w6-copy gb-wide">На мокрых опорах и ледяных участках предметы тормозят дольше. Для ходьбы мастер задаёт время, достаточное для безопасного темпа.</p>
+          <label className="w6-field"><span>Сцепление на воде, % от сухого</span><input name="gripWaterPct" type="number" min="1" max="100" step="any" defaultValue={traction.waterFactor*100} required/></label>
+          <label className="w6-field"><span>Сцепление на льду, % от сухого</span><input name="gripIcePct" type="number" min="1" max="100" step="any" defaultValue={traction.iceFactor*100} required/></label>
+        </div>}
       </details>
       <details className="gb-scene-details gb-wide"><summary>Свет и видимость{value?.vision ? ' · включено' : ''}</summary>
         <label className="w6-check"><input name="simulateVision" type="checkbox" checked={simulateVision} onChange={event=>setSimulateVision(event.currentTarget.checked)}/>Учитывать освещение, преграды, дым и туман</label>

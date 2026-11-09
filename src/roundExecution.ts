@@ -42,8 +42,10 @@ import { isSliding } from './mechanicalProfiles'
 import { removeLiveObjectDisclosure } from './scenePerception'
 import { exposureChanges, roundExposureObserver } from './environmentExposure'
 import type { ExposureChange, ExposureFallStart } from './environmentExposure'
-export const ROUND_EXECUTOR_VERSION = 'r20-environment-exposure-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+import { tractionLabels } from './surfaceTraction'
+import type { TractionTravel } from './surfaceTraction'
+export const ROUND_EXECUTOR_VERSION = 'r21-surface-traction-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -54,12 +56,15 @@ export type RoundExecutionEvent = { actorId: string; actionIndex: number; workId
 type RoundFallLanding = FallLanding & { atMs: ExactAmount; impact?: LandingImpactResult; region?: string }
 type RoundFalls = { landings: RoundFallLanding[]; falling: { actorId:string; fromZ:number; toZ:number; speedMs:number }[] }
 type SlideStatus = Pick<SlideStep, 'objectId' | 'name' | 'point' | 'speedMs'>
-type SlideStop = Omit<SlideStep, 'vxMs' | 'vyMs' | 'stopped' | 'speedMs'> & { atMs:ExactAmount; impact?:StructuralImpactOutcome }
+type SlideStop = Omit<SlideStep, 'vxMs' | 'vyMs' | 'stopped' | 'speedMs' | 'traction'> & { atMs:ExactAmount; impact?:StructuralImpactOutcome }
+type WalkTraction = TractionTravel & {actorId:string; speedMs:number; safeSpeedMs:number}
+type SlideTraction = TractionTravel & {moverId:string; moverName:string}
 export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
   carried: { id: string; actorId: string; actionKind: string; remaining: ExactAmount; unit: string }[];
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
   movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls;
-  slides?: { stops:SlideStop[]; moving:SlideStatus[] }; exposure?: ExposureChange[] }
+  slides?: { stops:SlideStop[]; moving:SlideStatus[] }; exposure?: ExposureChange[];
+  traction?: {walks:WalkTraction[]; slides:SlideTraction[]} }
 export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
 const zero = exactAmount(0n), thousand = exactAmount(1000n)
@@ -215,7 +220,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   }
   let candidate = managed.world, cursor = zero, segment = 0, movementChecks = 0
   const movementApprovals = new Map<string,string>()
-  function checkCapabilities(plans: MovementPlan[]) {
+  function checkCapabilities(plans: MovementPlan[], drySpeeds?: Map<string,number>) {
     for (const plan of plans) {
       const actor = candidate.characters.find(a => a.id === plan.work.actorId)!, consequence = bodyConsequences(actor.body)
       if (actor.rpg.dead || actor.body.consciousness !== 'awake') throw Error('Герой потерял возможность двигаться. Мастер должен пересмотреть раунд.')
@@ -223,6 +228,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       if (plan.work.action.support === 'ground') {
         const speed = evaluatedParameters(actor,candidate.campaign.seconds).movement
         if (consequence.movementFactor <= 0 || speed !== '' && Number(speed) <= 0) throw Error('Состояние тела или скорость не позволяют ходьбу. Мастер должен пересмотреть движение.')
+        drySpeeds?.set(actor.id,(speed === '' ? 1.5 : Number(speed))*consequence.movementFactor)
       } else if (!consequence.canFly) {
         const reason = bodies.find(b => b.actorId === actor.id)?.flightReason?.trim()
         if (!reason) throw Error('Нет работающего лётного аппарата. Для магического или другого полёта требуется явное основание мастера.')
@@ -233,6 +239,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const movementCheck = () => { if (++movementChecks > MAX_MOVEMENT_CHECKS) throw Error('Сцена слишком сложна для одного расчёта движения. Технический предел проверок; ничего не применено.') }
   const thermalEnabled = !!scene?.physics?.atmosphere
   const exposureProfile = scene?.physics?.exposure
+  const tractionEnabled = !!scene?.physics?.traction
   const physicsDecisions = [...ruleDecisions.values()].flatMap(d => d.kind === 'ability' && d.physics ? [d.physics] : [])
   const dosingReagent = physicsDecisions.some(effect => effect.kind === 'add-substance' && isWaterReagent(effect.substance))
   const variableWater = thermalEnabled || dosingReagent || !!scene?.objects.some(object => isVariableWater(object.water))
@@ -243,6 +250,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const wetRoutes = new Map<string, WetRouteContact>()
   const landings: RoundFallLanding[] = []
   const slideStops: SlideStop[] = []
+  const walkTraction = new Map<string,WalkTraction>(), slideTraction = new Map<string,SlideTraction>()
   let flowReactionHeatJ = 0
   const activeScene = () => candidate.campaign.scenes?.scenes.find(s => s.id === collection.sceneId)
   function settleFalls(seconds: number, at: ExactAmount) {
@@ -265,6 +273,12 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   function commitSlide(step: SlideStep, at: ExactAmount) {
     const current = activeScene()!
     const impact = applySlide(current, step)
+    for (const contact of step.traction ?? []) {
+      const key = JSON.stringify([step.objectId,contact.objectId,contact.kind])
+      const previous = slideTraction.get(key)
+      slideTraction.set(key,{...contact,moverId:step.objectId,moverName:step.name,
+        factor:Math.min(contact.factor,previous?.factor ?? 1),distanceM:contact.distanceM+(previous?.distanceM ?? 0)})
+    }
     if (impact?.collapsed) {
       removeLiveObjectDisclosure(candidate.campaign.perceptions, current.id, impact.objectId)
       resolveLostSupport(impact, at)
@@ -292,6 +306,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const routesDuring = (at: ExactAmount) => movements.filter(p => compareAmounts(p.startMs, at) < 0 && compareAmounts(p.endMs, cursor) > 0)
   const advanceSegment = (at: ExactAmount, slide?: ReturnType<typeof planSlide>) => {
     const traces = exposureProfile ? new Map<string,MovementPiece[]>() : undefined
+    const drySpeeds = tractionEnabled && movements.length ? new Map<string,number>() : undefined
     const move = (step?: SlideStep) => {
       const current = activeScene()
       if (!current || !movements.length) return
@@ -303,7 +318,17 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         o.id === step.objectId ? slideSweep(o, step.point) : o) } : current
       advanceMovement(checkedScene, routes, bodies, cursor, at, movementCheck, variableWater ? (actorId, object, kind) => {
         wetRoutes.set(JSON.stringify([actorId, object.id]), { actorId, objectId: object.id, name: object.name, kind })
-      } : undefined, traces ? (id,pieces)=>{traces.set(id,pieces)} : undefined)
+      } : undefined, traces ? (id,pieces)=>{traces.set(id,pieces)} : undefined, drySpeeds ? (actorId,contact,speedMs)=>{
+        const safeSpeedMs = drySpeeds.get(actorId)!*Math.sqrt(contact.factor)
+        if (speedMs > safeSpeedMs+1e-6) {
+          throw Error('Сцепление на «'+contact.name+'» ('+tractionLabels[contact.kind].toLowerCase()+') допускает ходьбу до '+
+            safeSpeedMs.toLocaleString('ru-RU',{maximumSignificantDigits:3})+' м/с. Увеличь время движения или измени маршрут.')
+        }
+        const key = JSON.stringify([actorId,contact.objectId,contact.kind]), previous = walkTraction.get(key)
+        walkTraction.set(key,{...contact,actorId,factor:Math.min(contact.factor,previous?.factor ?? 1),
+          distanceM:contact.distanceM+(previous?.distanceM ?? 0),
+          speedMs:Math.max(speedMs,previous?.speedMs ?? 0),safeSpeedMs:Math.min(safeSpeedMs,previous?.safeSpeedMs ?? Infinity)})
+      } : undefined)
       if (!dynamicSupports) return
       for (const route of routes) {
         if (compareAmounts(route.startMs, at) >= 0 || (compareAmounts(at, route.endMs) < 0 && compareAmounts(at, duration) < 0)) continue
@@ -314,7 +339,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     }
     if (compareAmounts(cursor, at) === 0) { if (!dynamicSupports) move(); return }
     const activeMovements = routesDuring(at)
-    checkCapabilities(activeMovements)
+    checkCapabilities(activeMovements,drySpeeds)
     const seconds = numberOf(subtractAmounts(at, cursor)) / 1000, previous = candidate.campaign.seconds
     // The legacy physiology engine uses a numeric clock and microsecond steps.
     // Exact ordering/work is preserved; unrepresentable intervals block atomically.
@@ -445,6 +470,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     ...(water ? { water } : {}),
     ...(thermal ? { thermal } : {}),
     ...(exposure.length ? { exposure } : {}),
+    ...(walkTraction.size || slideTraction.size ? {traction:{walks:[...walkTraction.values()],slides:[...slideTraction.values()]}} : {}),
     ...(landings.length || falling.length ? { falls:{landings,falling} } : {}),
     ...(slideStops.length || moving.length ? { slides:{stops:slideStops,moving} } : {}),
     ...(listeningWindows.length?{listeningWindows}:{}),

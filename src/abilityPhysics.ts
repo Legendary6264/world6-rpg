@@ -202,6 +202,8 @@ export function physicsOutcomeDetails(outcome: AbilityPhysicsOutcome): string {
     return (outcome.energyKJ > 0 ? 'Нагрев' : 'Охлаждение') + ' · ' + number(Math.abs(outcome.energyKJ)) + ' кДж · ' +
       number(outcome.temperatureK - 273.15) + ' °C' +
       (outcome.iceFraction !== undefined ? ' · лёд ' + number(outcome.iceFraction * 100) + ' %' : '') +
+      (outcome.waterTransition ? ' · проводимость жидкого пути ' +
+        (outcome.waterTransition.conductivitySM === null ? 'не определена' : number(outcome.waterTransition.conductivitySM)+' См/м') : '') +
       (outcome.evaporatedKg ? ' · в пар ' + number(outcome.evaporatedKg) + ' кг' : '') +
       (outcome.ignited ? ' · объект загорелся' : '')
   }
@@ -212,7 +214,12 @@ export function physicsOutcomeDetails(outcome: AbilityPhysicsOutcome): string {
   if (outcome.kind === 'push-object') return outcome.name + ' · толчок ' + number(outcome.impulseNs) +
     ' Н·с · скорость после толчка ' + number(outcome.speedMs) + ' м/с'
   const { circuit, thresholdA } = outcome
-  if (circuit.status === 'open') return 'Разряд · между клеммами нет непрерывного проводящего пути.'
+  if (circuit.status === 'open') {
+    const frozen = circuit.frozenContacts
+    const contact = frozen?.length === 2 ? 'Обе клеммы в слое льда.' :
+      frozen?.[0] === 'source' ? 'Входная клемма в слое льда.' : frozen?.[0] === 'return' ? 'Обратная клемма в слое льда.' : ''
+    return ['Разряд · между клеммами нет непрерывного проводящего пути.',contact].filter(Boolean).join(' ')
+  }
   if (circuit.status === 'unknown') return 'Разряд · на пути есть участки с неизвестной проводимостью.'
   return 'Разряд · ' + circuit.path.map(p => p.name).join(' → ') + '\n' +
     number(circuit.ohms) + ' Ом · ' + number(circuit.currentA) + ' А · ' + number(circuit.energyJ) + ' Дж · порог операций ' + number(thresholdA) + ' А'

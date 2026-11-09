@@ -4,7 +4,7 @@ import { MAX_TEMPERATURE_K } from './physicsUnits'
 import type { Scene, SceneObject } from './sceneTypes'
 import { supportsObjectOperation } from './tabletopInteractions'
 import { advanceWaterFlow, MAX_WATER_FLOW_STEPS } from './waterFlow'
-import { BOIL_K, ICE_HEAT_J_KG_K, WATER_MASS_KG_M3, liquidEnthalpy, waterPhase, waterVolumeM3 } from './waterPhysics'
+import { BOIL_K, ICE_HEAT_J_KG_K, WATER_MASS_KG_M3, liquidEnthalpy, waterConductivitySM, waterEnthalpy, waterPhase, waterVolumeM3 } from './waterPhysics'
 import { airHeatCapacity, airMassKg, applyWaterHeat, checkedTemperature } from './waterHeating'
 import { saturatedVapourDensityKgM3, settleAtmosphericMoisture } from './atmosphericMoisture'
 import { sceneAir } from './sceneAir'
@@ -37,7 +37,8 @@ export function settleFire(scene: Scene, layout = sceneAir(scene)) {
   }
 }
 
-export type HeatOutcome = { kind:'heat'; objectId:string; energyKJ:number; temperatureK:number; iceFraction?:number; evaporatedKg:number; ignited?:true }
+export type HeatOutcome = { kind:'heat'; objectId:string; energyKJ:number; temperatureK:number; iceFraction?:number; evaporatedKg:number; ignited?:true;
+  waterTransition?:{fromIceFraction:number; conductivitySM:number|null} }
 
 export function applyHeat(scene: Scene, object: SceneObject, energyKJ: number): HeatOutcome {
   const layout = sceneAir(scene)
@@ -45,7 +46,10 @@ export function applyHeat(scene: Scene, object: SceneObject, energyKJ: number): 
   if (!thermalTarget(object)) throw Error('У цели должен быть объём воды или материал с теплоёмкостью.')
   const energyJ = energyKJ * 1000
   if (object.kind === 'water') {
-    return { kind:'heat', objectId:object.id, energyKJ, ...applyWaterHeat(scene, object, energyJ, layout) }
+    const from = waterPhase(waterEnthalpy(object.water!,layout.at(object).climate.ambientTemperatureK)).iceFraction
+    const change = applyWaterHeat(scene,object,energyJ,layout)
+    return { kind:'heat', objectId:object.id, energyKJ, ...change,
+      ...(object.height>0 && from!==change.iceFraction ? {waterTransition:{fromIceFraction:from,conductivitySM:waterConductivitySM(object.water!,object)}} : {}) }
   }
   const body = object.physics!, oldK = body.temperatureK
   const temperatureK = checkedTemperature(oldK + energyJ / bodyCapacity(object))

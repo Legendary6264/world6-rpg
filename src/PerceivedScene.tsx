@@ -25,6 +25,9 @@ function VisibilityNotice({ map }: { map: PerceivedMap }) {
       'Видимость ' + (distance < .1 ? 'меньше 0,1' : 'около ' + distance.toLocaleString('ru-RU')) + ' м'}</span>
   </p>
 }
+function SceneConditions({map}:{map:PerceivedMap}) {
+  return <><VisibilityNotice map={map}/>{map.slipperyIce && <p className="w6-notice">На видимых участках льда сцепление ниже. Для прохода может понадобиться больше времени.</p>}</>
+}
 export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSelect, onPoint, onObject, selectedObject, pickedPoint, plannedRoute = [] }: Props) {
   const [camera,setCamera]=useState<{sceneId:string;zoom:number;center:{x:number;y:number}|null}>({sceneId:map.frame.id,zoom:1,center:null})
   const playback=useVisualReplay(map.visuals?.some(v=>v.phase==='sequence')??false)
@@ -42,7 +45,7 @@ export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSel
   function scale(next:number){const anchor=pickedPoint?{x:pickedPoint.x,y:yPoint(pickedPoint)}:center;setCamera({sceneId:f.id,zoom:Math.max(1,Math.min(4,next)),center:anchor})}
   function pan(dx:number,dy:number){setCamera({sceneId:f.id,zoom,center:{x:Math.max(viewWidth/2,Math.min(f.width-viewWidth/2,origin.x+viewWidth/2+dx*viewWidth*.3)),y:Math.max(viewHeight/2,Math.min(vertical-viewHeight/2,origin.y+viewHeight/2+dy*viewHeight*.3))}})}
   return <section aria-label="Доступная сцена"><h3>{map.title}</h3><p className="w6-prose">{map.description}</p>
-    <VisibilityNotice map={map}/>
+    <SceneConditions map={map}/>
     <div className="gb-map-tools" aria-label="Масштаб и обзор карты"><button type="button" className="w6-button" aria-label="Уменьшить карту" disabled={zoom===1} onClick={()=>scale(zoom/1.5)}>−</button><span>{Math.round(zoom*100)}%</span><button type="button" className="w6-button" aria-label="Увеличить карту" disabled={zoom===4} onClick={()=>scale(zoom*1.5)}>+</button><button type="button" className="w6-button" onClick={()=>setCamera({sceneId:f.id,zoom:1,center:null})}>Вся сцена</button>{zoom>1&&<>{([[-1,0,'Обзор влево','←'],[0,-1,'Обзор вверх','↑'],[0,1,'Обзор вниз','↓'],[1,0,'Обзор вправо','→']] as const).map(([x,y,label,icon])=><button key={label} type="button" className="w6-button" aria-label={label} onClick={()=>pan(x,y)}>{icon}</button>)}</>}</div>
     <div className={'gb-scene-viewport gb-player-map gb-palette-' + f.palette}><svg viewBox={`${origin.x} ${origin.y} ${viewWidth} ${viewHeight}`} onClick={event => {
       if (!onPoint) return
@@ -107,7 +110,7 @@ export default function PerceivedScene(props: Props) {
   }, [map, props.plannedRoute])
   return <div><SceneRenderMode mode={mode} onChange={next => { setUnavailable(false); setMode(next) }}/>{unavailable && <p role="status">3D недоступно: открыта схема. Проверь аппаратное ускорение браузера, чтобы включить 3D.</p>}{mode === 'map' ? <SvgPerceivedScene {...props}/> :
     <section aria-label="Доступная сцена"><h3>{map.title}</h3><p className="w6-prose">{map.description}</p>
-      <VisibilityNotice map={map}/>
+      <SceneConditions map={map}/>
       <Suspense fallback={<p role="status">Загружаем 3D-сцену…</p>}><Scene3D effectTimeMs={props.effectTimeMs} abilityAim={props.abilityAim} model={model} marker={props.pickedPoint} route={route}
         selection={props.selectedObject ? { kind: 'object', id: props.selectedObject } : props.selected ? { kind: 'contact', id: props.selected } : null}
         onPoint={props.onPoint} onRequestMove={props.onObjectMove?(s,p)=>s.kind==='object'?props.onObjectMove?.(s.id,p):false:undefined} onUnavailable={() => { setUnavailable(true); setMode('map') }} onSelect={s => {

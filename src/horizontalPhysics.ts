@@ -4,6 +4,8 @@ import { overlapLength } from './sceneGeometry'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
 import { strikeStructure } from './structuralPhysics'
 import type { StructuralImpactOutcome } from './structuralPhysics'
+import { surfaceContact } from './surfaceTraction'
+import type { SurfaceContact, TractionTravel } from './surfaceTraction'
 
 const EPS = 1e-8
 const isRider = (scene: Scene, objectId: string) =>
@@ -45,6 +47,12 @@ type SlidePlan = {
   endSeconds: number
   endDistance: number
   contact?: SlideContact
+  travel?: SlideTravel
+}
+type TravelSection = {fromM:number; fromSeconds:number; toSeconds:number; speedMs:number; deceleration:number}
+type SlideTravel = {
+  sections:TravelSection[]; contacts:SurfaceContact[]; maxDistance:number
+  endDistance:number; endSeconds:number; endSpeedMs:number
 }
 
 // Ray entry into a rectangle expanded by the moving footprint. A body on an
@@ -66,6 +74,36 @@ function rectangleEntry(moving: SceneObject, dirX: number, dirY: number, x: numb
 function frameDistance(center: number, direction: number, size: number, span: number) {
   if (!direction) return Infinity
   return (direction < 0 ? size / 2 - center : span - size / 2 - center) / direction
+}
+
+// Between footprint boundaries the drag is constant. Carry velocity across
+// the boundary, then use the new coefficient for the next part of the path.
+function slideTravel(scene:Scene,object:SceneObject,dirX:number,dirY:number,limit:number,speedMs:number,deceleration:number):SlideTravel|undefined {
+  const profile = scene.physics?.traction
+  if (!profile || !limit) return undefined
+  const end = {x:object.x+dirX*limit,y:object.y+dirY*limit,z:object.z}
+  const contacts = scene.objects.flatMap(other=>{
+    const patch = other !== object && surfaceContact(other,profile,object,end)
+    return patch ? [patch] : []
+  })
+  if (!contacts.length) return undefined
+  const cuts = [...new Set([0,1,...contacts.flatMap(patch=>[patch.start,patch.end])])].sort((a,b)=>a-b)
+  const sections:TravelSection[] = []
+  let distance = 0, elapsed = 0, speed = speedMs
+  for (let i=1;i<cuts.length && speed>0;i++) {
+    const middle = (cuts[i-1]+cuts[i])/2, goal = cuts[i]*limit
+    if (goal <= distance) continue
+    const factor = contacts.reduce((lowest,patch)=>middle >= patch.start && middle <= patch.end ? Math.min(lowest,patch.factor) : lowest,1)
+    const drag = deceleration*factor, stoppingDistance = drag>0 ? speed**2/(2*drag) : Infinity
+    const stops = stoppingDistance < goal-distance, step = stops ? stoppingDistance : goal-distance
+    const exitSpeed = stops ? 0 : Math.sqrt(Math.max(0,speed**2-2*drag*step))
+    const endSeconds = elapsed+2*step/(speed+exitSpeed)
+    sections.push({fromM:distance,fromSeconds:elapsed,toSeconds:endSeconds,speedMs:speed,deceleration:drag})
+    distance = stops ? distance+step : goal
+    elapsed = endSeconds
+    speed = exitSpeed
+  }
+  return {sections,contacts,maxDistance:limit,endDistance:distance,endSeconds:elapsed,endSpeedMs:speed}
 }
 
 export function planSlide(scene: Scene, movingActors?: ReadonlySet<string>): SlidePlan | undefined {
@@ -98,6 +136,12 @@ export function planSlide(scene: Scene, movingActors?: ReadonlySet<string>): Sli
       contact = { kind:'actor', actorId:token.actorId }
     }
   }
+  const travel = slideTravel(scene,object,dirX,dirY,endDistance,speedMs,deceleration)
+  if (travel) {
+    return {object,width:scene.width,depth:scene.depth,speedMs,dirX,dirY,deceleration,travel,
+      endSeconds:travel.endSeconds,endDistance:travel.endDistance,
+      ...(travel.endDistance===endDistance ? {contact} : {})}
+  }
   const stoppingDistance = deceleration > 0 ? speedMs ** 2 / (2 * deceleration) : Infinity
   if (stoppingDistance < endDistance) {
     return { object, width:scene.width, depth:scene.depth, speedMs, dirX, dirY, deceleration,
@@ -117,20 +161,29 @@ export type SlideStep = {
   speedMs: number
   stopped: boolean
   collision?: { contact: SlideContact; speedMs: number; energyJ: number }
+  traction?: TractionTravel[]
 }
 
 export function slideStep(plan: SlidePlan, seconds: number): SlideStep {
-  const { object, dirX, dirY, deceleration, endDistance, speedMs, contact } = plan
+  const { object, dirX, dirY, deceleration, endDistance, speedMs, contact, travel } = plan
   const slide = object.physics!.sliding!
   const stopped = seconds >= plan.endSeconds
-  const distance = stopped ? endDistance : seconds * (speedMs - .5 * deceleration * seconds)
-  const remaining = stopped ? 0 : Math.max(0, speedMs - deceleration * seconds)
+  const section = travel?.sections.find(section=>seconds<section.toSeconds)
+  const elapsed = section ? Math.max(0,seconds-section.fromSeconds) : seconds
+  const speedAtStart = section?.speedMs ?? speedMs, drag = section?.deceleration ?? deceleration
+  const distance = stopped ? endDistance : (section?.fromM ?? 0)+elapsed*(speedAtStart-.5*drag*elapsed)
+  const remaining = stopped ? 0 : Math.max(0,speedAtStart-drag*elapsed)
   const limit = (point: number, size: number, frame: number) => Math.min(frame - size / 2, Math.max(size / 2, point))
   const point = { x:limit(object.x + dirX * distance, object.width, plan.width),
     y:limit(object.y + dirY * distance, object.depth, plan.depth), z:object.z }
-  const impactSpeed = stopped && contact ? Math.sqrt(Math.max(0, speedMs ** 2 - 2 * deceleration * distance)) : 0
+  const impactSpeed = stopped && contact ? travel?.endSpeedMs ?? Math.sqrt(Math.max(0, speedMs ** 2 - 2 * deceleration * distance)) : 0
+  const traction = travel?.contacts.flatMap(({start,end,...patch})=>{
+    const distanceM = Math.min(distance,end*travel.maxDistance)-start*travel.maxDistance
+    return distanceM>EPS ? [{...patch,distanceM}] : []
+  })
   return { objectId:object.id, name:object.name, point, speedMs:remaining, stopped,
     vxMs:slide.vxMs * (remaining / speedMs), vyMs:slide.vyMs * (remaining / speedMs),
+    ...(traction?.length ? {traction} : {}),
     ...(stopped && contact ? { collision:{contact, speedMs:impactSpeed, energyJ:kineticEnergyJ(object.physics!.massKg, impactSpeed)} } : {}) }
 }
 

@@ -7,6 +7,7 @@ import { speechRows, emptySpeechDecision, isSpeechDecision, speechDecisionReady 
 import type { SpeechDecision } from './roundSpeech'
 import type { AcousticScene } from './acoustics'
 import { exposureLabels, exposureStage, exposureStageLabels } from './exposureProfiles'
+import { tractionLabels } from './surfaceTraction'
 import { isChargeDecision, isChargeForm } from './roundCharges'
 import LobbyRoundCharges from './LobbyRoundCharges'
 import type { ChargeForm } from './roundCharges'
@@ -251,6 +252,15 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         {visible.summary.exposure.map(({actorId,changes})=><div key={actorId}><strong>{name(actorId)}</strong>
           <ul>{changes.map(({kind,from,to})=><li key={kind}>{exposureLabels[kind]} · {exposureStageLabels[exposureStage(from)]} → {exposureStageLabels[exposureStage(to)]} · нагрузка {quantity(from)} → {quantity(to)}</li>)}</ul>
         </div>)}
+      </section>}
+      {visible.summary.traction && <section aria-label="Сцепление с поверхностью">
+        <h4>Сцепление с поверхностью</h4>
+        {visible.summary.traction.walks.map(row=><p key={JSON.stringify([row.actorId,row.objectId,row.kind])}>
+          {name(row.actorId)} · {row.name} · {tractionLabels[row.kind]} · {quantity(row.distanceM)} м со скоростью {quantity(row.speedMs)} м/с · безопасный темп до {quantity(row.safeSpeedMs)} м/с
+        </p>)}
+        {visible.summary.traction.slides.map(row=><p key={JSON.stringify([row.moverId,row.objectId,row.kind])}>
+          {row.moverName} · {row.name} · {tractionLabels[row.kind]} · {quantity(row.distanceM)} м скольжения · сцепление {quantity(row.factor*100)} %
+        </p>)}
       </section>}
       {visible.summary.movementApprovals?.map(a=><p key={a.actorId}>{name(a.actorId)} · основание полёта: {a.reason}</p>)}
       {visible.summary.falls && <section aria-label="Падения и приземления">

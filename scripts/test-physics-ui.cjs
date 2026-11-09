@@ -154,6 +154,18 @@ test('Воздействие на героев UI: игровые пороги �
   await submit();assert.equal(state.value.exposure,null);assert(state.value.atmosphere)
 })
 
+test('Сцепление UI: валидируются оба коэффициента, снятие режима сохраняется явно',async()=>{
+  const state=await fixture(EnvironmentPhysicsPanel),field=name=>document.querySelector('[name="'+name+'"]')
+  await flush(()=>field('simulateTraction').click())
+  await flush(()=>{field('gripWaterPct').value='50';field('gripIcePct').value='60'})
+  await submit();assert.equal(state.value,undefined);assert.match(document.querySelector('[role=alert]').textContent,/льду/)
+  assert.equal(field('gripWaterPct').value,'50')
+  await flush(()=>{field('gripIcePct').value='25'})
+  await submit();assert.deepEqual(state.value.traction,{version:1,waterFactor:.5,iceFactor:.25})
+  await flush(()=>field('simulateTraction').click())
+  await submit();assert.equal(state.value.traction,null)
+})
+
 test('Конструкции UI: прочность сохраняется, накопленный удар можно исправить без сброса материала',async()=>{
   const state=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('wood'),massKg:4,temperatureK:293.15,wetnessFraction:0},{canBreak:true})
   const name=key=>document.querySelector('[name="'+key+'"]')
