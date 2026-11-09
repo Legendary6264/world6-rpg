@@ -7,36 +7,34 @@ import { isSlidingProfile, isStructureProfile, restingObject, slidePlacementChan
 import type { SlidingProfile, StructureProfile } from './mechanicalProfiles'
 import { isLightIntensity, isVisionProfile } from './opticalProfiles'
 import type { VisionProfile } from './opticalProfiles'
+import { airContentsKeys, copyAirRooms, isAirRoomList, MAX_AEROSOL_KG, moistureKg, validAirContents } from './airProfiles'
+import type { AirContents, AirRoom } from './airProfiles'
+export { MAX_AEROSOL_KG } from './airProfiles'
 
 export const DEFAULT_BACKGROUND_NOISE_DB = 30
 export const MAX_SOUND_LEVEL_DB = 160
 export const OUTSIDE_OXYGEN_FRACTION = .2095
-export const MAX_AEROSOL_KG = 1e15
-export type RoomAtmosphere = {
-  oxygenFraction:number;smokeKg:number;steamKg:number;outsideTemperatureK:number;doorVentilation:boolean
-  reactionHeat?:boolean;fogKg?:number|null
+export type RoomAtmosphere = AirContents & {
+  outsideTemperatureK:number;doorVentilation:boolean;reactionHeat?:boolean
 }
 export type Combustion = {fuelKg:number;burnRateKgS:number;ignitionTemperatureK:number}
 export type PhysicsEnvironment = {version:1;gravityMs2:number;ambientTemperatureK:number;backgroundNoiseDb?:number|null;
-  atmosphere?:RoomAtmosphere|null;vision?:VisionProfile|null}
+  atmosphere?:RoomAtmosphere|null;vision?:VisionProfile|null;airRooms?:AirRoom[]|null}
 export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temperatureK:number;wetnessFraction:number;
   noiseLevelDbAt1m?:number|null;combustion?:Combustion|null;structure?:StructureProfile|null;sliding?:SlidingProfile|null;lightIntensityCd?:number|null}
 
 export function isRoomAtmosphere(value: unknown): value is RoomAtmosphere {
   if (!physicsRecord(value)) return false
-  const keys = ['oxygenFraction','smokeKg','steamKg','outsideTemperatureK','doorVentilation']
+  const keys = [...airContentsKeys,'outsideTemperatureK','doorVentilation']
   if (Object.hasOwn(value, 'reactionHeat')) {
     if (typeof value.reactionHeat !== 'boolean') return false
     keys.push('reactionHeat')
   }
   if (Object.hasOwn(value, 'fogKg')) {
-    if (value.fogKg !== null && !physicsNumber(value.fogKg, 0, MAX_AEROSOL_KG)) return false
+    if (value.fogKg === undefined) return false
     keys.push('fogKg')
   }
-  const fogKg = typeof value.fogKg === 'number' ? value.fogKg : 0
-  return physicsKeys(value, keys) &&
-    physicsNumber(value.oxygenFraction, 0, 1) && physicsNumber(value.smokeKg, 0, MAX_AEROSOL_KG) &&
-    physicsNumber(value.steamKg, 0, MAX_AEROSOL_KG) && value.steamKg + fogKg <= MAX_AEROSOL_KG &&
+  return physicsKeys(value, keys) && validAirContents(value) &&
     physicsNumber(value.outsideTemperatureK, 0, MAX_TEMPERATURE_K) &&
     typeof value.doorVentilation === 'boolean'
 }
@@ -56,10 +54,14 @@ function withOptionalProfiles(value: Record<string,unknown>, keys: string[], opt
 const isSoundLevel = (v: unknown) => physicsNumber(v, 0, MAX_SOUND_LEVEL_DB)
 
 export function isPhysicsEnvironment(value: unknown): value is PhysicsEnvironment {
-  return physicsRecord(value) && withOptionalProfiles(value, ['version','gravityMs2','ambientTemperatureK'], {
-    backgroundNoiseDb:isSoundLevel, atmosphere:isRoomAtmosphere, vision:isVisionProfile,
-  }) && value.version === 1 &&
-    physicsNumber(value.gravityMs2, 0, 1e6) && physicsNumber(value.ambientTemperatureK, 0, MAX_TEMPERATURE_K)
+  if (!physicsRecord(value) || !withOptionalProfiles(value, ['version','gravityMs2','ambientTemperatureK'], {
+    backgroundNoiseDb:isSoundLevel, atmosphere:isRoomAtmosphere, vision:isVisionProfile, airRooms:isAirRoomList,
+  }) || value.version !== 1 || !physicsNumber(value.gravityMs2, 0, 1e6) ||
+    !physicsNumber(value.ambientTemperatureK, 0, MAX_TEMPERATURE_K)) return false
+  const {airRooms,atmosphere} = value as PhysicsEnvironment
+  return !airRooms || !!atmosphere && atmosphere.fogKg != null &&
+    airRooms.reduce((total,room) => total + room.air.smokeKg, atmosphere.smokeKg) <= MAX_AEROSOL_KG &&
+    airRooms.reduce((total,room) => total + moistureKg(room.air), moistureKg(atmosphere)) <= MAX_AEROSOL_KG
 }
 export function isPhysicsBody(value: unknown): value is PhysicsBody {
   return physicsRecord(value) && withOptionalProfiles(value, ['version','material','massKg','temperatureK','wetnessFraction'], {
@@ -71,7 +73,8 @@ export function isPhysicsBody(value: unknown): value is PhysicsBody {
 export function copyPhysicsEnvironment(value: PhysicsEnvironment | null): PhysicsEnvironment | null {
   if (value === null) return null
   if (!isPhysicsEnvironment(value)) throw Error('Проверь физические условия сцены.')
-  return {...value, ...(value.atmosphere ? {atmosphere:{...value.atmosphere}} : {}), ...(value.vision ? {vision:{...value.vision}} : {})}
+  return {...value, ...(value.atmosphere ? {atmosphere:{...value.atmosphere}} : {}), ...(value.vision ? {vision:{...value.vision}} : {}),
+    ...(value.airRooms ? {airRooms:copyAirRooms(value.airRooms)} : {})}
 }
 export function copyPhysicsBody(value: PhysicsBody | null): PhysicsBody | null {
   if (value === null) return null
@@ -95,6 +98,9 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
       const air = scene.physics.atmosphere, oldAir = previous.physics.atmosphere
       if (air && air.reactionHeat === undefined && oldAir?.reactionHeat !== undefined) air.reactionHeat = oldAir.reactionHeat
       if (air && air.fogKg === undefined && oldAir?.fogKg !== undefined) air.fogKg = oldAir.fogKg
+      if (air && scene.physics.airRooms === undefined && previous.physics.airRooms !== undefined) {
+        scene.physics.airRooms = previous.physics.airRooms && copyAirRooms(previous.physics.airRooms)
+      }
       if (scene.physics.vision === undefined && previous.physics.vision !== undefined) {
         scene.physics.vision = previous.physics.vision && {...previous.physics.vision}
       }

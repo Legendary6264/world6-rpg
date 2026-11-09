@@ -2,6 +2,9 @@ import { objectBounds, overlapLength } from './sceneGeometry'
 import type { ObjectBounds } from './sceneGeometry'
 import type { Scene, SceneObject, SceneSupport } from './sceneTypes'
 import { addSteamFromWater, resolveWaterEnergy } from './waterHeating'
+import type { SteamRelease } from './waterHeating'
+import { sceneAir } from './sceneAir'
+import type { AirRegion } from './sceneAir'
 import {
   BOILING_ENTHALPY_J_KG, FUSION_J_KG, WATER_EDGE_TOLERANCE_M, WATER_MASS_KG_M3, isVariableWater,
   isWaterComposition, liquidWaterHeight, reactWaterReagents, supportsSceneTokens, validWaterHeight,
@@ -19,10 +22,11 @@ type Cell = ObjectBounds & {
   unknown: boolean
   energy: number // enthalpy times volume; density cancels during exchange
   thermal: boolean
+  region?: AirRegion
 }
 type Spillway = { widthM: number; sillZ: number }
 type Connection = { a: number; b: number; spillways: Spillway[] }
-type ReactionHeat = { energyJ: number; evaporatedKg: number; excessJ: number }
+type ReactionHeat = { energyJ:number; releases:Map<AirRegion,SteamRelease> }
 const EPS = WATER_EDGE_TOLERANCE_M
 export const MAX_WATER_FLOW_STEPS = 64
 const STEP_SECONDS = .25
@@ -118,15 +122,19 @@ function exchange(cells: Cell[], connections: Connection[], neighbours: number[]
         // The new liquid takes the temperature of the local mixture.
         cell.energy += (cell.energy / cell.volumeM3) * productM3
         cell.volumeM3 += productM3
-        if (heat) {
+        if (heat && cell.region) {
           const massKg = cell.volumeM3 * WATER_MASS_KG_M3
           const state = resolveWaterEnergy(massKg, cell.energy * WATER_MASS_KG_M3 + reaction.heatJ)
           if (state.evaporatedKg > 0) cell.volumeM3 = (massKg - state.evaporatedKg) / WATER_MASS_KG_M3
           cell.energy = state.enthalpyJKg * cell.volumeM3
           cell.thermal = true
           heat.energyJ += reaction.heatJ
-          heat.evaporatedKg += state.evaporatedKg
-          heat.excessJ += state.excessJ
+          if (state.evaporatedKg > 0) {
+            const release = heat.releases.get(cell.region) ?? {evaporatedKg:0,excessJ:0}
+            release.evaporatedKg += state.evaporatedKg
+            release.excessJ += state.excessJ
+            heat.releases.set(cell.region,release)
+          }
         }
       }
     }
@@ -162,18 +170,19 @@ function wetObjects(scene: Scene, water: ObjectBounds[]) {
 // Advances only configured cells of the round's scene. Spillways approximate
 // a shallow sheet using surface height, a head-dependent rate and a bounded
 // conservative exchange. Salt, reagents and suspended sediment move with the water.
-export function advanceWaterFlow(scene: Scene, seconds: number, stepLimit = MAX_WATER_FLOW_STEPS) {
+export function advanceWaterFlow(scene: Scene, seconds: number, stepLimit = MAX_WATER_FLOW_STEPS, layout = sceneAir(scene)) {
   const cells: Cell[] = scene.objects.flatMap(object => {
     const water = object.water
     if (!water?.flow) return []
-    const h = waterEnthalpy(water, scene.physics?.ambientTemperatureK)
+    const region = layout?.at(object)
+    const h = waterEnthalpy(water, region?.climate.ambientTemperatureK ?? scene.physics?.ambientTemperatureK)
     const volumeM3 = waterVolumeM3(object)
     // An ice crust holds a shallow flow cell in place until it thaws.
     return (!volumeM3 || h >= FUSION_J_KG) ? [{
       ...objectBounds(object), object, areaM2: object.width * object.depth, volumeM3,
       saltKg: water.saltKg, sedimentKg: water.sedimentKg, reagentMol:water.reagentMol,
       unknown: object.height > 0 && water.base === 'unknown',
-      energy: h * volumeM3, thermal: water.enthalpyJKg != null || !!scene.physics?.atmosphere,
+      energy: h * volumeM3, thermal: water.enthalpyJKg != null || !!layout, region,
     }] : []
   })
   // In a thermal room, liquid in stationary pools can quench a fire too.
@@ -200,7 +209,7 @@ export function advanceWaterFlow(scene: Scene, seconds: number, stepLimit = MAX_
   }
   const steps = Math.min(stepLimit, Math.ceil(seconds / STEP_SECONDS))
   const factor = (2 / 3) * .6 * Math.sqrt(2 * gravity) * seconds / steps
-  const heat = scene.physics?.atmosphere?.reactionHeat ? {energyJ:0, evaporatedKg:0, excessJ:0} : undefined
+  const heat:ReactionHeat|undefined = layout?.atmosphere.reactionHeat ? {energyJ:0,releases:new Map()} : undefined
   let changed = false
   for (let step = 0; step < steps; step++) {
     if (!exchange(cells, connections, neighbours, factor, heat)) break
@@ -223,9 +232,7 @@ export function advanceWaterFlow(scene: Scene, seconds: number, stepLimit = MAX_
     }
     return [{ object: cell.object, height, water }]
   }) : []
-  // Each contribution leaves at the boiling point, so the room can receive
-  // them together once all the layer updates have passed validation.
-  if (heat) addSteamFromWater(scene, heat.evaporatedKg, heat.excessJ)
+  if (layout && heat?.releases.size) addSteamFromWater(layout,heat.releases)
   for (const { object, height, water } of updates) Object.assign(object, { height, water })
   wet()
   return heat?.energyJ ?? 0

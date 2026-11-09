@@ -3,6 +3,7 @@ import type { CircuitResult, DischargeSettings } from './electricalCircuit'
 import { physicsId, physicsKeys, physicsNumber, physicsRecord, cubicMetresToLitres, litresToCubicMetres } from './physicsUnits'
 import { MAX_SCENE_OBJECTS, sceneObject } from './scenes'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
+import { sceneAir } from './sceneAir'
 import { applyHeat, MAX_ABILITY_HEAT_KJ, thermalTarget } from './thermalPhysics'
 import type { HeatOutcome } from './thermalPhysics'
 import { applyWaterHeat } from './waterHeating'
@@ -139,7 +140,8 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
       if (cells.length !== 1 || !cell.water) throw Error('Выбери один участок растекания, раствор или водный слой в тепловой сцене.')
       const height = cell.height + litresToCubicMetres(effect.volumeL) / (cell.width * cell.depth)
       if (height === cell.height || cell.z + height > scene.maxZ) throw Error('Проверь объём и верхнюю границу сцены.')
-      const current = cell.water, ambient = scene.physics?.ambientTemperatureK ?? 293.15
+      const current = cell.water
+      const ambient = sceneAir(scene)?.at(cell).climate.ambientTemperatureK ?? scene.physics?.ambientTemperatureK ?? 293.15
       if (current.enthalpyJKg != null || scene.physics?.atmosphere) {
         const oldFraction = cell.height / height
         const incoming = liquidEnthalpy(ambient)

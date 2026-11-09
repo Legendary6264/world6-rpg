@@ -11,7 +11,7 @@ async function field(label,value){await flush(()=>{const element=input(label);as
 async function submit(){await flush(()=>document.querySelector('form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})))}
 async function fixture(Panel=ObjectPhysicsPanel,initial,options={}){
   await flush(()=>root.render(null));const observed={value:initial,changes:[]}
-  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),...(Panel===WaterVolumePanel?{object:value}:{value}),canEmitLight:options.canEmitLight,canBreak:options.canBreak,canSlide:options.canSlide,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
+  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),...(Panel===WaterVolumePanel?{object:value}:{value}),scene:options.scene&&{...options.scene,physics:value},canEmitLight:options.canEmitLight,canBreak:options.canBreak,canSlide:options.canSlide,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
   await flush(()=>root.render(React.createElement(Wrapper)));return observed
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
@@ -116,6 +116,28 @@ test('Туман UI: режим и масса капель сохраняютс�
   assert.equal(state.value.atmosphere.fogKg,.25);assert.equal(state.value.atmosphere.steamKg,.5)
   await flush(()=>named('simulateFog').click());await submit()
   assert.equal(state.value.atmosphere.fogKg,null);assert.equal(state.value.atmosphere.steamKg,.75)
+})
+
+test('Помещения UI: две комнаты и связь дверей, отказ при пересечении и явное удаление',async()=>{
+  const scene={width:12,depth:8,groundZ:0,minZ:0,maxZ:3,objects:[{kind:'door',id:'gate',name:'Дверь',x:6,y:4,z:0,width:.2,depth:2,height:2,open:false}]}
+  const state=await fixture(EnvironmentPhysicsPanel,undefined,{scene})
+  await flush(()=>document.querySelector('[name="simulateThermal"]').click())
+  await flush(()=>button('Добавить комнату').click())
+  await flush(()=>button('Добавить комнату').click())
+  const rooms=()=>[...document.querySelectorAll('[data-air-room]')],field=(index,suffix)=>rooms()[index].querySelector('[name$="-'+suffix+'"]')
+  assert.equal(rooms().length,2)
+  assert(document.querySelector('[name="simulateFog"]').checked)
+  await flush(()=>{field(0,'name').value='Кузня';field(1,'name').value='Коридор';field(1,'min-x').value='5';field(0,'steam').value='1.5'})
+  await submit();assert.equal(state.value,undefined);assert.match(document.querySelector('[role=alert]').textContent,/пересекаться/)
+  assert.equal(field(0,'steam').value,'1.5')
+  await flush(()=>{field(1,'min-x').value='6'})
+  await submit()
+  assert.equal(state.value.airRooms[0].air.steamKg,1.5);assert.equal(state.value.atmosphere.fogKg,0)
+  assert.match(document.body.textContent,/Кузня ↔ Коридор · закрыта/)
+  await flush(()=>rooms()[0].querySelector('button').click())
+  await submit();assert.deepEqual(state.value.airRooms.map(room=>room.name),['Коридор'])
+  await flush(()=>rooms()[0].querySelector('button').click())
+  await submit();assert.equal(state.value.airRooms,null)
 })
 
 test('Конструкции UI: прочность сохраняется, накопленный удар можно исправить без сброса материала',async()=>{

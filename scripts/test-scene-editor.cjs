@@ -44,6 +44,19 @@ test('Физика в редакторе: профили объекта и ср�
  await key('z',{ctrlKey:true});assert.equal(active().physics,undefined);assert.equal(active().objects.find(o=>o.id===object.id).physics.massKg,4.5)
  await key('z',{ctrlKey:true});assert.deepEqual(current,before)
  await key('z',{ctrlKey:true,shiftKey:true});await key('z',{ctrlKey:true,shiftKey:true});assert.equal(active().physics.gravityMs2,0);assert.equal(active().objects.find(o=>o.id===object.id).physics.massKg,4.5)
+ const withoutRooms=structuredClone(current),count=writes
+ await flush(()=>document.querySelector('[name=simulateThermal]').click())
+ await flush(()=>button('Добавить комнату').click())
+ await flush(()=>{
+  const room=document.querySelector('[data-air-room]')
+  room.querySelector('[name$="-name"]').value='Кузня'
+  room.querySelector('[name$="-steam"]').value='0.5'
+  document.querySelector('[aria-label="Физические условия сцены"]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}))
+ })
+ const withRoom=structuredClone(current)
+ assert.equal(writes,count+1);assert.equal(active().physics.airRooms[0].name,'Кузня');assert.equal(active().physics.airRooms[0].air.steamKg,.5)
+ await key('z',{ctrlKey:true});assert.deepEqual(current,withoutRooms)
+ await key('z',{ctrlKey:true,shiftKey:true});assert.deepEqual(current,withRoom)
 })
 
 test('Панели узкого экрана сохраняют черновик свойств и не меняют сцену при переключении',async()=>{

@@ -5,11 +5,10 @@ import type { Scene, SceneObject, ScenePosition, SceneState } from './sceneTypes
 import { isArtwork, isTiledArtwork } from './visualMedia'
 import {validTabletopAppearance} from './tabletopCatalog'
 import {sceneEnvironment,validSceneEnvironment} from './sceneEnvironment'
-import {aerosolVisibilityM} from './thermalPhysics'
-import {fogExtinctionPerM} from './atmosphericMoisture'
+import {airOptics,SIGHT_DEPTH_LIMIT} from './airOptics'
 import {isVariableWater,waterIceCover} from './waterPhysics'
 import {isSliding} from './mechanicalProfiles'
-import {sceneOptics,visibleLightLevel} from './sceneOptics'
+import {sceneEye,sceneOptics,visibleLightLevel} from './sceneOptics'
 import type {LightLevel} from './opticalProfiles'
 // These built-in terrain paintings contain no campaign objects or private labels.
 const mapBackground = (value: unknown): value is string => isTiledArtwork(value) || value === 'pixel-ground-stone' || value === 'pixel-ground-yard'
@@ -26,7 +25,7 @@ export type ScenePerceptions = { version: 1; heroes: HeroPerception[] }
 export type PerceptionDraft = { activeSceneId: string | null; scenes: (Omit<KnownScene, 'frame' | 'objects' | 'contacts'> & {
   objects: Pick<ObjectDisclosure, 'objectId' | 'visible'>[]; contacts: Omit<ContactDisclosure, 'id'>[] })[] }
 export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; falling?: true; support?: 'ground' | 'air' | 'object'; portrait?: string; radius?: number; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
-export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; fog?:{visibilityM?:number};
+export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; smoke?:true; fog?:{visibilityM?:number};
   optics?: {dim:boolean; smoke?:true; unplaced?:true};
   title: string; description: string; frame: MapFrame; areas: KnownArea[];
   objects: (ObservedObject & { visible: boolean; sliding?: true; light?:LightLevel })[]; contacts: VisibleContact[] }
@@ -130,11 +129,17 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
   const knowledge = value.scenes.find(s => s.sceneId === value.activeSceneId), live = scenes?.scenes.find(s => s.id === value.activeSceneId)
   if (!knowledge || !live) return null
   const self = live.tokens.find(t => t.actorId === value.actorId), actor = actors.find(a => a.id === value.actorId)
-  const optics = self ? sceneOptics(live, self) : undefined, unplaced = !!live.physics?.vision && !self
-  const fog = !!self && fogExtinctionPerM(live) >= .001
-  const visibility = self && !optics ? aerosolVisibilityM(live) : undefined
-  const inSight = (p: ScenePosition) => !unplaced && (optics ? optics.seesPoint(p) :
-    !self || visibility === undefined || Math.hypot(p.x - self.x, p.y - self.y, p.z - self.z) <= visibility)
+  const medium = airOptics(live), eye = self && sceneEye(live,self)
+  const optics = self ? sceneOptics(live,self,medium) : undefined, unplaced = !!live.physics?.vision && !self
+  const localAir = eye && medium.at(eye), fog = (localAir?.fog ?? 0) >= .001
+  const smoke = medium.zoned && (localAir?.smoke ?? 0) >= .001
+  const visibility = self && !optics ? medium.visibilityM : undefined
+  const inSight = (p: ScenePosition) => {
+    if (unplaced) return false
+    if (optics) return optics.seesPoint(p)
+    if (medium.zoned && eye) return medium.depthBetween(eye,p) <= SIGHT_DEPTH_LIMIT
+    return !self || visibility === undefined || Math.hypot(p.x-self.x,p.y-self.y,p.z-self.z) <= visibility
+  }
   const tokenInSight = (p: ScenePosition) => optics ? optics.seesToken(p) : inSight(p)
   const inArea = (p: ScenePosition, visible: boolean) => knowledge.areas.some(a => (!visible || a.visible) && withinArea(p, a))
   const objects = knowledge.objects.flatMap(o => {
@@ -176,7 +181,7 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
       const cast=casts[index],prepared=cast.status==='preparing'||cast.status==='ready',persistent=cast.status==='maintaining'||cast.status==='ended'&&cast.endsAt!==null&&cast.endsAt>seconds
       if(cast.status==='interrupted'||cast.spatialRelease&&cast.spatialRelease.sceneId!==live.id||cast.visualRelease&&cast.visualRelease.sceneId!==live.id||!prepared&&!persistent&&(cast!==last||!cast.visualRelease))continue
       const target=live.tokens.find(t=>t.actorId===cast.targetId)
-      const targetKnown=cast.targetId===value.actorId||(optics?visibleActors.has(cast.targetId):knowledge.contacts.some(c=>c.actorId===cast.targetId&&c.kind==='identified'&&c.showHeight))
+      const targetKnown=cast.targetId===value.actorId||(optics||medium.zoned?visibleActors.has(cast.targetId):knowledge.contacts.some(c=>c.actorId===cast.targetId&&c.kind==='identified'&&c.showHeight))
       const origin=!prepared&&(!persistent||!!cast.spatialRelease)?cast.visualRelease?.start??start:start
       const end=prepared?start:!persistent?cast.visualRelease?.end:cast.spatialRelease?.point??(targetKnown?target:undefined)
       if(!prepared&&!cast.spatialRelease&&!targetKnown)continue
@@ -189,7 +194,8 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
   const range = visibility === undefined ? undefined : Number(visibility.toPrecision(2))
   return { title: knowledge.title, description: knowledge.description, frame: mapFrame(knowledge.frame), areas: knowledge.areas.map(copyArea), objects, contacts,
     ...(fog ? {fog:range === undefined ? {} : {visibilityM:range}} : range === undefined ? {} : {smokeVisibilityM:range}),
-    ...(optics ? {optics:{dim:optics.dim,...(live.physics?.atmosphere?.smokeKg ? {smoke:true as const} : {})}} :
+    ...(smoke ? {smoke:true as const} : {}),
+    ...(optics ? {optics:{dim:optics.dim,...((medium.zoned ? smoke : live.physics?.atmosphere?.smokeKg) ? {smoke:true as const} : {})}} :
       unplaced ? {optics:{dim:false,unplaced:true as const}} : {}),
     ...(visuals.length?{visuals:visuals.slice(-40)}:{}) }
 }

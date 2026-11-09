@@ -8,6 +8,7 @@ import {copyPhysicsBody,copyPhysicsEnvironment,isPhysicsBody,isPhysicsEnvironmen
 import { copyWaterComposition, isWaterComposition, MAX_FLOW_CELLS, supportsSceneTokens, validWaterHeight, WATER_EDGE_TOLERANCE_M } from './waterPhysics'
 import { objectBounds, overlapLength } from './sceneGeometry'
 import { isFallMotion, isLandingProfile, isSliding, onSlideFloor, restingObject, slidePlacementChanged } from './mechanicalProfiles'
+import { airRoomsFit } from './airProfiles'
 export {sceneObject,sceneObjectLabels} from './sceneObjectDefaults'
 
 // Storage/rendering limits, not game rules. Coordinates and dimensions are metres.
@@ -33,6 +34,7 @@ function validScene(v: unknown): v is Scene {
       (v.physics !== undefined && v.physics !== null && !isPhysicsEnvironment(v.physics)) ||
       !size(v.width) || !size(v.depth) || !finite(v.groundZ) || !finite(v.minZ) || !finite(v.maxZ) ||
       v.minZ > v.groundZ || v.groundZ >= v.maxZ ||
+      !airRoomsFit(v.physics?.airRooms,{width:v.width,depth:v.depth,minZ:v.minZ,maxZ:v.maxZ}) ||
       (v.roundDurationSeconds!==undefined&&(typeof v.roundDurationSeconds!=='number'||!Number.isFinite(v.roundDurationSeconds)||v.roundDurationSeconds<=0||v.roundDurationSeconds>86400)) ||
       (v.background !== undefined && !isArtwork(v.background)) || (v.backgroundTileSizeM!==undefined&&(!finite(v.backgroundTileSizeM)||v.backgroundTileSizeM<.1||v.backgroundTileSizeM>1000)) ||
       !Array.isArray(v.objects) || v.objects.length > MAX_SCENE_OBJECTS ||
@@ -119,6 +121,7 @@ export function createScene(state: SceneState, sceneId: string, name: string, vi
 export function replaceScene(state: SceneState, scene: Scene): SceneState {
   const previous = state.scenes.find(s => s.id === scene.id)
   if (!previous) throw new Error('Сцена больше не существует.')
+  if (!airRoomsFit(scene.physics?.airRooms,scene)) throw new Error('Измени границы помещений перед уменьшением сцены.')
   const originals = new Map(previous.objects.map(o => [o.id, o]))
   const objects = scene.objects.map(object => {
     if (!isSliding(object.physics?.sliding)) return object

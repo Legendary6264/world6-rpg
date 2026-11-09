@@ -233,8 +233,12 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         const thermal = visible.summary.thermal
         return <section aria-label="Тепло и воздух">
           <h4>Тепло и воздух</h4>
-          <p>{quantity(thermal.fromK - 273.15)} → {quantity(thermal.toK - 273.15)} °C · кислород {quantity(thermal.oxygenFraction * 100)} % · дым {quantity(thermal.smokeKg)} кг · пар {quantity(thermal.steamKg)} кг</p>
+          <p>{thermal.rooms && <strong>Вне комнат · </strong>}{quantity(thermal.fromK - 273.15)} → {quantity(thermal.toK - 273.15)} °C · кислород {quantity(thermal.oxygenFraction * 100)} % · дым {quantity(thermal.smokeKg)} кг · пар {quantity(thermal.steamKg)} кг</p>
           {thermal.fogKg !== undefined && <p>Туман {quantity(thermal.fogKg)} кг{thermal.relativeHumidityPct === undefined ? '' : ' · относительная влажность ' + quantity(thermal.relativeHumidityPct) + ' %'}</p>}
+          {thermal.rooms && <ul aria-label="Воздух по помещениям">{thermal.rooms.map(room=><li key={room.id}>
+            <strong>{room.name}</strong> · {quantity(room.fromK-273.15)} → {quantity(room.toK-273.15)} °C · кислород {quantity(room.oxygenFraction*100)} % · дым {quantity(room.smokeKg)} кг · пар {quantity(room.steamKg)} кг · туман {quantity(room.fogKg??0)} кг
+            {room.relativeHumidityPct === undefined ? '' : ' · влажность ' + quantity(room.relativeHumidityPct) + ' %'}
+          </li>)}</ul>}
           {thermal.flowReactionHeatKJ !== undefined && <p>Тепло при смешивании потоков · {quantity(thermal.flowReactionHeatKJ)} кДж</p>}
           {thermal.visibilityM !== undefined && <p>Дальность видимости в воздухе ≈ {quantity(thermal.visibilityM)} м</p>}
           {thermal.fires.map(fire => <p key={fire.id}>{fire.name} · {fire.lit ? 'горит' : 'погас'} · осталось топлива {quantity(fire.fuelKg)} кг</p>)}

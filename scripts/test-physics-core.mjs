@@ -18,7 +18,7 @@ for(const file of await readdir('src')){
 }
 const load=name=>import(pathToFileURL(join(directory,name+'.mjs')))
 const units=await load('physicsUnits'),{physicsMaterialPresets,physicsMaterialPreset,isPhysicsMaterial}=await load('physicsMaterials')
-const {isPhysicsBody,isPhysicsEnvironment,preserveScenePhysics}=await load('physicsState'),{isPhysicsEvent,orderPhysicsEvents}=await load('physicsEvents')
+const {isPhysicsBody,isPhysicsEnvironment,preserveScenePhysics,MAX_AEROSOL_KG}=await load('physicsState'),{isPhysicsEvent,orderPhysicsEvents}=await load('physicsEvents')
 const {emptyScenes,createScene,sceneObject,isSceneState,copySceneState,moveSceneObject,placeSceneToken}=await load('scenes'),{copyEditorScene}=await load('sceneEditorSceneCopy')
 const {captureSceneAssembly,assemblyLayout,isSceneAssembly}=await load('sceneAssemblies'),{mergeSceneDraft}=await load('sceneDraftMerge')
 const {emptyCampaign,isCampaign,copyCampaign}=await load('rpgSchema'),{createCharacterArchive,parseCharacterArchive}=await load('characterTransfer')
@@ -30,7 +30,8 @@ const {advanceMovement}=await load('sceneMovement')
 const {perceivedMap,preparePerception,emptyPerception}=await load('scenePerception')
 const {advanceThermal,applyHeat,smokeVisibilityM,thermalRoundChanges}=await load('thermalPhysics')
 const {saturatedVapourDensityKgM3}=await load('atmosphericMoisture')
-const {roomHeatCapacity}=await load('waterHeating')
+const {roomHeatCapacity,airHeatCapacity}=await load('waterHeating')
+const {sceneAir}=await load('sceneAir'),{roomAirExchange}=await load('airExchange'),{airOptics}=await load('airOptics')
 const {sceneOptics}=await load('sceneOptics')
 const {perceivedRenderModel}=await load('scene3dModel')
 const {advanceFalls,nextFallSeconds}=await load('structuralPhysics')
@@ -125,6 +126,159 @@ const discharge=(x,y=5,z=.05)=>({kind:'discharge',returnContact:{x,y,z},voltageV
 const flowCell=(id,x,height=.2,z=0)=>({...pool(id,x),z,height,water:{...pureWater(),flow:true}})
 const totals=cells=>['volume','saltKg','sedimentKg'].map(key=>cells.reduce((sum,c)=>sum+(key==='volume'?c.width*c.depth*c.height:c.water[key]),0))
 const closeTo=(actual,expected)=>assert(Math.abs(actual-expected)<1e-10,`${actual} differs from ${expected}`)
+
+function airRoomFixture() {
+ const state=sceneState(false),scene=state.scenes[0]
+ Object.assign(scene,{width:12,depth:4,minZ:0,maxZ:3,objects:[]})
+ const gas=()=>({oxygenFraction:.2095,smokeKg:0,steamKg:0,fogKg:0})
+ const room=(id,min,max)=>({id,name:id,min:{x:min,y:0,z:0},max:{x:max,y:4,z:3},ambientTemperatureK:293.15,air:gas()})
+ scene.physics={...environment(),atmosphere:{...gas(),outsideTemperatureK:273.15,doorVentilation:false},
+   airRooms:[room('left',0,4),room('right',4,12)]}
+ const door=(id,x)=>({...sceneObject('door',id,{x,y:2,z:0}),width:.2,depth:2,height:2})
+ scene.objects.push(door('middle',4),door('exit',11.9))
+ return {state,scene,door}
+}
+
+test('Комнаты: границы, совместимость публикации и независимое копирование воздуха',()=>{
+ const {state,scene}=airRoomFixture(),copy=copySceneState(state)
+ assert(isSceneState(state));assert.deepEqual(copy,state)
+ copy.scenes[0].physics.airRooms[0].air.smokeKg=.05
+ copy.scenes[0].physics.airRooms[0].min.y=.5
+ assert.equal(scene.physics.airRooms[0].air.smokeKg,0);assert.equal(scene.physics.airRooms[0].min.y,0)
+ for(const invalidate of [
+   next=>next.physics.airRooms[1].min.x=3,
+   next=>next.physics.airRooms[1].max.x=13,
+   next=>next.physics.airRooms[1].id='left',
+   next=>next.physics.airRooms[1].air.fogKg=null,
+   next=>next.physics.atmosphere.fogKg=null,
+ ]) {
+   const invalid=structuredClone(state);invalidate(invalid.scenes[0]);assert(!isSceneState(invalid))
+ }
+ const legacy=copySceneState(state)
+ delete legacy.scenes[0].physics.airRooms;delete legacy.scenes[0].physics.atmosphere.fogKg
+ preserveScenePhysics(state,legacy);assert.deepEqual(legacy,state)
+ legacy.scenes[0].physics.airRooms=null
+ preserveScenePhysics(state,legacy);assert.equal(legacy.scenes[0].physics.airRooms,null)
+})
+
+test('Комнаты: дверь переносит кислород, дым, влагу и энергию, закрытые объёмы изолированы',()=>{
+ const {state,scene}=airRoomFixture(),[left,right]=scene.physics.airRooms
+ Object.assign(left,{ambientTemperatureK:323.15})
+ Object.assign(left.air,{smokeKg:.02,steamKg:.3,oxygenFraction:.17})
+ const initial=structuredClone(state)
+ advanceThermal(scene,5);assert.deepEqual(state,initial)
+ const total=()=>{
+   const {regions}=sceneAir(scene)
+   return regions.reduce((sum,{volumeM3,air,climate})=>({
+     smoke:sum.smoke+air.smokeKg,water:sum.water+air.steamKg+air.fogKg,
+     oxygen:sum.oxygen+volumeM3*air.oxygenFraction,
+     energy:sum.energy+airHeatCapacity(volumeM3,air.steamKg,air.fogKg)*(climate.ambientTemperatureK-373.15)+air.steamKg*VAPORIZATION_J_KG,
+   }),{smoke:0,water:0,oxygen:0,energy:0})
+ }
+ const before=total()
+ scene.objects.forEach(o=>o.open=true)
+ advanceThermal(scene,20)
+ assert(right.air.smokeKg>0 && right.air.steamKg>0 && right.air.oxygenFraction<.2095)
+ assert(right.ambientTemperatureK>293.15 && left.ambientTemperatureK<323.15)
+ const after=total()
+ for(const key of ['water','smoke','oxygen'])closeTo(after[key],before[key])
+ assert(Math.abs(after.energy-before.energy)<1e-6)
+ assert.equal(thermalRoundChanges(initial.scenes[0],scene).rooms.length,2)
+ scene.physics.atmosphere.doorVentilation=true
+ advanceThermal(scene,20)
+ assert(total().water<before.water && total().smoke<before.smoke)
+ assert(isSceneState(state))
+})
+
+test('Комнаты: несколько дверей переносят капли одновременно и не меняют воздух в изолированной зоне',()=>{
+ const {scene,door}=airRoomFixture(),[left,right]=scene.physics.airRooms
+ right.max.x=8
+ const third={...structuredClone(right),id:'third',min:{x:8,y:0,z:0},max:{x:10,y:4,z:3}}
+ const sealed={...structuredClone(third),id:'sealed',min:{x:10,y:0,z:0},max:{x:12,y:4,z:3},ambientTemperatureK:299.17}
+ scene.physics.airRooms.push(third,sealed)
+ Object.assign(right.air,{smokeKg:.02,fogKg:1,steamKg:.4})
+ scene.objects.push(door('branch',8),door('second-middle',4))
+ scene.objects.filter(o=>o.id!=='exit').forEach(o=>o.open=true)
+ const initial=structuredClone(sealed),reordered=structuredClone(scene)
+ reordered.objects.reverse()
+ roomAirExchange(scene,sceneAir(scene),3600)()
+ roomAirExchange(reordered,sceneAir(reordered),3600)()
+ assert.deepEqual(scene.physics,reordered.physics)
+ assert.deepEqual(sealed,initial)
+ assert(left.air.fogKg>0 && third.air.fogKg>0)
+ closeTo(left.air.fogKg+right.air.fogKg+third.air.fogKg,1)
+})
+
+test('Комнаты: обмен у предела массы сохраняет допустимое состояние для записи',()=>{
+ const {state,scene}=airRoomFixture(),[left,right]=scene.physics.airRooms
+ left.max.x=right.min.x=scene.objects[0].x=1.4
+ left.air.smokeKg=left.air.steamKg=MAX_AEROSOL_KG
+ scene.objects[0].open=true
+ const mix=roomAirExchange(scene,sceneAir(scene),30)
+ for(let i=0;i<32;i++){
+   mix();assert(isSceneState(state))
+ }
+ for(const field of ['smokeKg','steamKg']){
+   const mass=left.air[field]+right.air[field]
+   assert(mass<=MAX_AEROSOL_KG && MAX_AEROSOL_KG-mass<MAX_AEROSOL_KG*1e-12)
+ }
+})
+
+test('Комнаты: пар от способности остаётся рядом с нагретой водой',()=>{
+ const {state,scene}=airRoomFixture(),[left,right]=scene.physics.airRooms
+ left.ambientTemperatureK=333.15
+ const water={...sceneObject('water','local-water',{x:2,y:2,z:0}),width:1,depth:1,height:.002,water:pureWater()}
+ scene.objects.push(water)
+ const before=structuredClone(right)
+ const result=applyAbilityPhysics(scene,{x:2,y:2,z:.001},'unused',{kind:'heat',energyKJ:2500})
+ assert(result.evaporatedKg>0);closeTo(left.air.steamKg,result.evaporatedKg)
+ advanceThermal(scene,0)
+ assert.deepEqual(right,before);assert.equal(scene.physics.atmosphere.steamKg,0);assert(isSceneState(state))
+})
+
+test('Комнаты: дефицит кислорода гасит огонь только в своём помещении',()=>{
+ const {scene}=airRoomFixture(),[left,right]=scene.physics.airRooms
+ left.air.oxygenFraction=.14
+ const flame=(id,x)=>({...sceneObject('lamp',id,{x,y:2,z:0}),active:true,
+   physics:{...body('wood'),temperatureK:293.15,combustion:{fuelKg:1,burnRateKgS:.01,ignitionTemperatureK:600}}})
+ const low=flame('low',2),normal=flame('normal',7)
+ scene.objects.push(low,normal)
+ const unchanged=structuredClone(left)
+ advanceThermal(scene,1)
+ assert.deepEqual(left,unchanged);assert.equal(low.active,false)
+ assert.equal(normal.active,true);assert(right.air.smokeKg>0);assert(right.air.oxygenFraction<.2095)
+ assert(right.ambientTemperatureK>293.15)
+})
+
+test('Комнаты: луч учитывает длину пути в дыму и устойчив на границе двух объёмов',()=>{
+ const {scene}=airRoomFixture(),[left]=scene.physics.airRooms
+ left.air.smokeKg=.048
+ scene.physics.vision={ambientLux:3,detectionLux:1}
+ const medium=airOptics(scene),p=(x,y=2)=>({x,y,z:1.5})
+ closeTo(medium.depthBetween(p(2),p(8)),2*8.7)
+ closeTo(medium.depthBetween(p(8),p(2)),2*8.7)
+ closeTo(medium.depthBetween(p(4,1),p(4,3)),0)
+ const optics=sceneOptics(scene,{x:8,y:2,z:0})
+ assert(optics.seesPoint(p(11)));assert(!optics.seesPoint(p(3)))
+})
+
+test('Комнаты: базовый обзор проверяет путь к цели и показывает только местный дым',()=>{
+ const {state,scene}=airRoomFixture(),[left]=scene.physics.airRooms
+ left.air.smokeKg=.048
+ const actors=[{id:'observer',name:'Герой',profile:{}},{id:'near',name:'Сосед',profile:{}},{id:'far',name:'В дыму',profile:{}}]
+ scene.tokens=actors.map(({id},index)=>({actorId:id,x:[8,10,2][index],y:2,z:0,diameter:1,support:{kind:'ground'}}))
+ const draft={activeSceneId:scene.id,scenes:[{sceneId:scene.id,title:'Доступная сцена',description:'',
+   areas:[{id:'visible',x:0,y:0,z:0,width:12,depth:4,height:3,visible:true}],objects:[],
+   contacts:actors.slice(1).map(a=>({actorId:a.id,kind:'identified',label:a.name,signs:'',showHeight:true,point:{x:2,y:2,z:0},radius:0}))}]}
+ const knowledge=preparePerception(draft,emptyPerception(actors[0].id),state,actors.map(a=>a.id))
+ const clear=perceivedMap(knowledge,state,actors)
+ assert.equal(clear.smoke,undefined);assert.equal(clear.smokeVisibilityM,undefined)
+ assert.deepEqual(clear.contacts.map(c=>c.label),['Сосед','Герой'])
+ scene.tokens[0].x=3
+ const smoky=perceivedMap(knowledge,state,actors)
+ assert.equal(smoky.smoke,true);assert.equal(smoky.smokeVisibilityM,undefined)
+ assert.deepEqual(smoky.contacts.map(c=>c.kind),['self'])
+})
 
 function slidingCrate() {
  const state=sceneState(),scene=state.scenes[0]

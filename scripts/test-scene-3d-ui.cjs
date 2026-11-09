@@ -196,7 +196,7 @@ test('3D UI: неизвестная территория не достраива
  await flush(()=>root.render(null));assert(r.disposed);assert.equal(document.querySelectorAll('canvas,.gb-3d-label').length,0)
 })
 
-test('3D UI: туман на карте игрока меняется без пересоздания сцены и сброса камеры',async()=>{
+test('3D UI: туман и дым меняются без пересоздания сцены и сброса камеры',async()=>{
  await flush(()=>root.render(null));props={}
  const frame={id:'player-fog',view:'top',width:20,depth:20,groundZ:0,minZ:0,maxZ:6,palette:'stone'}
  const area={id:'known',x:1,y:1,z:0,width:4,depth:4,height:6,visible:true}
@@ -207,6 +207,10 @@ test('3D UI: туман на карте игрока меняется без п�
  await mount({model:perceivedRenderModel({...map,fog:{}})})
  assert.equal(instances.at(-1),r);assert.equal(r.scene,scene);assert(r.camera.position.equals(camera))
  assert(scene.fog instanceof THREE.FogExp2);assert(scene.fog.density>0)
+ const fog=scene.fog
+ await mount({model:perceivedRenderModel({...map,smoke:true})})
+ assert.equal(instances.at(-1),r);assert(scene.fog instanceof THREE.FogExp2)
+ assert(!scene.fog.color.equals(fog.color));assert(r.camera.position.equals(camera))
  await mount({model:perceivedRenderModel(map)})
  assert.equal(instances.at(-1),r);assert.equal(scene.fog,null);assert(r.camera.position.equals(camera))
  await flush(()=>root.render(null));props={}

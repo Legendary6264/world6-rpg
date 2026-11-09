@@ -1,6 +1,6 @@
-import type { Scene } from './sceneTypes'
+import type { AirRegion } from './sceneAir'
 import { BOIL_K, FREEZE_K, VAPORIZATION_J_KG, WATER_HEAT_J_KG_K, WATER_MASS_KG_M3 } from './waterPhysics'
-import { checkedTemperature, roomHeatCapacity, roomVolumeM3, STEAM_HEAT_J_KG_K } from './waterHeating'
+import { airHeatCapacity, checkedTemperature, STEAM_HEAT_J_KG_K } from './waterHeating'
 
 const CRITICAL_K = 647.096
 const VAPOUR_GAS_CONSTANT = 461.5
@@ -24,16 +24,15 @@ export function saturatedVapourDensityKgM3(temperatureK: number) {
     44.7586581 * reduced ** (37 / 6) - 63.9201063 * reduced ** (71 / 6))
 }
 
-export function fogExtinctionPerM(scene: Scene) {
-  return FOG_EXTINCTION_M2_KG * (scene.physics?.atmosphere?.fogKg ?? 0) / roomVolumeM3(scene)
+export function fogExtinctionPerM({air,volumeM3}: AirRegion) {
+  return FOG_EXTINCTION_M2_KG * (air.fogKg ?? 0) / volumeM3
 }
 
-export function settleAtmosphericMoisture(scene: Scene) {
-  const environment = scene.physics, room = environment?.atmosphere
-  if (!environment || !room || room.fogKg == null) return
+export function settleAtmosphericMoisture({air:room,climate:environment,volumeM3}: AirRegion) {
+  if (room.fogKg == null) return
   const initialVapour = room.steamKg, totalWater = initialVapour + room.fogKg
   if (!totalWater) return
-  const volumeM3 = roomVolumeM3(scene), initialK = environment.ambientTemperatureK
+  const initialK = environment.ambientTemperatureK
   const saturationAt = (temperatureK: number) => saturatedVapourDensityKgM3(temperatureK) * volumeM3
   const saturation = saturationAt(initialK)
   const tolerance = 1e-12 * Math.max(1, initialVapour, Math.min(totalWater, saturation))
@@ -44,7 +43,7 @@ export function settleAtmosphericMoisture(scene: Scene) {
   const latentAtInitialK = Math.max(0, VAPORIZATION_J_KG +
     (STEAM_HEAT_J_KG_K - WATER_HEAT_J_KG_K) * (initialK - BOIL_K))
   const temperatureFor = (vapourKg: number) => initialK +
-    (initialVapour - vapourKg) * latentAtInitialK / roomHeatCapacity(scene, vapourKg, totalWater - vapourKg)
+    (initialVapour - vapourKg) * latentAtInitialK / airHeatCapacity(volumeM3, vapourKg, totalWater - vapourKg)
   let vapourKg = totalWater
   if (vapourKg > saturationAt(temperatureFor(vapourKg))) {
     let low = 0, high = Math.min(totalWater, saturationAt(temperatureFor(0)))

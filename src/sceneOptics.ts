@@ -3,7 +3,7 @@ import { DEFAULT_LIGHT_CD, lightLevel } from './opticalProfiles'
 import { objectBounds, segmentSlab } from './sceneGeometry'
 import type { ObjectBounds } from './sceneGeometry'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
-import { aerosolExtinctionPerM } from './thermalPhysics'
+import { airOptics, distanceM } from './airOptics'
 
 const EDGE_M = .000001
 const NEAR_LIGHT_M = .25
@@ -13,7 +13,8 @@ const TARGET_HEIGHT_M = 1.2
 const axes = ['x','y','z'] as const
 type Obstacle = { id: string; bounds: ObjectBounds }
 type Emitter = { id: string; point: ScenePosition; intensityCd: number }
-const distance = (a: ScenePosition, b: ScenePosition) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
+export const sceneEye = (scene:Scene,point:ScenePosition) =>
+  ({x:point.x,y:point.y,z:Math.min(scene.maxZ,point.z+EYE_HEIGHT_M)})
 
 function luminousIntensity(object: SceneObject) {
   return object.active === false || !objectLightReachesRoom(object) ? 0 : object.physics?.lightIntensityCd ?? DEFAULT_LIGHT_CD
@@ -47,17 +48,16 @@ function rayBlocked(obstacles: readonly Obstacle[], from: ScenePosition, to: Sce
   })
 }
 
-function illuminance(intensityCd: number, metres: number, extinctionPerM: number) {
-  return intensityCd * Math.exp(-extinctionPerM * metres) / Math.max(NEAR_LIGHT_M, metres) ** 2
+function illuminance(intensityCd: number, metres: number, opticalDepth: number) {
+  return intensityCd * Math.exp(-opticalDepth) / Math.max(NEAR_LIGHT_M, metres) ** 2
 }
 
 // A per-observer snapshot. Geometry and light are evaluated on the server
 // before disclosure is projected; this result does not contain hidden sources.
-export function sceneOptics(scene: Scene, observer: ScenePosition) {
+export function sceneOptics(scene: Scene, observer: ScenePosition, medium = airOptics(scene)) {
   const vision = scene.physics?.vision
   if (!vision) return undefined
   const { ambientLux, detectionLux } = vision
-  const extinction = aerosolExtinctionPerM(scene)
   const obstacles = scene.objects.filter(o => o.blocksSight && !(o.kind === 'door' && o.open))
     .map(o => ({id:o.id, bounds:objectBounds(o)}))
   const sources = scene.objects.flatMap(o => {
@@ -66,14 +66,17 @@ export function sceneOptics(scene: Scene, observer: ScenePosition) {
   })
   const sourcesById = new Map(sources.map(source => [source.id, source]))
   const raised = (p: ScenePosition, metres: number) => ({x:p.x, y:p.y, z:Math.min(scene.maxZ, p.z + metres)})
-  const eye = raised(observer, EYE_HEIGHT_M)
+  const eye = sceneEye(scene,observer)
 
   function sees(point: ScenePosition, objectId?: string) {
     // Recognize the glowing part itself at its distance from the eye.
     const direct = objectId && sourcesById.get(objectId)
-    if (direct && illuminance(direct.intensityCd, distance(direct.point, eye), extinction) >= detectionLux &&
-        !rayBlocked(obstacles, eye, direct.point, undefined, objectId)) return true
-    const transmission = Math.exp(-extinction * distance(eye, point))
+    if (direct) {
+      const metres = distanceM(direct.point,eye)
+      if (illuminance(direct.intensityCd,metres,medium.depthBetween(eye,direct.point,metres)) >= detectionLux &&
+          !rayBlocked(obstacles,eye,direct.point,undefined,objectId)) return true
+    }
+    const transmission = Math.exp(-medium.depthBetween(eye,point))
     const needed = detectionLux / transmission
     if (!Number.isFinite(needed) || ambientLux < needed && !sources.length ||
         rayBlocked(obstacles, eye, point, undefined, objectId)) return false
@@ -84,7 +87,8 @@ export function sceneOptics(scene: Scene, observer: ScenePosition) {
     let possible = ambientLux, received = ambientLux
     const candidates = sources.flatMap(source => {
       if (source.id === objectId) return []
-      const lux = illuminance(source.intensityCd, distance(source.point, point), extinction)
+      const metres = distanceM(source.point,point)
+      const lux = illuminance(source.intensityCd,metres,medium.depthBetween(source.point,point,metres))
       if (!lux) return []
       possible += lux
       return [{source, lux}]

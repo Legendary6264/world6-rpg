@@ -73,7 +73,7 @@ const clipping = (a: KnownArea) => [new THREE.Plane(new THREE.Vector3(1, 0, 0), 
 export default function Scene3D(props: Props) {
   const { model, selection, marker, route } = props
   const guidesJSON=JSON.stringify({marker,route}),applyGuides=useRef<((point:ScenePosition|null,route:ScenePosition[])=>void)|null>(null)
-  const structuralJSON=useMemo(()=>JSON.stringify({...model,fog:undefined,visuals:[],entities:model.entities.map(e=>model.restricted?e:{...e,...(e.geometry.kind==='actor'?{geometry:{...e.geometry,facing:0,characterAnimation:'idle'}}:{}),transform:{position:{x:0,y:0,z:0}}})}),[model])
+  const structuralJSON=useMemo(()=>JSON.stringify({...model,fog:undefined,smoke:undefined,visuals:[],entities:model.entities.map(e=>model.restricted?e:{...e,...(e.geometry.kind==='actor'?{geometry:{...e.geometry,facing:0,characterAnimation:'idle'}}:{}),transform:{position:{x:0,y:0,z:0}}})}),[model])
   const constructionModel=useMemo(()=>JSON.parse(structuralJSON) as SceneRenderModel,[structuralJSON])
   const applyPositions=useRef<((next:SceneRenderModel)=>void)|null>(null),applyPlacement=useRef<((next:Props['placement'])=>void)|null>(null)
   const [effectPlayback]=useState(()=>new SceneAbilityPlayback(model.frame.id,model.visuals))
@@ -178,7 +178,10 @@ export default function Scene3D(props: Props) {
       ? new THREE.FogExp2(backdrop.fogColor,environmentKind==='underground'?.009:.005) : null
     const mist=model.restricted&&!abilityStudio
       ? new THREE.FogExp2(model.dim?'#6f7b87':'#b8ced3',.22/Math.max(span,f.maxZ-f.minZ)) : null
-    scene.fog=latest.current.model.fog&&mist ? mist : ambientFog
+    const smoke=model.restricted&&!abilityStudio
+      ? new THREE.FogExp2(model.dim?'#352e34':'#63545d',.28/Math.max(span,f.maxZ-f.minZ)) : null
+    const updateHaze=()=>{const live=latest.current.model;scene.fog=(live.fog ? mist : live.smoke ? smoke : null) ?? ambientFog}
+    updateHaze()
     renderer.toneMappingExposure=lighting.exposure*exposureValue.current
     const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()
     const characters:{rig:ReturnType<typeof bindCharacterRig>;group:THREE.Group;animation:NonNullable<RenderEntity['geometry']['characterAnimation']>}[]=[]
@@ -412,7 +415,7 @@ export default function Scene3D(props: Props) {
     applyLighting.current=(mode,t)=>{
       lighting.configure(mode,t);backdrop.configure(mode,t);renderer.setClearColor(abilityStudio?'#101a28':backdrop.background)
       ambientFog?.color.set(backdrop.fogColor)
-      scene.fog=latest.current.model.fog&&mist ? mist : ambientFog
+      updateHaze()
       renderer.toneMappingExposure=exposureValue.current*lighting.exposure;scene.environmentIntensity=lighting.environmentIntensity
       if(contactShadows){contactShadows.blendIntensity=t.contact;contactShadows.enabled=t.contact>0}
       resources.forEach(resource=>{if(resource instanceof THREE.MeshStandardMaterial&&resource.userData.lightEmitter)setEmitterIntensity(resource,(mode==='night'?3:1.3)*t.lamps)})
@@ -769,7 +772,7 @@ export default function Scene3D(props: Props) {
   useEffect(()=>{applyPlacement.current?.(props.placement)},[props.placement])
   useEffect(()=>{cutawayValue.current=cutaway;applyCutaway.current?.()},[cutaway])
   useEffect(()=>{exposureValue.current=exposure;applyExposure.current?.(exposure)},[exposure])
-  useEffect(()=>{lightingState.current={mode:lightingMode,tuning};applyLighting.current?.(lightingMode,tuning)},[lightingMode,tuning,model.fog])
+  useEffect(()=>{lightingState.current={mode:lightingMode,tuning};applyLighting.current?.(lightingMode,tuning)},[lightingMode,tuning,model.fog,model.smoke])
   useEffect(()=>{saveViewLightSettings({version:1,mode:lightingMode,tuning,exposure},lightStorageKey)},[lightingMode,tuning,exposure,lightStorageKey])
   useEffect(()=>{updateSelection.current?.(selection??null);applyCutaway.current?.()},[selection,props.selections,props.gizmo,props.editorHidden,props.editorProtected])
   useEffect(()=>{applyMotion.current?.()},[props.editorHidden])

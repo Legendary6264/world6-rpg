@@ -20,7 +20,7 @@ export type RenderEntity = {
   interaction: RenderSelection
 }
 export type SceneRenderModel = {
-  frame: MapFrame; title: string; restricted: boolean; dim?: boolean; fog?: true
+  frame: MapFrame; title: string; restricted: boolean; dim?: boolean; fog?: true; smoke?:true
   areas: KnownArea[]; entities: RenderEntity[]; visuals: SceneAbilityVisual[]
 }
 const colors = { wall: '#69748c', door: '#b38b63', tree: '#3d806c', rock: '#8b93a7',
@@ -47,6 +47,7 @@ export function perceivedRenderModel(map: PerceivedMap): SceneRenderModel {
   return { frame: { ...map.frame }, title: map.title, restricted: true,
     ...(map.optics?.dim ? {dim:true} : {}),
     ...(map.fog ? {fog:true} : {}),
+    ...(map.smoke ? {smoke:true} : {}),
     areas: map.areas.map(a => ({ ...a })),
     entities: [...map.objects.map(o => ({ id: o.id, transform: { position: { x: o.x, y: o.y, z: o.z } },
       geometry: { kind: o.kind, width: o.width, depth: o.depth, height: o.height, open: o.open,asset:o.asset,artwork:o.artwork,facing:o.facing,active:o.active,locked:o.locked,...(o.waterVolume?{waterVolume:o.waterVolume,iceCover:o.iceCover}:{}) },

@@ -19,8 +19,9 @@ function VisibilityNotice({ map }: { map: PerceivedMap }) {
       map.optics.dim ? 'В полумраке видны освещённые цели.' : 'Преграды закрывают обзор.'}{map.optics.smoke ? ' Дым ослабляет свет.' : ''}{map.fog ? ' Туман рассеивает свет.' : ''}</span>
   </p>
   const distance = map.fog?.visibilityM ?? map.smokeVisibilityM
-  return !map.fog && distance === undefined ? null : <p className="gb-smoke-notice" role="status">
-    <strong>{map.fog ? 'Туман' : 'Дым'}</strong><span>{distance === undefined ? 'Капли в воздухе рассеивают свет.' :
+  return !map.fog && !map.smoke && distance === undefined ? null : <p className="gb-smoke-notice" role="status">
+    <strong>{map.fog ? map.smoke?'Туман и дым':'Туман' : 'Дым'}</strong><span>{distance === undefined ?
+      (map.fog ? 'Капли в воздухе рассеивают свет.' : 'Дым ослабляет свет.') :
       'Видимость ' + (distance < .1 ? 'меньше 0,1' : 'около ' + distance.toLocaleString('ru-RU')) + ' м'}</span>
   </p>
 }
@@ -63,7 +64,7 @@ export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSel
       {!tiled&&f.background&&<g clipPath={'url(#'+clip+')'}><image href={artworkSource(f.background)} width={f.width} height={vertical} preserveAspectRatio="none"/>{map.areas.filter(a=>!a.visible).map(a=><rect key={a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth} fill="#10121d" opacity=".55"/>)}</g>}
       {tiled&&map.areas.map(a=><rect key={'texture-'+a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth} fill={'url(#'+clip+'-texture)'} opacity={a.visible?1:.45}/>)}
       {map.optics?.dim && <rect width={f.width} height={vertical} fill="#10121d" opacity=".28" clipPath={'url(#'+visualClip+')'} pointerEvents="none" aria-hidden="true"/>}
-      {map.fog && !haze && <rect width={f.width} height={vertical} fill="#a3bbc6" opacity=".18" clipPath={'url(#'+visualClip+')'} pointerEvents="none" aria-hidden="true"/>}
+      {(map.fog || map.smoke) && !haze && <rect width={f.width} height={vertical} fill={map.fog?'#a3bbc6':'#493d45'} opacity={map.fog ? .18 : .27} clipPath={'url(#'+visualClip+')'} pointerEvents="none" aria-hidden="true"/>}
       {haze && <g pointerEvents="none" clipPath={'url(#'+visualClip+')'} aria-hidden="true">
         <defs><radialGradient id={clip+'-haze'} gradientUnits="userSpaceOnUse" cx={haze.x} cy={haze.y} r={haze.radius}>
           <stop offset="0%" stopColor={map.fog ? '#a3bbc6' : '#605960'} stopOpacity="0.07"/>

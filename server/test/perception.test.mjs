@@ -42,6 +42,85 @@ async function setup(t, dialect) {
 }
 
 for (const dialect of ['sqlite', 'postgres']) {
+  test('Воздух комнат: два игрока, открытие двери, сохранение и переигровка · '+dialect,async t=>{
+    const f=await setup(t,dialect),{api,gm,player,other,root}=f
+    const [first,second]=f.heroes,route=f.route(second),world=()=>api(root+'/world',gm.token)
+    for(const hero of f.heroes)await api(f.route(hero)+'/review',gm.token,'POST',{revision:await f.revision(),decision:'approve',note:''})
+    const initial=await world(),scenes=initial.campaign.scenes,scene=scenes.scenes[0]
+    Object.assign(scene,{width:12,depth:8,minZ:0,maxZ:3})
+    const clean={oxygenFraction:.2095,smokeKg:0,steamKg:0,fogKg:0}
+    scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,vision:{ambientLux:3,detectionLux:1},
+      atmosphere:{...clean,outsideTemperatureK:293.15,doorVentilation:true},
+      airRooms:[
+        {id:'forge-private',name:'Кузня',min:{x:0,y:0,z:0},max:{x:6,y:8,z:3},ambientTemperatureK:300,
+          air:{...clean,smokeKg:.06,steamKg:3.8,fogKg:.3,oxygenFraction:.17}},
+        {id:'hall-private',name:'Коридор',min:{x:6,y:0,z:0},max:{x:12,y:8,z:3},ambientTemperatureK:293.15,air:{...clean}},
+      ]}
+    const door=scene.objects[0]
+    Object.assign(door,{x:6,y:4,width:.2,depth:7.5,height:2.8,open:false})
+    Object.assign(scene.objects[1],{x:11,y:7})
+    Object.assign(scene.tokens[0],{x:2,y:4})
+    Object.assign(scene.tokens[1],{x:10,y:4,z:0,support:{kind:'ground'}})
+    scene.tokens.push({...scene.tokens[0],actorId:second,x:6.55})
+    await api(root+'/scenes',gm.token,'PUT',{scenes,revision:initial.revision})
+    const legacy=await world(),oldScene=legacy.campaign.scenes.scenes[0]
+    delete oldScene.physics.airRooms;delete oldScene.physics.atmosphere.fogKg
+    await api(root+'/world',gm.token,'PUT',{world:legacy,revision:legacy.revision})
+    assert.deepEqual((await world()).campaign.scenes.scenes[0].physics,scene.physics)
+    for(const actorId of [first,second]){
+      const draft=f.draft(),known=draft.scenes[0]
+      Object.assign(known.areas[0],{z:0,depth:8,height:3})
+      Object.assign(known.contacts[0],{kind:'identified',showHeight:true})
+      await f.disclose(draft,actorId)
+    }
+    const maps=async()=>[(await f.see(player.token,first)).map,(await f.see(other.token,second)).map]
+    const [dirty,clear]=await maps(),npc=clear.contacts.find(c=>c.kind==='identified')
+    assert(npc && dirty.smoke && dirty.fog);assert.equal(clear.smoke,undefined);assert.equal(clear.fog,undefined)
+    assert.deepEqual(dirty.contacts.map(c=>c.kind),['self'])
+    assert.doesNotMatch(JSON.stringify([dirty,clear]),/airRooms|forge-private|hall-private|Кузня|Коридор|steamKg|smokeKg|oxygenFraction|secret-npc-id/)
+
+    await api(root+'/declarations',gm.token,'POST',{sceneId:scene.id,participantIds:[first,second],durationSeconds:60,allowReplace:true,revision:await f.revision()},201)
+    const current=await api(route+'/declarations',other.token),{id,epoch}=current.collection
+    const waiting=await api(f.route(first)+'/declarations',player.token)
+    await api(f.route(first)+'/declarations',player.token,'PUT',{collectionId:id,epoch,baseVersion:0,controlStamp:waiting.controlStamp,
+      actions:[{kind:'wait',seconds:1,note:''}]})
+    assert(current.options.targets.some(target=>target.id===npc.id))
+    await api(route+'/declarations',other.token,'PUT',{collectionId:id,epoch,baseVersion:0,controlStamp:current.controlStamp,
+      actions:[{kind:'interact',operation:'open',target:{kind:'object',id:door.id},note:''}]})
+    await api(root+'/declarations',gm.token,'PATCH',{collectionId:id,epoch,operation:'close'})
+    const closed=await world()
+    const preview=await api(root+'/rounds/calculate',gm.token,'POST',{revision:closed.revision,collectionId:id,epoch:closed.campaign.declarations.active.epoch,input:{
+      timings:[{actorId:first,entryRevision:1,budgetMs:60000,costs:[]},
+        {actorId:second,entryRevision:1,budgetMs:60000,costs:[{index:0,personalMs:300}]}],
+      continuations:[],missingDecisions:[],interactionsConfirmed:true,rules:[],
+    }})
+    assert.deepEqual(await world(),closed)
+    assert.deepEqual(await maps(),[dirty,clear])
+    const [forge,hall]=preview.summary.thermal.rooms
+    assert(hall.smokeKg>.02 && hall.steamKg>1 && hall.toK>hall.fromK && hall.oxygenFraction<.2095)
+    assert(Math.abs(forge.smokeKg+hall.smokeKg-.06)<1e-12)
+    assert(Math.abs(forge.steamKg+forge.fogKg+hall.steamKg+hall.fogKg-4.1)<1e-10)
+    const command=entry=>({previewId:entry.id,generation:entry.generation,commandKey:crypto.randomUUID()})
+    const apply=body=>api(root+'/rounds/apply',gm.token,'POST',body)
+    const original=command(preview),{receipt}=await apply(original),after=await world()
+    assert(after.campaign.scenes.scenes[0].objects[0].open)
+    const fogged=await maps()
+    assert(fogged[1].smoke && !fogged[1].contacts.some(c=>c.id===npc.id))
+    await f.restart()
+    assert.deepEqual(await maps(),fogged);assert.equal((await apply(original)).duplicate,true)
+
+    const history=await api(root+'/rounds/history',gm.token)
+    const rollback=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:history.revision,receiptId:receipt.id,reason:'Проверить обмен воздуха'})
+    await api(root+'/rounds/change/apply',gm.token,'POST',command(rollback))
+    assert.deepEqual((await world()).campaign.scenes,closed.campaign.scenes)
+    assert.deepEqual(await maps(),[dirty,clear])
+    const rolledBack=await api(root+'/rounds/history',gm.token)
+    const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:rolledBack.revision,receiptId:receipt.id})
+    await apply(command(replay))
+    assert.deepEqual((await world()).campaign.scenes,after.campaign.scenes)
+    assert.deepEqual(await maps(),fogged)
+  })
+
   test('Туман в раунде скрывает НПС и рассеивается после открытия двери · ' + dialect, async t => {
     const f = await setup(t, dialect), {api, gm, player, root} = f
     const actorId = f.heroes[0], route = f.route(actorId), world = () => api(root + '/world', gm.token)

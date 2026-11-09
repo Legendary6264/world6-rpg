@@ -9,7 +9,10 @@ import {
   FUSION_J_KG, ICE_HEAT_J_KG_K, MAX_WATER_ADDITIVE_KG, isWaterComposition, isWaterReagent, liquidEnthalpy,
   validWaterHeight, waterConductivitySM, waterPhase, waterPH, waterReagents, waterVolumeM3,
 } from './waterPhysics'
-import type {SceneObject} from './sceneTypes'
+import type {Scene,SceneObject} from './sceneTypes'
+import {airAxes,airRoomsFit,isAirRoomList,MAX_AIR_ROOMS} from './airProfiles'
+import type {AirRoom} from './airProfiles'
+import {airPortal,sceneAir} from './sceneAir'
 import {bodyRegions} from './bodyRegions'
 import {isLandingProfile,isSliding,MAX_SLIDE_FRICTION,MAX_STRUCTURAL_ENERGY_J} from './mechanicalProfiles'
 import type {LandingProfile} from './mechanicalProfiles'
@@ -217,12 +220,68 @@ export function LandingPhysicsPanel({value,falling,disabled,onChange}:{value?:La
   </details>
 }
 
-export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:PhysicsEnvironment|null;disabled:boolean;onChange:(value:PhysicsEnvironment|null)=>boolean}) {
+const roomField = (room:AirRoom, key:string) => 'room-'+room.id+'-'+key
+
+function readRoom(data:FormData,room:AirRoom):AirRoom {
+  const field = (key:string) => number(data,roomField(room,key))
+  const point = (end:'min'|'max') => ({x:field(end+'-x'),y:field(end+'-y'),z:field(end+'-z')})
+  return {id:room.id,name:String(data.get(roomField(room,'name')) ?? '').trim(),min:point('min'),max:point('max'),
+    ambientTemperatureK:celsiusToKelvin(field('celsius')),
+    air:{oxygenFraction:field('oxygen')/100,smokeKg:field('smoke'),steamKg:field('steam'),fogKg:field('fog')}}
+}
+
+function AirRoomFields({room,added,onRemove}:{room:AirRoom;added:boolean;onRemove:()=>void}) {
+  const values = [
+    ['celsius','Температура, °C',kelvinToCelsius(room.ambientTemperatureK),-273.15,999726.85],
+    ['oxygen','Кислород, %',room.air.oxygenFraction*100,0,100],
+    ['smoke','Дым, кг',room.air.smokeKg,0,MAX_AEROSOL_KG],
+    ['steam','Пар, кг',room.air.steamKg,0,MAX_AEROSOL_KG],
+    ['fog','Туман, кг',room.air.fogKg,0,MAX_AEROSOL_KG],
+  ] as const
+  return <details className="gb-scene-details" data-air-room open={added || undefined}>
+    <summary>{room.name}</summary>
+    <div className="gb-properties">
+      <label className="w6-field gb-wide"><span>Название комнаты</span><input name={roomField(room,'name')} defaultValue={room.name} maxLength={80} required/></label>
+      {airAxes.map(axis=>(['min','max'] as const).map(end=><label className="w6-field" key={axis+end}>
+        <span>{axis.toUpperCase()} {end==='min'?'от':'до'}, м</span><input name={roomField(room,end+'-'+axis)} type="number" step="any" defaultValue={room[end][axis]} required/>
+      </label>))}
+      {values.map(([key,label,value,min,max])=><label className="w6-field" key={key}><span>{label}</span><input name={roomField(room,key)} type="number" step="any" min={min} max={max} defaultValue={value} required/></label>)}
+      <button className="w6-button gb-wide" type="button" onClick={onRemove}>Убрать комнату</button>
+    </div>
+  </details>
+}
+
+function SavedAirDoors({scene}:{scene:Scene}) {
+  const layout = sceneAir(scene)
+  if (!layout || layout.regions.length < 2) return null
+  const label = (index:number) => index < 0 ? 'Снаружи' : layout.regions[index].room?.name ?? 'Пространство вне комнат'
+  const links = scene.objects.flatMap(door => {
+    const link = airPortal(scene,layout,door)
+    return link ? [{door,link}] : []
+  })
+  return <details className="gb-scene-details"><summary>Связи сохранённых дверей · {links.length}</summary>
+    {links.length ? <ul>{links.map(({door,link})=><li key={door.id}>{door.name} · {label(link.a)} ↔ {label(link.b)} · {door.open?'открыта':'закрыта'}</li>)}</ul> :
+      <p className="w6-copy">Дверь должна разделять две зоны воздуха. Проверь, где проходят границы помещений.</p>}
+  </details>
+}
+
+export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:PhysicsEnvironment|null;scene?:Scene;disabled:boolean;onChange:(value:PhysicsEnvironment|null)=>boolean}) {
   const [message,setMessage]=useState(''),[failed,setFailed]=useState(false)
   const [simulate, setSimulate] = useState(!!value?.atmosphere)
   const [simulateVision, setSimulateVision] = useState(!!value?.vision)
   const air = value?.atmosphere
   const [simulateFog, setSimulateFog] = useState(air?.fogKg != null)
+  const [rooms,setRooms] = useState<AirRoom[]>(value?.airRooms ?? [])
+  const useFog = simulateFog || rooms.length > 0
+  function addRoom(form:HTMLFormElement|null) {
+    if (!scene || !form || rooms.length >= MAX_AIR_ROOMS) return
+    const data = new FormData(form)
+    const edge = Math.max(0,...rooms.map(room => Number(data.get(roomField(room,'max-x'))) || room.max.x))
+    const x = edge < scene.width ? edge : 0
+    setRooms([...rooms,{id:crypto.randomUUID(),name:'Комната '+(rooms.length+1),
+      min:{x,y:0,z:scene.groundZ},max:{x:rooms.length?scene.width:scene.width/2,y:scene.depth,z:Math.min(scene.maxZ,scene.groundZ+3)},
+      ambientTemperatureK:value?.ambientTemperatureK??293.15,air:{oxygenFraction:OUTSIDE_OXYGEN_FRACTION,smokeKg:0,steamKg:0,fogKg:0}}])
+  }
   function submit(event:FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if(disabled)return
@@ -233,7 +292,7 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
       if (noise !== undefined) next.backgroundNoiseDb = noise
       if (data.has('simulateThermal')) {
         const reactionHeat = data.has('reactionHeat')
-        const fogKg = data.has('simulateFog') ? number(data, 'fogKg') : air?.fogKg === undefined ? undefined : null
+        const fogKg = useFog ? number(data, 'fogKg') : air?.fogKg === undefined ? undefined : null
         next.atmosphere = {
           oxygenFraction:number(data,'oxygenPercent')/100, smokeKg:number(data,'smokeKg'),
           steamKg:number(data,'steamKg') + (fogKg === null ? air?.fogKg ?? 0 : 0),
@@ -241,8 +300,18 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
           ...(reactionHeat || air?.reactionHeat !== undefined ? {reactionHeat} : {}),
           ...(fogKg !== undefined ? {fogKg} : {}),
         }
+        if (scene && rooms.length) {
+          const configured = rooms.map(room => readRoom(data,room))
+          if (!isAirRoomList(configured) || !airRoomsFit(configured,scene)) {
+            throw Error('Проверь названия, параметры воздуха и границы комнат. Объёмы должны помещаться в сцене и не пересекаться.')
+          }
+          next.airRooms = configured
+        } else if (value?.airRooms !== undefined) next.airRooms = scene ? null : value.airRooms
       }
-      else if (air !== undefined) next.atmosphere = null
+      else if (air !== undefined) {
+        next.atmosphere = null
+        if (value?.airRooms !== undefined) next.airRooms = null
+      }
       if (data.has('simulateVision')) next.vision = {ambientLux:number(data,'ambientLux'),detectionLux:number(data,'detectionLux')}
       else if (value?.vision !== undefined) next.vision = null
       if (!isPhysicsEnvironment(next)) throw Error('Проверь значения среды, в том числе освещённость и порог видимости.')
@@ -257,8 +326,9 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
       <details className="gb-scene-details gb-wide"><summary>Тепло и воздух{air ? ' · включено' : ''}</summary>
         <label className="w6-check"><input name="simulateThermal" type="checkbox" checked={simulate} onChange={event=>setSimulate(event.currentTarget.checked)}/>Рассчитывать тепло, горение и дым</label>
         {simulate && <>
-          <p className="w6-copy">Воздух перемешивается по всей сцене. Вентиляция подходит для сцены, где открываемые двери ведут наружу.</p>
-          <label className="w6-check"><input name="doorVentilation" type="checkbox" defaultChecked={air?.doorVentilation}/>Проветривать через открытые двери</label>
+          <p className="w6-copy">{rooms.length ? 'Общие параметры ниже действуют вне комнат. Внутренние открытые двери смешивают воздух соседних зон.' :
+            'Без комнат воздух перемешивается по всей сцене. Открытые двери можно использовать для проветривания.'}</p>
+          <label className="w6-check"><input name="doorVentilation" type="checkbox" defaultChecked={air?.doorVentilation}/>Проветривать через двери наружу</label>
           <label className="w6-check"><input name="reactionHeat" type="checkbox" defaultChecked={air?.reactionHeat}/>Учитывать нагрев при нейтрализации</label>
           <p className="w6-copy">Кислота и щёлочь выделяют тепло и при выпуске, и при смешивании потоков. Тепло сначала плавит лёд или нагревает воду, а при кипении образуется пар.</p>
           <label className="w6-field"><span>Температура снаружи, °C</span><input name="outsideC" type="number" step="any" min="-273.15" max="999726.85" defaultValue={air ? kelvinToCelsius(air.outsideTemperatureK) : 20} required/></label>
@@ -266,13 +336,22 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
           <label className="w6-field"><span>Дым, кг</span><input name="smokeKg" type="number" step="any" min="0" max={MAX_AEROSOL_KG} defaultValue={air?.smokeKg ?? 0} required/></label>
           <label className="w6-field"><span>Водяной пар, кг</span><input name="steamKg" type="number" step="any" min="0" max={MAX_AEROSOL_KG} defaultValue={air?.steamKg ?? 0} required/></label>
           <details className="gb-scene-details gb-wide"><summary>Влажность и туман{air?.fogKg != null ? ' · включено' : ''}</summary>
-            <label className="w6-check"><input name="simulateFog" type="checkbox" checked={simulateFog} onChange={event=>setSimulateFog(event.currentTarget.checked)}/>Рассчитывать конденсацию пара</label>
-            {simulateFog && <>
+            <label className="w6-check"><input name="simulateFog" type="checkbox" checked={useFog} disabled={rooms.length>0} onChange={event=>setSimulateFog(event.currentTarget.checked)}/>Рассчитывать конденсацию пара</label>
+            {useFog && <>
               <label className="w6-field"><span>Капли тумана в воздухе, кг</span><input name="fogKg" type="number" step="any" min="0" max={MAX_AEROSOL_KG} defaultValue={air?.fogKg ?? 0} required/></label>
               <p className="w6-copy">Избыток пара конденсируется в капли. Туман мешает обзору, а проветривание выводит пар и капли.</p>
             </>}
-            {air?.fogKg ? <p className="w6-copy">При отключении расчёта масса капель прибавится к массе пара.</p> : null}
+            {rooms.length ? <p className="w6-copy">Конденсация включена для обмена влагой между комнатами.</p> :
+              air?.fogKg ? <p className="w6-copy">При отключении расчёта масса капель прибавится к массе пара.</p> : null}
           </details>
+          {scene && <details className="gb-scene-details gb-wide">
+            <summary>Помещения{rooms.length ? ' · '+rooms.length : ''}</summary>
+            <p className="w6-copy">Задай границы комнат в метрах. Поставь дверь между зонами. Для выхода наружу поставь дверь вплотную к краю сцены.</p>
+            {rooms.map(room=><AirRoomFields key={room.id} room={room} added={!value?.airRooms?.some(saved=>saved.id===room.id)} onRemove={()=>setRooms(rooms.filter(item=>item.id!==room.id))}/>)}
+            <button className="w6-button" type="button" disabled={rooms.length>=MAX_AIR_ROOMS} onClick={event=>addRoom(event.currentTarget.form)}>Добавить комнату</button>
+            {rooms.length>0 && <p className="w6-copy">Удаление комнаты снимает её параметры. Освобождённое пространство использует общие условия.</p>}
+            <SavedAirDoors scene={scene}/>
+          </details>}
         </>}
       </details>
       <details className="gb-scene-details gb-wide"><summary>Свет и видимость{value?.vision ? ' · включено' : ''}</summary>
