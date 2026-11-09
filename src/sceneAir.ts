@@ -1,6 +1,7 @@
 import { airAxes, boxVolumeM3, MIN_AIR_VOLUME_M3 } from './airProfiles'
 import type { AirContents, AirRoom } from './airProfiles'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
+import { segmentSlab } from './sceneGeometry'
 
 export type AirRegion = {
   volumeM3:number; air:AirContents; climate:{ambientTemperatureK:number}; room?:AirRoom
@@ -28,6 +29,37 @@ export function sceneAir(scene: Scene) {
   return {regions, atmosphere, frameMax, indexAt, at:(point:ScenePosition) => regions[indexAt(point)]}
 }
 export type SceneAir = NonNullable<ReturnType<typeof sceneAir>>
+export type AirSpan = {index:number; start:number; end:number}
+
+// Fractions along a straight segment. Shared faces belong to the same region
+// for rays, moving tokens and a stationary point on the boundary.
+export function airSpans(layout:SceneAir,from:ScenePosition,to:ScenePosition):AirSpan[] {
+  const hits:AirSpan[] = []
+  for (let index=1;index<layout.regions.length;index++) {
+    const room = layout.regions[index].room!
+    let start = 0, end = 1
+    for (const axis of airAxes) {
+      const hit = from[axis] === to[axis]
+        ? withinRoomAxis(room,axis,from[axis],layout.frameMax) && [0,1]
+        : segmentSlab(from[axis],to[axis],room.min[axis],room.max[axis])
+      if (!hit) {end=0;break}
+      start = Math.max(start,hit[0])
+      end = Math.min(end,hit[1])
+      if (start >= end) break
+    }
+    if (start < end) hits.push({index,start,end})
+  }
+  hits.sort((a,b)=>a.start-b.start)
+  let cursor = 0
+  const spans:AirSpan[] = []
+  for (const {index,start,end} of hits) {
+    if (start > cursor) spans.push({index:0,start:cursor,end:start})
+    if (end > Math.max(start,cursor)) spans.push({index,start:Math.max(start,cursor),end})
+    cursor = Math.max(cursor,end)
+  }
+  if (cursor < 1) spans.push({index:0,start:cursor,end:1})
+  return spans
+}
 
 // Doors use their thin axis as the normal, matching their scene collision box.
 // Sample just beyond both faces so a doorway can straddle a wall's thickness.

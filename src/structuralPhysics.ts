@@ -51,7 +51,7 @@ function landingSurface(scene: Scene, token: SceneToken): Surface {
   return surface
 }
 
-function secondsToSurface(distance: number, speed: number, g: number): number {
+export function fallTravelSeconds(distance: number, speed: number, g: number): number {
   if (distance <= EPS_M) return 0
   const sum = speed + Math.sqrt(speed * speed + 2 * g * distance)
   return sum > 0 ? 2 * distance / sum : Infinity
@@ -61,7 +61,7 @@ export function nextFallSeconds(scene: Scene): number {
   let nearest = Infinity
   const g = gravity(scene)
   for (const token of scene.tokens) {
-    if (token.fall) nearest = Math.min(nearest, secondsToSurface(token.z - landingSurface(scene, token).z, token.fall.speedMs, g))
+    if (token.fall) nearest = Math.min(nearest, fallTravelSeconds(token.z - landingSurface(scene, token).z, token.fall.speedMs, g))
   }
   return nearest
 }

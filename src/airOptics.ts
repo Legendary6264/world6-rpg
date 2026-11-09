@@ -1,8 +1,6 @@
-import { airAxes } from './airProfiles'
 import { fogExtinctionPerM } from './atmosphericMoisture'
-import { sceneAir, withinRoomAxis } from './sceneAir'
+import { airSpans, sceneAir } from './sceneAir'
 import type { AirRegion } from './sceneAir'
-import { segmentSlab } from './sceneGeometry'
 import type { Scene, ScenePosition } from './sceneTypes'
 
 const SMOKE_EXTINCTION_M2_KG = 8700
@@ -40,29 +38,8 @@ export function airOptics(scene:Scene) {
 
   function depthBetween(from:ScenePosition,to:ScenePosition,metres = distanceM(from,to)) {
     if (!hasExtinction || !metres) return 0
-    if (!rooms.length) return base*metres
-    const hits:{enter:number;exit:number;extinction:number}[] = []
-    for (const medium of rooms) {
-      const room = medium.room!
-      let enter = 0, exit = 1
-      for (const axis of airAxes) {
-        const hit = from[axis] === to[axis]
-          ? withinRoomAxis(room,axis,from[axis],layout!.frameMax) && [0,1]
-          : segmentSlab(from[axis],to[axis],room.min[axis],room.max[axis])
-        if (!hit) { exit = 0; break }
-        enter = Math.max(enter,hit[0])
-        exit = Math.min(exit,hit[1])
-        if (enter >= exit) break
-      }
-      if (exit > enter) hits.push({enter,exit,extinction:medium.extinction})
-    }
-    hits.sort((a,b) => a.enter-b.enter)
-    let depth = 0, previous = 0
-    for (const {enter,exit,extinction} of hits) {
-      depth += Math.max(0,enter-previous)*base + Math.max(0,exit-Math.max(previous,enter))*extinction
-      previous = Math.max(previous,exit)
-    }
-    return metres*(depth+(1-previous)*base)
+    if (!layout || !media || !rooms.length) return base*metres
+    return metres*airSpans(layout,from,to).reduce((depth,{index,start,end})=>depth+(end-start)*media[index].extinction,0)
   }
   return {
     zoned:rooms.length > 0, depthBetween, visibilityM:aerosolVisibilityM(scene,layout),

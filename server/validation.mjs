@@ -4,6 +4,7 @@ import {atlasReferencesValid} from './generated/campaignAtlas.mjs'
 import { declarationReferencesValid } from './generated/actionDeclarations.mjs'
 import { roundWorkReferencesValid, personalRoundWork } from './generated/roundWork.mjs'
 import { isCharacterDraft, normalizeCharacterDraft } from './generated/characterModel.mjs'
+import { preserveBodyExposure } from './generated/characterBody.mjs'
 import { emptyCampaign, isCampaign } from './generated/rpgSchema.mjs'
 import { effectiveActor } from './generated/rpgEngine.mjs'
 import { perceivedBody, perceivedCapabilities } from './generated/bodyPerception.mjs'
@@ -21,7 +22,13 @@ export function choice(value,options){if(!options.includes(value))fail(400,'Не
 export function validId(value){return text(value,160).match(/^[a-zA-Z0-9:_-]+$/)?value:fail(400,'Некорректный идентификатор.')}
 export function email(value){const v=text(value,254).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))fail(400,'Проверь email.');return v}
 export const publicUser=u=>({id:u.id,displayName:u.display_name,role:u.role,disabled:!!u.disabled})
-export function character(value){if(!value||!isCharacterDraft(value))fail(400,'Некорректный лист персонажа.');validId(value.id);const v={...normalizeCharacterDraft(value),id:value.id};if(Buffer.byteLength(JSON.stringify(v))>2*1024*1024)fail(413,'Персонаж превышает 2 МиБ.');return v}
+function characterSize(value){if(Buffer.byteLength(JSON.stringify(value))>2*1024*1024)fail(413,'Персонаж превышает 2 МиБ.')}
+export function character(value){if(!value||!isCharacterDraft(value))fail(400,'Некорректный лист персонажа.');validId(value.id);const v={...normalizeCharacterDraft(value),id:value.id};characterSize(v);return v}
+export function retainCharacterExposure(previous,next){
+ const {exposure,exposureProtection}=next.body
+ preserveBodyExposure(previous?.body,next.body)
+ if(exposure!==next.body.exposure||exposureProtection!==next.body.exposureProtection)characterSize(next)
+}
 export const emptyWorld=()=>({characters:[],campaign:emptyCampaign()})
 export function preservePublishedSceneFields(current,next){
  for(const scene of next?.scenes??[]){const old=current?.scenes.find(s=>s.id===scene.id)

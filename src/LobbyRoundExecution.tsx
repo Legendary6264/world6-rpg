@@ -6,6 +6,7 @@ import LobbyRoundSpeech from './LobbyRoundSpeech'
 import { speechRows, emptySpeechDecision, isSpeechDecision, speechDecisionReady } from './roundSpeech'
 import type { SpeechDecision } from './roundSpeech'
 import type { AcousticScene } from './acoustics'
+import { exposureLabels, exposureStage, exposureStageLabels } from './exposureProfiles'
 import { isChargeDecision, isChargeForm } from './roundCharges'
 import LobbyRoundCharges from './LobbyRoundCharges'
 import type { ChargeForm } from './roundCharges'
@@ -220,7 +221,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
       {visible.summary.events.map(e => <p key={e.workId+':'+e.kind}>{name(e.actorId)} · {{inspect:'осмотр',speak:'реплика',wait:'ожидание',move:'перемещение',open:'открытие объекта',close:'закрытие объекта',lock:'запирание',unlock:'отпирание',ignite:'зажигание',extinguish:'тушение',activate:'активация',deactivate:'отключение',relocate:'перенос предмета',item:'предмет',prepare:'начало подготовки',ready:'готовый заряд',release:'выпуск'}[e.kind]}{e.listening?' · '+({listen:'прислушивание',eavesdrop:'подслушивание'}[e.listening]):''}{e.objectId ? ' · ' + objectName(collection.sceneId, e.objectId) : ''} · {e.atMs.numerator}/{e.atMs.denominator} мс</p>)}
       {!!visible.summary.rules?.length&&<div aria-label="Последствия предметов и способностей">{visible.summary.rules.map(r=><article key={r.key+':'+r.kind}><p>{r.text}</p><pre className="w6-copy">{r.details}</pre>{r.targets&&<div aria-label="Цели пространственного выпуска"><p>Получателей: {r.targets.length}</p>{r.targets.map(t=><details key={t.actorId}><summary>{t.name}</summary><pre className="w6-copy">{t.details}</pre></details>)}</div>}</article>)}</div>}
       {!!visible.summary.listeningWindows?.length&&<section aria-label="Время внимания слушателей"><h4>Заявленное внимание</h4>{visible.summary.listeningWindows.map(r=><p key={r.key}>{name(r.actorId)} · {listeningPlanLabel(r)} · {listeningFocusLabel(r,objects.filter(o=>o.sceneId===r.sceneId))} · с {Number(r.fromMs.numerator)/Number(r.fromMs.denominator)/1000} до {Number(r.toMs.numerator)/Number(r.toMs.denominator)/1000} с раунда · {r.completes?'ожидание завершится':'продолжится в следующем раунде'}</p>)}<p className="w6-copy">Это время заявленного действия, не автоматический результат слышимости или скрытности. Пограничные и одновременные события оценивает мастер.</p></section>}
-      {!!visible.summary.speech?.length&&<div aria-label="Расчёт слышимости">{visible.summary.speech.map(s=><article key={s.key}><h4>{name(s.actorId)} · реплика</h4><p className="w6-prose">{s.text}</p><p>Других слушателей: {s.heard.length}</p>{s.heard.map(h=><div key={h.actorId}><strong>{name(h.actorId)} · обозначение говорящего: {h.speaker}</strong><p className="w6-prose">{h.text}</p></div>)}</article>)}</div>}
+      {!!visible.summary.speech?.length&&<div aria-label="Расчёт слышимости">{visible.summary.speech.map(s=><article key={s.key}><h4>{name(s.actorId)} · реплика</h4>{s.interruption==='breathing' ? <p>Крик сорвался из-за нехватки дыхания.</p> : <><p className="w6-prose">{s.text}</p><p>Других слушателей: {s.heard.length}</p>{s.heard.map(h=><div key={h.actorId}><strong>{name(h.actorId)} · обозначение говорящего: {h.speaker}</strong><p className="w6-prose">{h.text}</p></div>)}</>}</article>)}</div>}
       {!!visible.summary.movements?.length && <div aria-label="Позиции после движения">{visible.summary.movements.map(m=><p key={m.workId}>{name(m.actorId)} · ({coords(m.from)}) → ({coords(m.to)}) м · {m.support.kind==='air'?'в воздухе':m.support.kind==='ground'?'на земле':'на объекте '+objectName(collection.sceneId,m.support.objectId)} · {m.completed?'маршрут завершён':'маршрут продолжается'}</p>)}</div>}
       {visible.summary.water && <section aria-label="Растекание и смачивание">
         <h4>Вода и опоры</h4>
@@ -245,6 +246,12 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
           {thermal.water.map(layer => <p key={layer.id}>{layer.name} · {layer.volumeL > 0 ? quantity(layer.temperatureK - 273.15) + ' °C · лёд ' + quantity(layer.iceFraction * 100) + ' % · ' + quantity(layer.volumeL) + ' л' : 'вода испарилась'}</p>)}
         </section>
       })()}
+      {!!visible.summary.exposure?.length && <section aria-label="Воздействие среды на героев">
+        <h4>Воздействие среды на героев</h4>
+        {visible.summary.exposure.map(({actorId,changes})=><div key={actorId}><strong>{name(actorId)}</strong>
+          <ul>{changes.map(({kind,from,to})=><li key={kind}>{exposureLabels[kind]} · {exposureStageLabels[exposureStage(from)]} → {exposureStageLabels[exposureStage(to)]} · нагрузка {quantity(from)} → {quantity(to)}</li>)}</ul>
+        </div>)}
+      </section>}
       {visible.summary.movementApprovals?.map(a=><p key={a.actorId}>{name(a.actorId)} · основание полёта: {a.reason}</p>)}
       {visible.summary.falls && <section aria-label="Падения и приземления">
         <h4>Падения и приземления</h4>

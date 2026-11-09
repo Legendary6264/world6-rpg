@@ -25,14 +25,14 @@ import type { ExactAmount } from './exactWork'
 import type { World } from './rpgEngine'
 import type { RoundWorkEntry } from './roundWork'
 import type { ActorTiming } from './roundTimeline'
-import type { MovementBody, MovementChange, MovementPlan } from './sceneMovement'
+import type { MovementBody, MovementChange, MovementPiece, MovementPlan } from './sceneMovement'
 import { isRoundReplay } from './roundReplay'
 import type { RoundReplay } from './roundReplay'
 import { advanceWaterFlow, settleWaterSupports, waterRoundChanges } from './waterFlow'
 import type { WaterRoundChanges, WaterSupportChange, WetRouteContact } from './waterFlow'
 import type { SceneSupport } from './sceneTypes'
 import { advanceThermal, settleFire, thermalRoundChanges } from './thermalPhysics'
-import type { ThermalRoundChanges } from './thermalPhysics'
+import type { ThermalObserver, ThermalRoundChanges } from './thermalPhysics'
 import { isVariableWater, isWaterReagent } from './waterPhysics'
 import { advanceFalls, nextFallSeconds } from './structuralPhysics'
 import type { FallLanding, StructuralImpactOutcome } from './structuralPhysics'
@@ -40,8 +40,10 @@ import { applySlide, checkDoorSlideClearance, planSlide, slideStep, slideSweep }
 import type { SlideStep } from './horizontalPhysics'
 import { isSliding } from './mechanicalProfiles'
 import { removeLiveObjectDisclosure } from './scenePerception'
-export const ROUND_EXECUTOR_VERSION = 'r19-room-air-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+import { exposureChanges, roundExposureObserver } from './environmentExposure'
+import type { ExposureChange, ExposureFallStart } from './environmentExposure'
+export const ROUND_EXECUTOR_VERSION = 'r20-environment-exposure-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -57,7 +59,7 @@ export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speec
   carried: { id: string; actorId: string; actionKind: string; remaining: ExactAmount; unit: string }[];
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
   movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls;
-  slides?: { stops:SlideStop[]; moving:SlideStatus[] } }
+  slides?: { stops:SlideStop[]; moving:SlideStatus[] }; exposure?: ExposureChange[] }
 export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
 const zero = exactAmount(0n), thousand = exactAmount(1000n)
@@ -230,6 +232,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   }
   const movementCheck = () => { if (++movementChecks > MAX_MOVEMENT_CHECKS) throw Error('Сцена слишком сложна для одного расчёта движения. Технический предел проверок; ничего не применено.') }
   const thermalEnabled = !!scene?.physics?.atmosphere
+  const exposureProfile = scene?.physics?.exposure
   const physicsDecisions = [...ruleDecisions.values()].flatMap(d => d.kind === 'ability' && d.physics ? [d.physics] : [])
   const dosingReagent = physicsDecisions.some(effect => effect.kind === 'add-substance' && isWaterReagent(effect.substance))
   const variableWater = thermalEnabled || dosingReagent || !!scene?.objects.some(object => isVariableWater(object.water))
@@ -271,11 +274,11 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       slideStops.push({ objectId, name, point, atMs:at, ...(collision ? {collision} : {}), ...(impact ? {impact} : {}) })
     }
   }
-  function advanceEnvironment(seconds: number, at: ExactAmount) {
+  function advanceEnvironment(seconds: number, at: ExactAmount, observe?:ThermalObserver) {
     if (!variableWater) return
     const current = activeScene()
     if (!current) return
-    if (thermalEnabled) flowReactionHeatJ += advanceThermal(current, seconds)
+    if (thermalEnabled) flowReactionHeatJ += advanceThermal(current, seconds, observe)
     else advanceWaterFlow(current, seconds)
     for (const change of settleWaterSupports(current)) {
       if (movements.some(p => p.work.actorId === change.actorId && compareAmounts(p.endMs, at) > 0)) {
@@ -288,6 +291,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   }
   const routesDuring = (at: ExactAmount) => movements.filter(p => compareAmounts(p.startMs, at) < 0 && compareAmounts(p.endMs, cursor) > 0)
   const advanceSegment = (at: ExactAmount, slide?: ReturnType<typeof planSlide>) => {
+    const traces = exposureProfile ? new Map<string,MovementPiece[]>() : undefined
     const move = (step?: SlideStep) => {
       const current = activeScene()
       if (!current || !movements.length) return
@@ -299,7 +303,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         o.id === step.objectId ? slideSweep(o, step.point) : o) } : current
       advanceMovement(checkedScene, routes, bodies, cursor, at, movementCheck, variableWater ? (actorId, object, kind) => {
         wetRoutes.set(JSON.stringify([actorId, object.id]), { actorId, objectId: object.id, name: object.name, kind })
-      } : undefined)
+      } : undefined, traces ? (id,pieces)=>{traces.set(id,pieces)} : undefined)
       if (!dynamicSupports) return
       for (const route of routes) {
         if (compareAmounts(route.startMs, at) >= 0 || (compareAmounts(at, route.endMs) < 0 && compareAmounts(at, duration) < 0)) continue
@@ -318,10 +322,15 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       throw Error('Интервал слишком мал для текущих игровых часов. Требуется решение мастера; время не округлено для исполнения.')
     }
     const step = slide && slideStep(slide, seconds)
+    const falls = exposureProfile ? new Map<string,ExposureFallStart>(activeScene()?.tokens.flatMap(t=>t.fall ?
+      [[t.actorId,{z:t.z,speedMs:t.fall.speedMs}]] : [])) : undefined
     move(step)
-    candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment))
+    candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment), exposureProfile ? collection.sceneId : undefined)
     settleFalls(seconds, at)
-    advanceEnvironment(seconds, at)
+    const current = activeScene()
+    const observe = exposureProfile && current && traces && falls ?
+      roundExposureObserver(candidate,current,exposureProfile,seconds,traces,falls) : undefined
+    advanceEnvironment(seconds, at, observe)
     if (step) {
       // A break at the end of this segment cannot open a route for water
       // or air during the elapsed part. Wet the new position at the boundary.
@@ -423,6 +432,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   })
   const water = variableWater ? waterRoundChanges(scene!, activeScene()!, [...waterSupports.values()], [...wetRoutes.values()]) : undefined
   const thermal = thermalEnabled ? thermalRoundChanges(scene!, activeScene()!, flowReactionHeatJ) : undefined
+  const exposure = exposureChanges(world,candidate)
   const falling = structural ? (activeScene()?.tokens ?? []).flatMap(token => token.fall ?
     [{ actorId:token.actorId, fromZ:token.fall.fromZ, toZ:token.z, speedMs:token.fall.speedMs }] : []) : []
   const moving = horizontal ? (activeScene()?.objects ?? []).flatMap(object => {
@@ -434,6 +444,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   return { world: candidate, summary: { durationSeconds: collection.durationSeconds, events,
     ...(water ? { water } : {}),
     ...(thermal ? { thermal } : {}),
+    ...(exposure.length ? { exposure } : {}),
     ...(landings.length || falling.length ? { falls:{landings,falling} } : {}),
     ...(slideStops.length || moving.length ? { slides:{stops:slideStops,moving} } : {}),
     ...(listeningWindows.length?{listeningWindows}:{}),

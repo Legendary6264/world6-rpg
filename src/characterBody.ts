@@ -2,6 +2,8 @@ import { isDetailedAnatomy, copyDetailedAnatomy, anatomicalConsequences } from '
 import type { AnatomyStructure, DetailedAnatomy } from './anatomyModel'
 import { isTimestamp } from './characterKnowledge'
 import { bodyRegions } from './bodyRegions'
+import { exposureLimits, isExposureLoad, isExposureProtection } from './exposureProfiles'
+import type { ExposureLoad, ExposureProtection } from './exposureProfiles'
 export { bodyRegions } from './bodyRegions'
 
 export type BodyRegion = string
@@ -17,6 +19,8 @@ export type BodyPart = {
 export type BodyLog = { id: string; at: string; gameTime: string; text: string }
 export type BodyState = {
   anatomy?: DetailedAnatomy
+  exposure?: ExposureLoad|null
+  exposureProtection?: ExposureProtection|null
   parts: Record<BodyRegion, BodyPart>
   consciousness: 'awake' | 'unconscious'
   history: BodyLog[]
@@ -41,6 +45,7 @@ export function isBodyPart(v: unknown): v is BodyPart {
 }
 export function isBodyState(v: unknown): v is BodyState {
   if (!record(v) || !record(v.parts) || (v.anatomy !== undefined && !isDetailedAnatomy(v.anatomy, Object.keys(v.parts))) || !['awake', 'unconscious'].includes(String(v.consciousness)) ||
+      (v.exposure != null && !isExposureLoad(v.exposure)) || (v.exposureProtection != null && !isExposureProtection(v.exposureProtection)) ||
       !Array.isArray(v.history) || v.history.length > 200) return false
   return Object.keys(v.parts).length > 0 && Object.keys(v.parts).length <= 64 && Object.entries(v.parts).every(([k,p]) => !['__proto__','constructor','prototype'].includes(k) && /^[a-zA-Z0-9:_-]+$/.test(k) && k.length <= 160 && isBodyPart(p)) &&
     v.history.every(e => record(e) && typeof e.id === 'string' && e.id.length > 0 && e.id.length <= 160 &&
@@ -60,7 +65,19 @@ export function cloneBody(body?: BodyState): BodyState {
     const p = v.parts[key]
     return [key, { ...(p.label !== undefined ? {label:p.label}:{}), ...(p.group !== undefined ? {group:p.group}:{}), ...(p.vital !== undefined ? {vital:p.vital}:{}), ...(p.injuries ? {injuries:p.injuries.map(i=>({id:i.id,label:i.label,blocksUse:i.blocksUse,slowdown:i.slowdown}))}:{}), ...(p.bleedingMlPerSecond !== undefined ? {bleedingMlPerSecond:p.bleedingMlPerSecond}:{}), ...(p.internalBleeding !== undefined ? {internalBleeding:p.internalBleeding}:{}), current: p.current, maximum: p.maximum, present: p.present, bleeding: p.bleeding, wound: p.wound, damagedSlowdown: p.damagedSlowdown, disabledSlowdown: p.disabledSlowdown }]
   })) as BodyState['parts'],
-    ...(v.anatomy ? {anatomy:copyDetailedAnatomy(v.anatomy)} : {}), consciousness: v.consciousness, history: v.history.map(e => ({ id: e.id, at: e.at, gameTime: e.gameTime, text: e.text })) }
+    ...(v.anatomy ? {anatomy:copyDetailedAnatomy(v.anatomy)} : {}),
+    ...(v.exposure !== undefined ? {exposure:v.exposure && {...v.exposure}} : {}),
+    ...(v.exposureProtection !== undefined ? {exposureProtection:v.exposureProtection && {...v.exposureProtection}} : {}),
+    consciousness: v.consciousness, history: v.history.map(e => ({ id: e.id, at: e.at, gameTime: e.gameTime, text: e.text })) }
+}
+
+export function preserveBodyExposure(previous:BodyState|undefined,next:BodyState) {
+  if (next.exposure === undefined && previous?.exposure !== undefined) {
+    next.exposure = previous.exposure && {...previous.exposure}
+  }
+  if (next.exposureProtection === undefined && previous?.exposureProtection !== undefined) {
+    next.exposureProtection = previous.exposureProtection && {...previous.exposureProtection}
+  }
 }
 export function bodyRegionDefs(body: BodyState) {
   return Object.entries(body.parts).map(([key,p])=>({key,label:p.label || bodyRegions.find(r=>r.key===key)?.label || key,group:body.anatomy?.form==='bird'&&/^(left|right)(Arm|Hand)$/.test(key)?'other':p.group || bodyRegions.find(r=>r.key===key)?.group || 'other'}))
@@ -82,8 +99,9 @@ export function bodyConsequences(body: BodyState) {
     const p = body.parts[r.key], state = partCondition(p)
     return Math.max(0,...(p.injuries??[]).map(i=>i.slowdown),state === 'damaged' ? p.damagedSlowdown : ['absent', 'disabled'].includes(state) ? p.disabledSlowdown : 0)
   }))
-  const movementFactor = awake && (leftLeg || rightLeg) ? Math.max(0, 1 - (sideLoss('leftLeg') + sideLoss('rightLeg')) / 100) : 0
-  const canSprint = awake && leftLeg && rightLeg && movementFactor > 0
+  const environment = exposureLimits(body.exposure)
+  const movementFactor = awake && (leftLeg || rightLeg) ? Math.max(0, 1 - (sideLoss('leftLeg') + sideLoss('rightLeg')) / 100)*environment.movementFactor : 0
+  const canSprint = awake && leftLeg && rightLeg && movementFactor > 0 && environment.severity < 2
   const bird=body.anatomy?.form==='bird'
   const wingParts=bird?['leftArm','leftHand','rightArm','rightHand']:['leftWing','rightWing']
   const flightStructures=body.anatomy?.structures.filter(s=>['flight','leftWing','rightWing'].includes(s.functionGroup))??[]
@@ -91,7 +109,7 @@ export function bodyConsequences(body: BodyState) {
   const wingReady=(side:string)=>!detailed.blocked.has(side+'Wing')&&(bird?[side+'Arm',side+'Hand']:[side+'Wing']).every(k=>body.parts[k]?.present&&body.parts[k].maximum>0&&body.parts[k].current>0&&!(body.parts[k].injuries??[]).some(i=>i.blocksUse))
   const structuralCapacity=Math.min(1,...flightStructures.map(s=>structureUsable(s,body)?s.current/s.maximum:0),...wingParts.map(k=>body.parts[k]?.maximum?body.parts[k].current/body.parts[k].maximum:0))
   const canFly=awake&&hasWings&&wingReady('left')&&wingReady('right')&&!detailed.blocked.has('flight')&&structuralCapacity>.25
-  const flightFactor=canFly?structuralCapacity:0
+  const flightFactor=canFly?structuralCapacity*environment.movementFactor:0
   const flightReasons:string[]=[]
   if(!hasWings)flightReasons.push('Нет полного работающего лётного аппарата.')
   else{if(!awake)flightReasons.push('Для полёта нужно сознание.');if(!wingReady('left'))flightReasons.push('Левое крыло не действует.');if(!wingReady('right'))flightReasons.push('Правое крыло не действует.');if(detailed.blocked.has('flight'))flightReasons.push('Нарушена функция, необходимая для полёта.');if(structuralCapacity<=.25)flightReasons.push('Крылья не обеспечивают достаточную опору для полёта.')}
@@ -102,6 +120,8 @@ export function bodyConsequences(body: BodyState) {
   if (!rightHand) notices.push('Правая рука: нельзя использовать предметы этой рукой.')
   if (!leftHand || !rightHand) notices.push('Действия, требующие двух рук, недоступны.')
   if (!leftLeg || !rightLeg) notices.push('Спринт недоступен из-за состояния ног.')
+  else if (environment.severity >= 2) notices.push('Спринт недоступен из-за нагрузки среды.')
+  if (environment.breathing >= 3) notices.push('Не хватает дыхания для крика.')
   if (!leftLeg && !rightLeg) notices.push('Ходьба недоступна; ползание и помощь учитываются отдельно.')
   if (movementFactor < 1) notices.push('Скорость ходьбы снижена на ' + Math.round((1 - movementFactor) * 100) + '%.')
   for (const r of regions) if ((body.parts[r.key].vital || ['head','torso'].includes(r.key)) && partCondition(body.parts[r.key]) === 'disabled') notices.push(r.label + ': критическое повреждение; сознание и летальность определяет мастер.')

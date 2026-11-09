@@ -32,6 +32,11 @@ const {advanceThermal,applyHeat,smokeVisibilityM,thermalRoundChanges}=await load
 const {saturatedVapourDensityKgM3}=await load('atmosphericMoisture')
 const {roomHeatCapacity,airHeatCapacity}=await load('waterHeating')
 const {sceneAir}=await load('sceneAir'),{roomAirExchange}=await load('airExchange'),{airOptics}=await load('airOptics')
+const {cloneBody,isBodyState,bodyConsequences,preserveBodyExposure}=await load('characterBody')
+const {defaultExposureProfile}=await load('exposureProfiles')
+const {perceivedBody,perceivedCapabilities}=await load('bodyPerception')
+const {roundExposureObserver}=await load('environmentExposure')
+const {parameterCalculation}=await load('rpgParameters'),{skillValue}=await load('creationRules')
 const {sceneOptics}=await load('sceneOptics')
 const {perceivedRenderModel}=await load('scene3dModel')
 const {advanceFalls,nextFallSeconds}=await load('structuralPhysics')
@@ -138,6 +143,84 @@ function airRoomFixture() {
  scene.objects.push(door('middle',4),door('exit',11.9))
  return {state,scene,door}
 }
+
+test('Среда и герои: строгие пороги, независимые снимки и старый формат тела',()=>{
+ const {state,scene}=airRoomFixture()
+ scene.physics.exposure={...defaultExposureProfile}
+ const old=copySceneState(state), copy=copySceneState(state)
+ delete old.scenes[0].physics.exposure
+ preserveScenePhysics(state,old);assert.deepEqual(old,state)
+ copy.scenes[0].physics.exposure.hotK=270
+ assert(!isSceneState(copy));assert.equal(scene.physics.exposure.hotK,313.15)
+ assert(!isPhysicsEnvironment({...scene.physics,atmosphere:null,airRooms:null}))
+ const body=createDefaultCharacter().body,legacy=cloneBody(body)
+ assert(isBodyState(legacy));assert.equal(legacy.exposure,undefined)
+ body.exposure={oxygen:1,smoke:2,heat:0,cold:0};body.exposureProtection={breathing:true,temperature:false}
+ const copied=cloneBody(body);copied.exposure.smoke=5;copied.exposureProtection.breathing=false
+ assert(!isBodyState(copied));assert.equal(body.exposure.smoke,2);assert(body.exposureProtection.breathing)
+ preserveBodyExposure(body,legacy);assert.deepEqual(legacy,body)
+ legacy.exposure=null;legacy.exposureProtection=null;preserveBodyExposure(body,legacy)
+ assert.equal(legacy.exposure,null);assert.equal(legacy.exposureProtection,null)
+})
+
+test('Среда и герои: часы кампании учитывают местные условия, навыки, защиту и восстановление',()=>{
+ const {state,scene}=airRoomFixture(),[left,right]=scene.physics.airRooms
+ scene.physics.exposure={...defaultExposureProfile,responseSeconds:2}
+ left.ambientTemperatureK=343.15;left.air.oxygenFraction=.12;left.air.smokeKg=.02
+ right.ambientTemperatureK=243.15
+ const characters=['breath','cold','protected'].map(id=>({...createDefaultCharacter(),id,name:id}))
+ characters[2].body.exposureProtection={breathing:true,temperature:true}
+ scene.tokens=characters.map(({id},i)=>({actorId:id,x:[2,9,1][i],y:[2,2,3][i],z:0,diameter:.5,support:{kind:'ground'}}))
+ const original={characters,campaign:{...emptyCampaign(),scenes:state}}
+ const next=advanceWorld(original,10,'environment-test')
+ const [breath,cold,protectedActor]=next.characters
+ assert.equal(original.characters[0].body.exposure,undefined)
+ assert.deepEqual(breath.body.exposure,{oxygen:4,smoke:4,heat:4,cold:0})
+ assert.deepEqual(cold.body.exposure,{oxygen:0,smoke:0,heat:0,cold:4})
+ assert.equal(protectedActor.body.exposure,undefined)
+ assert.deepEqual(breath.body.parts,original.characters[0].body.parts)
+ assert.equal(breath.body.consciousness,'awake')
+ assert.equal(bodyConsequences(breath.body).movementFactor,.7);assert(!bodyConsequences(breath.body).canSprint)
+ assert(perceivedCapabilities(breath.body).some(text=>text.includes('крика')))
+ assert.deepEqual(perceivedBody(breath.body).map(row=>row.label),['Дыхание','Температура'])
+ const modifiers=parameterCalculation(breath,10).traces.physicalAccuracy.modifiers
+ assert(modifiers.some(m=>m.source==='Нагрузка среды'&&m.percent===-15))
+ assert(skillValue(breath,'melee',10)<skillValue(characters[0],'melee',0))
+ assert(skillValue(breath,'spellcraft',10)<skillValue(characters[0],'spellcraft',0))
+ next.campaign.scenes.scenes[0].physics.exposure=null
+ const recovered=advanceWorld(next,180,'environment-recovery')
+ assert.equal(recovered.characters[0].body.exposure,null)
+ assert.equal(recovered.characters[1].body.exposure,null)
+ assert(bodyConsequences(recovered.characters[0].body).canSprint)
+})
+
+test('Среда и герои: два отрезка маршрута учитывают время в дыму между чистыми точками',()=>{
+ const {state,scene}=airRoomFixture()
+ const profile={...defaultExposureProfile,responseSeconds:2}
+ scene.physics.exposure=profile
+ scene.physics.airRooms[0].air.smokeKg=.02
+ const actor={...createDefaultCharacter(),id:'crossing'},point=x=>({x,y:2,z:0})
+ scene.tokens=[{...point(10),actorId:actor.id,diameter:.5,support:{kind:'ground'}}]
+ const movements=new Map([[actor.id,[{start:0,end:.5,a:point(10),b:point(2)},{start:.5,end:1,a:point(2),b:point(10)}]]])
+ const world={characters:[actor],campaign:{...emptyCampaign(),scenes:state}}
+ advanceThermal(scene,10,roundExposureObserver(world,scene,profile,10,movements,new Map()))
+ closeTo(actor.body.exposure.smoke,4-3.75/30)
+ assert.equal(actor.body.exposure.oxygen,0)
+})
+
+test('Среда и герои: вертикальная граница учитывает ускорение падения',()=>{
+ const {state,scene}=airRoomFixture()
+ scene.maxZ=4;scene.physics.gravityMs2=2
+ const profile={...defaultExposureProfile,responseSeconds:1},upper=scene.physics.airRooms[0]
+ scene.physics.exposure=profile
+ upper.min.z=3;upper.max.z=4;upper.air.smokeKg=.02
+ scene.physics.airRooms=[upper]
+ const actor={...createDefaultCharacter(),id:'falling'}
+ scene.tokens=[{actorId:actor.id,x:2,y:2,z:0,diameter:.5,support:{kind:'ground'}}]
+ const world={characters:[actor],campaign:{...emptyCampaign(),scenes:state}}
+ advanceThermal(scene,2,roundExposureObserver(world,scene,profile,2,new Map(),new Map([[actor.id,{z:4,speedMs:0}]])))
+ closeTo(actor.body.exposure.smoke,4-1/30)
+})
 
 test('Комнаты: границы, совместимость публикации и независимое копирование воздуха',()=>{
  const {state,scene}=airRoomFixture(),copy=copySceneState(state)

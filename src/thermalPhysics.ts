@@ -114,7 +114,9 @@ function exchangeHeat(scene: Scene, layout: SceneAir, seconds: number) {
   }
 }
 
-export function advanceThermal(scene: Scene, seconds: number) {
+export type ThermalObserver = (layout:SceneAir, fraction:number) => void
+
+export function advanceThermal(scene: Scene, seconds: number, observe?:ThermalObserver) {
   const layout = sceneAir(scene)
   if (!layout) return 0
   const {regions} = layout
@@ -136,6 +138,7 @@ export function advanceThermal(scene: Scene, seconds: number) {
   const fuelByRegion:SceneObject[][] = regions.map(() => [])
   for (const object of scene.objects) if (object.physics?.combustion) fuelByRegion[layout.indexAt(object)].push(object)
   let flowReactionHeatJ = 0
+  observe?.(layout,0)
   for (let i = 0; i < steps; i++) {
     flowReactionHeatJ += advanceWaterFlow(scene, dt, waterStepLimit, layout)
     settleFire(scene, layout)
@@ -148,6 +151,7 @@ export function advanceThermal(scene: Scene, seconds: number) {
     settleFire(scene, layout)
     exchangeHeat(scene, layout, dt)
     regions.forEach(settleAtmosphericMoisture)
+    observe?.(layout,(i+1)/steps)
   }
   return flowReactionHeatJ
 }

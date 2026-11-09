@@ -1,6 +1,6 @@
 import { functionalModifiers, selectActiveEffects } from './functionalStates'
 import { effectiveAttribute, standardFormulas, artifactCompatibility } from './creationRules'
-import { injuryModifiers } from './bodyPerception'
+import { exposureModifiers, injuryModifiers } from './bodyPerception'
 import type { ReadyCharacterDraft } from './characterModel'
 import type { InventoryItem, Modifier, ParameterKey, RpgState, Formula } from './rpgTypes'
 import { parameterFields } from './rpgSchema'
@@ -24,6 +24,7 @@ export function parameterCalculation(actor:ReadyCharacterDraft,seconds:number){
   ...actor.rpg.inventory.filter(i=>workingItem(i)&&artifactCompatibility(actor,i).ok).flatMap(i=>sourced(i.modifiers,'Экипировка: '+i.name)),
   ...effects.flatMap(e=>sourced(functionalModifiers(e),'Эффект: '+e.name)),
   ...sourced(injuryModifiers(actor.body),'Боль от ранений'),
+  ...sourced(exposureModifiers(actor.body),'Нагрузка среды'),
  ]
  function calculate(extra:SourcedModifier[]){
   const values={} as Record<ParameterKey,string>,traces={} as Record<ParameterKey,ParameterTrace>

@@ -140,6 +140,20 @@ test('Помещения UI: две комнаты и связь дверей, �
   await submit();assert.equal(state.value.airRooms,null)
 })
 
+test('Воздействие на героев UI: игровые пороги сохраняются и явно выключаются',async()=>{
+  const state=await fixture(EnvironmentPhysicsPanel),field=name=>document.querySelector('[name="'+name+'"]')
+  assert(!field('simulateExposure'))
+  await flush(()=>field('simulateThermal').click())
+  await flush(()=>field('simulateExposure').click())
+  await flush(()=>{field('exposureCold').value='41';field('exposureResponse').value='6'})
+  await submit();assert.equal(state.value,undefined);assert.match(document.querySelector('[role=alert]').textContent,/порог холода/i)
+  assert.equal(field('exposureResponse').value,'6')
+  await flush(()=>{field('exposureCold').value='-10'})
+  await submit();assert.equal(state.value.exposure.coldK,263.15);assert.equal(state.value.exposure.responseSeconds,6)
+  await flush(()=>field('simulateExposure').click())
+  await submit();assert.equal(state.value.exposure,null);assert(state.value.atmosphere)
+})
+
 test('Конструкции UI: прочность сохраняется, накопленный удар можно исправить без сброса материала',async()=>{
   const state=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('wood'),massKg:4,temperatureK:293.15,wetnessFraction:0},{canBreak:true})
   const name=key=>document.querySelector('[name="'+key+'"]')

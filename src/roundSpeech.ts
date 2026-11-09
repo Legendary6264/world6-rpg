@@ -4,12 +4,13 @@ import type { DeclarationCollection, DeclaredAction } from './actionDeclarations
 import type { World } from './rpgEngine'
 import type { RoundWork, RoundWorkEntry } from './roundWork'
 import type { JournalEntry } from './characterKnowledge'
+import { exposureLimits } from './exposureProfiles'
 
 export type SpeechRow = { key: string; actorId: string; action: Extract<DeclaredAction, {kind:'speak'}> }
 export type SpeechHearer = { actorId: string; clarity: 'clear'|'fragment'|'sound'; speaker: string; fragment: string; signs: string }
 export type SpeechDecision = { key: string; confirmed: boolean; reason: string; recordedAt: string; hearers: SpeechHearer[] }
 export type SpeechOutcome = { key: string; actorId: string; volume: SpeechRow['action']['volume']; text: string;
-  heard: {actorId:string;clarity:SpeechHearer['clarity'];speaker:string;text:string}[] }
+  heard: {actorId:string;clarity:SpeechHearer['clarity'];speaker:string;text:string}[]; interruption?:'breathing' }
 export type SpeechLocation = { sceneId:string;actorId:string;x?:number;y?:number;z?:number }
 export const speechVolume = {whisper:'Шёпот',normal:'Обычная речь',shout:'Крик'} as const
 const record = (v:unknown):v is Record<string,unknown> => !!v&&typeof v==='object'&&!Array.isArray(v)
@@ -58,12 +59,15 @@ export function finishRoundSpeech(world:World,work:RoundWorkEntry,key:string,dec
     throw Error('Каждый слушатель должен быть жив, в сознании и размещён в сцене реплики. Проверь адресное раскрытие.')
   }
   const candidate=structuredClone(world),eventKey='speech:'+work.id
-  const heard=decision.hearers.map(h=>({actorId:h.actorId,clarity:h.clarity,speaker:h.speaker.trim(),text:
+  const interrupted = a.volume === 'shout' && exposureLimits(actor.body.exposure).breathing >= 3
+  const heard=interrupted ? [] : decision.hearers.map(h=>({actorId:h.actorId,clarity:h.clarity,speaker:h.speaker.trim(),text:
     (h.clarity==='clear'?speechVolume[a.volume]+'.\n«'+a.text+'»':h.clarity==='fragment'?'Разобран фрагмент · '+speechVolume[a.volume].toLowerCase()+'.\n«'+h.fragment+'»':
       'Неразборчивый голос · '+speechVolume[a.volume].toLowerCase()+'.')+(h.signs.trim()?'\n'+h.signs.trim():'')}))
   // Each journal receives only its own words. No listener list, private speaker ID,
   // target ID, GM reason or complete text for an indistinct voice is disclosed.
-  const notes=[{actorId:actor.id,title:'Произнесена реплика',source:'Своя речь',text:speechVolume[a.volume]+'.\n«'+a.text+'»'},
+  const ownNote = interrupted ? {title:'Крик сорвался',text:'Не хватило дыхания для крика.'} :
+    {title:'Произнесена реплика',text:speechVolume[a.volume]+'.\n«'+a.text+'»'}
+  const notes=[{actorId:actor.id,source:'Своя речь',...ownNote},
     ...heard.map(h=>({actorId:h.actorId,title:h.clarity==='sound'?'Услышан голос':'Услышана реплика',source:h.speaker,text:h.text}))]
   for(const note of notes) {
     const hero=candidate.characters.find(c=>c.id===note.actorId)!
@@ -73,5 +77,5 @@ export function finishRoundSpeech(world:World,work:RoundWorkEntry,key:string,dec
     if(hero.journal.some(e=>e.eventKey===eventKey||e.id===entry.id))throw Error('Эта реплика уже есть в журнале. Проверь работу и историю раунда.')
     hero.journal.push(entry)
   }
-  return {world:candidate,outcome:{key,actorId:work.actorId,volume:a.volume,text:a.text,heard}}
+  return {world:candidate,outcome:{key,actorId:work.actorId,volume:a.volume,text:a.text,heard,...(interrupted?{interruption:'breathing'}:{})}}
 }

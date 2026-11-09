@@ -89,12 +89,12 @@ function overlapZ(a: ScenePosition, b: ScenePosition, height: number, c: ScenePo
   // Feet at a surface, or a body just touching a ceiling, do not penetrate it.
   return slab(a.z - c.z, b.z - d.z, -height + EPS, otherHeight - EPS)
 }
-type Piece = { start: number; end: number; a: ScenePosition; b: ScenePosition }
+export type MovementPiece = { start: number; end: number; a: ScenePosition; b: ScenePosition }
 function tokenPosition(token: SceneToken, plans: MovementPlan[], time: ExactAmount) {
   const started = plans.filter(p => p.work.actorId === token.actorId && compareAmounts(p.startMs, time) <= 0)
   return started.length ? movementPosition(started.at(-1)!, time) : point(token)
 }
-function pieces(token: SceneToken, plans: MovementPlan[], from: ExactAmount, to: ExactAmount): Piece[] {
+function pieces(token: SceneToken, plans: MovementPlan[], from: ExactAmount, to: ExactAmount): MovementPiece[] {
   const fromNumber = scalar(from), toNumber = scalar(to), span = toNumber - fromNumber, cuts = [0, 1]
   for (const p of plans.filter(p => p.work.actorId === token.actorId)) {
     const before = scalar(beforeProgress(p.work)), start = scalar(p.startMs), end = scalar(p.endMs)
@@ -109,7 +109,7 @@ function pieces(token: SceneToken, plans: MovementPlan[], from: ExactAmount, to:
   const at = (fraction: number) => fraction === 0 ? from : fraction === 1 ? to : addAmounts(from, scaleAmount(subtractAmounts(to, from), amountFromNumber(fraction)))
   return sorted.slice(1).map((end, i) => ({ start: sorted[i], end, a: tokenPosition(token, plans, at(sorted[i])), b: tokenPosition(token, plans, at(end)) }))
 }
-const portion = (p: Piece, t: number) => mix(p.a, p.b, (t - p.start) / (p.end - p.start))
+const portion = (p: MovementPiece, t: number) => mix(p.a, p.b, (t - p.start) / (p.end - p.start))
 export function checkClosingDoor(scene: Scene, objectId: string, bodies: MovementBody[], check: () => void) {
   const object = scene.objects.find(o => o.id === objectId)!
   if (object.kind !== 'door' || !object.blocksMovement || object.height <= 0) return
@@ -124,11 +124,13 @@ export function checkClosingDoor(scene: Scene, objectId: string, bodies: Movemen
 // Upright cylinders, linear path segments and static boxes between world events.
 // A shared bounded check counter protects a free service from pathological input.
 export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: MovementBody[], from: ExactAmount, to: ExactAmount, check: () => void,
-  wetContact?: (actorId: string, object: SceneObject, kind: 'water' | 'support') => void) {
+  wetContact?: (actorId: string, object: SceneObject, kind: 'water' | 'support') => void,
+  track?: (actorId:string, pieces:MovementPiece[]) => void) {
   const moving = new Set(plans.filter(p => compareAmounts(p.startMs, to) < 0 && compareAmounts(p.endMs, from) > 0).map(p => p.work.actorId))
   if (compareAmounts(from, to) < 0 && moving.size) {
     const trajectories = scene.tokens.map(t => ({ token: t, height: bodies.find(b => b.actorId === t.actorId)!.heightM, pieces: pieces(t, plans, from, to) }))
     for (const t of trajectories.filter(t => moving.has(t.token.actorId))) {
+      track?.(t.token.actorId,t.pieces)
       for (const p of t.pieces) {
         const middle = addAmounts(from, scaleAmount(subtractAmounts(to, from), amountFromNumber((p.start + p.end) / 2)))
         const active = plans.find(m => m.work.actorId === t.token.actorId && compareAmounts(m.startMs, middle) <= 0 && compareAmounts(m.endMs, middle) >= 0)

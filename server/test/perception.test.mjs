@@ -42,6 +42,110 @@ async function setup(t, dialect) {
 }
 
 for (const dialect of ['sqlite', 'postgres']) {
+  test('Нагрузка среды: маршрут, сорванный крик, приватность и восстановление · '+dialect,async t=>{
+    const f=await setup(t,dialect),{api,gm,player,other,root}=f
+    const [runner,listener]=f.heroes,world=()=>api(root+'/world',gm.token)
+    const [owned]=await api('/characters',other.token),sheetPath='/characters/'+owned.id
+    const sheet=await api(sheetPath,other.token)
+    sheet.character.body.exposureProtection={breathing:true,temperature:false}
+    sheet.character.body.exposure={oxygen:0,smoke:1,heat:0,cold:0}
+    const stored=await api(sheetPath,other.token,'PUT',sheet)
+    const older=structuredClone(sheet.character)
+    delete older.body.exposure;delete older.body.exposureProtection
+    await api(sheetPath,other.token,'PUT',{character:older,revision:stored.revision})
+    assert.deepEqual((await api(sheetPath,other.token)).character.body,sheet.character.body)
+    for(const actorId of f.heroes)await api(f.route(actorId)+'/review',gm.token,'POST',{revision:await f.revision(),decision:'approve',note:''})
+    const initial=await world(),scene=initial.campaign.scenes.scenes[0]
+    Object.assign(scene,{width:16,depth:8,minZ:0,maxZ:3,objects:[]})
+    scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,
+      atmosphere:{oxygenFraction:.2095,smokeKg:0,steamKg:0,fogKg:0,outsideTemperatureK:293.15,doorVentilation:false},
+      exposure:{version:1,oxygenFraction:.18,smokeMgM3:20,coldK:273.15,hotK:313.15,responseSeconds:2},
+      airRooms:[{id:'sealed-airway',name:'Дымовой отсек',min:{x:4,y:0,z:0},max:{x:8,y:8,z:3},ambientTemperatureK:293.15,
+        air:{oxygenFraction:.13,smokeKg:.02,steamKg:0,fogKg:0}}],
+    }
+    Object.assign(scene.tokens[0],{x:2,y:2})
+    Object.assign(scene.tokens[1],{x:14,y:7,z:0,support:{kind:'ground'}})
+    scene.tokens.push({...scene.tokens[0],actorId:listener,x:6,y:6})
+    initial.characters.find(actor=>actor.id===listener).body.exposureProtection={breathing:true,temperature:false}
+    await api(root+'/world',gm.token,'PUT',{world:initial,revision:initial.revision})
+    for(const actorId of f.heroes){
+      const draft=f.draft(),known=draft.scenes[0]
+      Object.assign(known.areas[0],{z:0,width:16,depth:8,height:3})
+      known.objects=[];known.contacts=[]
+      await f.disclose(draft,actorId)
+    }
+    const speak=text=>({kind:'speak',target:{kind:'none'},volume:'shout',text,note:''})
+    const wait=seconds=>({kind:'wait',seconds,note:''})
+    const command=value=>({previewId:value.id,generation:value.generation,commandKey:crypto.randomUUID()})
+    const apply=body=>api(root+'/rounds/apply',gm.token,'POST',body)
+    const view=()=>f.see(player.token,runner), hearer=()=>f.see(other.token,listener)
+    const previewRound=async (actions,costs,speechIndex,movement)=>{
+      await api(root+'/declarations',gm.token,'POST',{sceneId:scene.id,participantIds:f.heroes,durationSeconds:60,allowReplace:true,revision:await f.revision()},201)
+      const send=async(actorId,token,entries)=>{
+        const url=f.route(actorId)+'/declarations',current=await api(url,token)
+        const {id,epoch}=current.collection
+        await api(url,token,'PUT',{collectionId:id,epoch,baseVersion:0,controlStamp:current.controlStamp,actions:entries})
+        return {id,epoch}
+      }
+      const {id,epoch}=await send(runner,player.token,actions)
+      await send(listener,other.token,[wait(1)])
+      await api(root+'/declarations',gm.token,'PATCH',{collectionId:id,epoch,operation:'close'})
+      const before=await world()
+      const preview=await api(root+'/rounds/calculate',gm.token,'POST',{revision:before.revision,collectionId:id,epoch:before.campaign.declarations.active.epoch,
+        input:{timings:[{actorId:runner,entryRevision:1,budgetMs:60000,costs},{actorId:listener,entryRevision:1,budgetMs:60000,costs:[]}],
+          continuations:[],missingDecisions:[],interactionsConfirmed:true,rules:[],...(movement?{movement}:{}),
+          speech:[{key:'new:'+runner+':'+speechIndex,confirmed:true,reason:'Слышимость подтверждена',recordedAt:'2099-01-01T00:00:00.000Z',
+            hearers:[{actorId:listener,clarity:'clear',speaker:'Товарищ',fragment:'',signs:''}]}]}})
+      assert.deepEqual(await world(),before)
+      return {preview,before}
+    }
+    const silentText='СЕКРЕТ НЕПРОИЗНЕСЁННОГО КРИКА'
+    const {preview,before}=await previewRound([
+      {kind:'move',support:'ground',route:[{x:10,y:2,z:0},{x:10,y:4,z:0}],note:''},speak(silentText),
+    ],[{index:0,personalMs:20000},{index:1,personalMs:300}],1,
+    {confirmed:true,bodies:scene.tokens.map(({actorId})=>({actorId,heightM:1.8}))})
+    assert.equal(preview.summary.speech[0].interruption,'breathing');assert.deepEqual(preview.summary.speech[0].heard,[])
+    assert.equal(preview.summary.exposure.length,1)
+    assert.equal(preview.summary.exposure[0].actorId,runner)
+    assert(Math.abs(preview.summary.exposure[0].changes.find(change=>change.kind==='smoke').to-2.4)<1e-9)
+    const savedCommand=command(preview),{receipt}=await apply(savedCommand),after=await world()
+    const moved=after.campaign.scenes.scenes[0].tokens.find(t=>t.actorId===runner)
+    assert.equal(moved.x,10);assert.equal(moved.y,4)
+    const burdened=await view(),protectedView=await hearer()
+    assert(burdened.hero.sensations.some(s=>s.label==='Дыхание'))
+    assert(burdened.hero.capabilities.some(text=>text.includes('спринту')))
+    assert(burdened.knowledge.journal.some(entry=>entry.title==='Крик сорвался'))
+    assert.equal(protectedView.hero.sensations.length,0)
+    assert.doesNotMatch(JSON.stringify([burdened,protectedView]),/responseSeconds|exposureProtection|sealed-airway|Дымовой отсек|СЕКРЕТ НЕПРОИЗНЕСЁННОГО КРИКА/)
+    await f.restart()
+    assert.equal((await apply(savedCommand)).duplicate,true);assert.deepEqual(await world(),after)
+
+    const history=await api(root+'/rounds/history',gm.token)
+    const rollback=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:history.revision,receiptId:receipt.id,reason:'Сверить нагрузку'})
+    await api(root+'/rounds/change/apply',gm.token,'POST',command(rollback))
+    assert.deepEqual((await world()).characters.map(actor=>actor.body),before.characters.map(actor=>actor.body))
+    assert(!((await view()).knowledge.journal.some(entry=>entry.title==='Крик сорвался')))
+    const rolledBack=await api(root+'/rounds/history',gm.token)
+    const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:rolledBack.revision,receiptId:receipt.id})
+    await apply(command(replay))
+    assert.deepEqual((await world()).characters.map(actor=>actor.body),after.characters.map(actor=>actor.body))
+
+    const legacy=await world()
+    delete legacy.campaign.scenes.scenes[0].physics.exposure
+    for(const actor of legacy.characters){delete actor.body.exposure;delete actor.body.exposureProtection}
+    await api(root+'/world',gm.token,'PUT',{world:legacy,revision:legacy.revision})
+    const retained=await world()
+    assert.deepEqual(retained.characters.map(actor=>actor.body),after.characters.map(actor=>actor.body))
+    assert.equal(retained.campaign.scenes.scenes[0].physics.exposure.responseSeconds,2)
+    const {id,epoch}=retained.campaign.declarations.active
+    await api(root+'/declarations',gm.token,'PATCH',{collectionId:id,epoch,operation:'archive'})
+    const recovered=await previewRound([wait(45),speak('Дышу ровнее.')],[{index:1,personalMs:300}],1)
+    assert.equal(recovered.preview.summary.speech[0].interruption,undefined)
+    await apply(command(recovered.preview))
+    assert.equal((await view()).hero.sensations.length,0)
+    assert((await hearer()).knowledge.journal.some(entry=>entry.text.includes('Дышу ровнее.')))
+  })
+
   test('Воздух комнат: два игрока, открытие двери, сохранение и переигровка · '+dialect,async t=>{
     const f=await setup(t,dialect),{api,gm,player,other,root}=f
     const [first,second]=f.heroes,route=f.route(second),world=()=>api(root+'/world',gm.token)

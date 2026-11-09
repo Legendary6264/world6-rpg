@@ -13,6 +13,7 @@ import type {Scene,SceneObject} from './sceneTypes'
 import {airAxes,airRoomsFit,isAirRoomList,MAX_AIR_ROOMS} from './airProfiles'
 import type {AirRoom} from './airProfiles'
 import {airPortal,sceneAir} from './sceneAir'
+import {defaultExposureProfile,isExposureProfile} from './exposureProfiles'
 import {bodyRegions} from './bodyRegions'
 import {isLandingProfile,isSliding,MAX_SLIDE_FRICTION,MAX_STRUCTURAL_ENERGY_J} from './mechanicalProfiles'
 import type {LandingProfile} from './mechanicalProfiles'
@@ -269,6 +270,8 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
   const [message,setMessage]=useState(''),[failed,setFailed]=useState(false)
   const [simulate, setSimulate] = useState(!!value?.atmosphere)
   const [simulateVision, setSimulateVision] = useState(!!value?.vision)
+  const [simulateExposure, setSimulateExposure] = useState(!!value?.exposure)
+  const exposure = value?.exposure ?? defaultExposureProfile
   const air = value?.atmosphere
   const [simulateFog, setSimulateFog] = useState(air?.fogKg != null)
   const [rooms,setRooms] = useState<AirRoom[]>(value?.airRooms ?? [])
@@ -312,6 +315,15 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
         next.atmosphere = null
         if (value?.airRooms !== undefined) next.airRooms = null
       }
+      if (next.atmosphere && data.has('simulateExposure')) {
+        const profile = {
+          version:1 as const, oxygenFraction:number(data,'exposureOxygen')/100, smokeMgM3:number(data,'exposureSmoke'),
+          coldK:celsiusToKelvin(number(data,'exposureCold')), hotK:celsiusToKelvin(number(data,'exposureHot')),
+          responseSeconds:number(data,'exposureResponse'),
+        }
+        if (!isExposureProfile(profile)) throw Error('Проверь пороги нагрузки и время нарастания. Порог холода должен быть ниже порога жары.')
+        next.exposure = profile
+      } else if (value?.exposure !== undefined) next.exposure = null
       if (data.has('simulateVision')) next.vision = {ambientLux:number(data,'ambientLux'),detectionLux:number(data,'detectionLux')}
       else if (value?.vision !== undefined) next.vision = null
       if (!isPhysicsEnvironment(next)) throw Error('Проверь значения среды, в том числе освещённость и порог видимости.')
@@ -352,6 +364,18 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
             {rooms.length>0 && <p className="w6-copy">Удаление комнаты снимает её параметры. Освобождённое пространство использует общие условия.</p>}
             <SavedAirDoors scene={scene}/>
           </details>}
+          <details className="gb-scene-details gb-wide">
+            <summary>Воздействие на героев{value?.exposure ? ' · включено' : ''}</summary>
+            <label className="w6-check"><input name="simulateExposure" type="checkbox" checked={simulateExposure} onChange={event=>setSimulateExposure(event.currentTarget.checked)}/>Учитывать дым, кислород и температуру для героев</label>
+            {simulateExposure && <div className="gb-properties">
+              <p className="w6-copy gb-wide">Это игровые пороги начала нагрузки. Ощущения и ограничения нарастают со временем. В безопасной зоне они ослабевают.</p>
+              <label className="w6-field"><span>Мало кислорода ниже, %</span><input name="exposureOxygen" type="number" min="0" max="100" step="any" defaultValue={exposure.oxygenFraction*100} required/></label>
+              <label className="w6-field"><span>Дым выше, мг/м³</span><input name="exposureSmoke" type="number" min=".01" max="1000000000" step="any" defaultValue={exposure.smokeMgM3} required/></label>
+              <label className="w6-field"><span>Холод ниже, °C</span><input name="exposureCold" type="number" min="-273.15" max="999726.85" step="any" defaultValue={kelvinToCelsius(exposure.coldK)} required/></label>
+              <label className="w6-field"><span>Жар выше, °C</span><input name="exposureHot" type="number" min="-273.15" max="999726.85" step="any" defaultValue={kelvinToCelsius(exposure.hotK)} required/></label>
+              <label className="w6-field gb-wide"><span>Время нарастания, с</span><input name="exposureResponse" type="number" min="1" max="3600" step="any" defaultValue={exposure.responseSeconds} required/><small>За это время единичная нагрузка даёт первые симптомы. Более тяжёлые условия действуют быстрее.</small></label>
+            </div>}
+          </details>
         </>}
       </details>
       <details className="gb-scene-details gb-wide"><summary>Свет и видимость{value?.vision ? ' · включено' : ''}</summary>

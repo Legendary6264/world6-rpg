@@ -15,6 +15,7 @@ import type { ActionInput, ActionLog, Campaign, Cast, ConsumableEffect, Inventor
 import { statisticFields } from './characterStatistics'
 import { kineticEnergyJ } from './physicsUnits'
 import type { LandingProfile } from './mechanicalProfiles'
+import { advanceStationaryExposure } from './environmentExposure'
 export type Actor = ReadyCharacterDraft & {id:string}
 export type World = {characters: Actor[]; campaign: Campaign}
 export type Plan = {fingerprint:string; world:World; text:string; details:string; eventId:string;targets?:{actorId:string;name:string;details:string}[]}
@@ -510,7 +511,7 @@ function ongoingCosts(actor:Actor,seconds:number){
   if(!actor.rpg.dead){const energy=actor.profile.energy??'mana';costs[energy]-=Number(evaluatedParameters(actor,seconds).energyRegeneration)||0}
   return costs
 }
-export function advanceWorld(world:World,seconds:number,eventId:string):World {
+export function advanceWorld(world:World,seconds:number,eventId:string,simulatedSceneId?:string):World {
   if(!safe(seconds)||seconds<=0||seconds>31536000||!safe(world.campaign.seconds+seconds))fail('Введи время больше нуля, не более года за операцию.')
   const w=cloneWorld(world),end=w.campaign.seconds+seconds,initialLost=new Map(w.characters.map(c=>[c.id,c.rpg.physiology.totalLostMl]))
   for(const actor of w.characters)applyAutomaticLife(actor,w.campaign.seconds,eventId+'-start-'+actor.id)
@@ -590,6 +591,7 @@ export function advanceWorld(world:World,seconds:number,eventId:string):World {
     }
   }
   for(const actor of w.characters){actor.rpg.effects=actor.rpg.effects.filter(e=> (e.expiresAt===null||e.expiresAt>end)&&(!e.ownerId||w.characters.find(c=>c.id===e.ownerId)?.rpg.casts.find(c=>c.id===e.castId)?.status!=='interrupted'));clampResources(actor,end);applyAutomaticLife(actor,end,eventId+'-end-'+actor.id)}
+  advanceStationaryExposure(w,seconds,simulatedSceneId)
   const details=w.characters.map(c=>c.name+': потеря крови '+round(c.rpg.physiology.totalLostMl-(initialLost.get(c.id)??0))+' мл; '+physiologyStatus(c,end).label).join('\n')
   logWorld(w,eventId,'Время +'+seconds+' с → '+end+' с',details,w.characters.map(c=>c.id));w.campaign.revision++
   if(!w.characters.every(isCharacterDraft)||!isCampaign(w.campaign))fail('После расчёта получились недопустимые значения. Ничего не изменено.')

@@ -47,14 +47,17 @@ test('Физика в редакторе: профили объекта и ср�
  const withoutRooms=structuredClone(current),count=writes
  await flush(()=>document.querySelector('[name=simulateThermal]').click())
  await flush(()=>button('Добавить комнату').click())
+ await flush(()=>document.querySelector('[name=simulateExposure]').click())
  await flush(()=>{
   const room=document.querySelector('[data-air-room]')
   room.querySelector('[name$="-name"]').value='Кузня'
   room.querySelector('[name$="-steam"]').value='0.5'
+  document.querySelector('[name=exposureResponse]').value='5'
   document.querySelector('[aria-label="Физические условия сцены"]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}))
  })
  const withRoom=structuredClone(current)
  assert.equal(writes,count+1);assert.equal(active().physics.airRooms[0].name,'Кузня');assert.equal(active().physics.airRooms[0].air.steamKg,.5)
+ assert.equal(active().physics.exposure.responseSeconds,5)
  await key('z',{ctrlKey:true});assert.deepEqual(current,withoutRooms)
  await key('z',{ctrlKey:true,shiftKey:true});assert.deepEqual(current,withRoom)
 })

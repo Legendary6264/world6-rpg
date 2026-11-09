@@ -1,8 +1,9 @@
 import { bodyRegionDefs, bodyConsequences } from './characterBody'
 import type { BodyState } from './characterBody'
+import { exposureLimits, exposureStage } from './exposureProfiles'
 
 export function perceivedBody(body:BodyState){
- return bodyRegionDefs(body).flatMap(region=>{
+ const injury = bodyRegionDefs(body).flatMap(region=>{
   const part=body.parts[region.key];if(!part.present)return []
   const structures=(body.anatomy?.structures??[]).filter(s=>s.region===region.key)
   const injured=structures.filter(s=>s.current<s.maximum||s.injuries.length||s.activeBleeding)
@@ -18,6 +19,15 @@ export function perceivedBody(body:BodyState){
   const diagnoses=structures.flatMap(s=>s.injuries.filter(i=>i.diagnosed).map(i=>s.name+': '+i.label))
   return [{region:region.key,label:region.label,symptoms,diagnoses}]
  })
+ const breathing:string[] = [], temperature:string[] = []
+ const load = body.exposure
+ if (exposureStage(load?.smoke ?? 0)) breathing.push('Першит в горле, хочется кашлять.')
+ if (exposureStage(load?.oxygen ?? 0)) breathing.push('Не хватает воздуха, кружится голова.')
+ if (exposureStage(load?.heat ?? 0)) temperature.push('Жар и слабость мешают сосредоточиться.')
+ if (exposureStage(load?.cold ?? 0)) temperature.push('Знобит, движения теряют точность.')
+ if (breathing.length) injury.push({region:'exposure:breathing',label:'Дыхание',symptoms:breathing,diagnoses:[]})
+ if (temperature.length) injury.push({region:'exposure:temperature',label:'Температура',symptoms:temperature,diagnoses:[]})
+ return injury
 }
 
 export function injuryModifiers(body:BodyState){
@@ -27,11 +37,23 @@ export function injuryModifiers(body:BodyState){
  return [{parameter:'concentrationPower' as const,flat:0,percent:-pain},{parameter:'physicalAccuracy' as const,flat:0,percent:-pain*.6},{parameter:'spellAccuracy' as const,flat:0,percent:-pain*.6}]
 }
 
+export function exposureModifiers(body:BodyState){
+ const {focusPenalty,accuracyPenalty} = exposureLimits(body.exposure)
+ return [
+   {parameter:'concentrationPower' as const,flat:0,percent:-focusPenalty},
+   {parameter:'physicalAccuracy' as const,flat:0,percent:-accuracyPenalty},
+   {parameter:'spellAccuracy' as const,flat:0,percent:-accuracyPenalty},
+ ].filter(modifier=>modifier.percent!==0)
+}
+
 export function perceivedCapabilities(body:BodyState){
  const c=bodyConsequences(body),notices:string[]=[]
+ const exposure=exposureLimits(body.exposure)
  if(!c.leftHand)notices.push('Левой рукой сейчас нельзя пользоваться.')
  if(!c.rightHand)notices.push('Правой рукой сейчас нельзя пользоваться.')
  if(c.movementFactor<1)notices.push('Передвижение затруднено.')
+ if(exposure.severity>=2)notices.push('Нагрузка среды мешает спринту.')
+ if(exposure.breathing>=3)notices.push('Не хватает дыхания для крика.')
  if(c.hasWings)notices.push(c.canFly?(c.flightFactor<1?'Взмахи слабее, полёт затруднён.':'Крылья работают; полёт доступен.'):'Не удаётся выполнить взлёт или удержать полёт.')
  return notices
 }

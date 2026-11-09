@@ -1,7 +1,7 @@
 import { canonicalRaceId, isRaceTemplate, raceById, raceTemplates, type RaceTemplate } from './raceCatalog'
 export { raceById, raceTemplates } from './raceCatalog'
 import { functionalModifiers, selectActiveEffects } from './functionalStates'
-import { injuryModifiers } from './bodyPerception'
+import { exposureModifiers, injuryModifiers } from './bodyPerception'
 import { isBodyState, type BodyState } from './characterBody'
 import { attributeFields, attrKeys, type AttributeKey } from './attributes'
 import { rankOptions, progressionSteps, type CharacterProfile } from './characterProfile'
@@ -62,7 +62,8 @@ export function skillBreakdown(actor:ReadyCharacterDraft,id:SkillKey,seconds=0) 
  const aptitude=terms.reduce((sum,t)=>sum+t.value*t.weight,0)
  const parameter=({stealth:'stealthBonus',mental:'mentalResistance',spellcraft:'controlPower',sensing:'perception'} as Record<string,string>)[id]
  const painParameter=s.group==='Магия'||s.group==='Знание'?'concentrationPower':'physicalAccuracy'
- const mods=[...selectActiveEffects(actor.rpg.effects,seconds).flatMap(functionalModifiers).filter(m=>m.parameter===parameter),...injuryModifiers(actor.body).filter(m=>m.parameter===painParameter)]
+ const bodyModifiers=[...injuryModifiers(actor.body),...exposureModifiers(actor.body)]
+ const mods=[...selectActiveEffects(actor.rpg.effects,seconds).flatMap(functionalModifiers).filter(m=>m.parameter===parameter),...bodyModifiers.filter(m=>m.parameter===painParameter)]
  const flat=mods.reduce((s,m)=>s+m.flat,0),percent=mods.reduce((s,m)=>s+m.percent,0)
  const learning=raceById(actor.creation.raceId,actor.creation.customRaces).learning,masteryFactor=1+Math.min(100,level)/200
  const value=Math.round(Math.max(0,((aptitude*.6+level*1.4*learning)*masteryFactor+flat)*(1+percent/100))*100)/100
