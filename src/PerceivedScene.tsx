@@ -16,11 +16,12 @@ type Props = { effectTimeMs?:number;abilityAim?:SceneAbilityAim|null; onObjectMo
 function VisibilityNotice({ map }: { map: PerceivedMap }) {
   if (map.optics) return <p className="gb-smoke-notice" role="status">
     <strong>Свет и обзор</strong><span>{map.optics.unplaced ? 'Обзор появится, когда мастер разместит героя.' :
-      map.optics.dim ? 'В полумраке видны освещённые цели.' : 'Преграды закрывают обзор.'}{map.optics.smoke ? ' Дым ослабляет свет.' : ''}</span>
+      map.optics.dim ? 'В полумраке видны освещённые цели.' : 'Преграды закрывают обзор.'}{map.optics.smoke ? ' Дым ослабляет свет.' : ''}{map.fog ? ' Туман рассеивает свет.' : ''}</span>
   </p>
-  const distance = map.smokeVisibilityM
-  return distance === undefined ? null : <p className="gb-smoke-notice" role="status">
-    <strong>Дым</strong><span>Видимость {distance < .1 ? 'меньше 0,1' : 'около ' + distance.toLocaleString('ru-RU')} м</span>
+  const distance = map.fog?.visibilityM ?? map.smokeVisibilityM
+  return !map.fog && distance === undefined ? null : <p className="gb-smoke-notice" role="status">
+    <strong>{map.fog ? 'Туман' : 'Дым'}</strong><span>{distance === undefined ? 'Капли в воздухе рассеивают свет.' :
+      'Видимость ' + (distance < .1 ? 'меньше 0,1' : 'около ' + distance.toLocaleString('ru-RU')) + ' м'}</span>
   </p>
 }
 export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSelect, onPoint, onObject, selectedObject, pickedPoint, plannedRoute = [] }: Props) {
@@ -29,7 +30,8 @@ export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSel
   const clip = useId().replace(/:/g, ''),visualClip=clip+'-visual', f = map.frame, side = f.view === 'side', vertical = side ? f.maxZ - f.minZ : f.depth
   const tiled=isTiledArtwork(f.background),tileSize=f.backgroundTileSizeM??4
   const size = Math.max(f.width, vertical) * .022, self = map.contacts.find(c=>c.kind==='self')
-  const smoke = self && map.smokeVisibilityM !== undefined ? {x:self.x,y:side ? f.maxZ - (self.z ?? f.groundZ) : self.y,radius:Math.max(.01,map.smokeVisibilityM)} : null
+  const airRange = map.fog?.visibilityM ?? map.smokeVisibilityM
+  const haze = self && airRange !== undefined ? {x:self.x,y:side ? f.maxZ - (self.z ?? f.groundZ) : self.y,radius:Math.max(.01,airRange)} : null
   const yPoint = (p:ScenePosition) => side ? f.maxZ-p.z : p.y
   const route = [...(self&&self.z!==undefined?[{x:self.x,y:self.y,z:self.z}]:[]),...plannedRoute]
   const yOf = (c: VisibleContact) => side ? c.z === undefined ? vertical / 2 : f.maxZ - c.z : c.y
@@ -61,13 +63,14 @@ export function SvgPerceivedScene({ effectTimeMs,abilityAim,map, selected, onSel
       {!tiled&&f.background&&<g clipPath={'url(#'+clip+')'}><image href={artworkSource(f.background)} width={f.width} height={vertical} preserveAspectRatio="none"/>{map.areas.filter(a=>!a.visible).map(a=><rect key={a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth} fill="#10121d" opacity=".55"/>)}</g>}
       {tiled&&map.areas.map(a=><rect key={'texture-'+a.id} x={a.x} y={side?f.maxZ-a.z-a.height:a.y} width={a.width} height={side?a.height:a.depth} fill={'url(#'+clip+'-texture)'} opacity={a.visible?1:.45}/>)}
       {map.optics?.dim && <rect width={f.width} height={vertical} fill="#10121d" opacity=".28" clipPath={'url(#'+visualClip+')'} pointerEvents="none" aria-hidden="true"/>}
-      {smoke && <g pointerEvents="none" clipPath={'url(#'+visualClip+')'} aria-hidden="true">
-        <defs><radialGradient id={clip+'-smoke'} gradientUnits="userSpaceOnUse" cx={smoke.x} cy={smoke.y} r={smoke.radius}>
-          <stop offset="0%" stopColor="#605960" stopOpacity="0.07"/>
-          <stop offset="55%" stopColor="#605960" stopOpacity="0.18"/>
-          <stop offset="100%" stopColor="#34313b" stopOpacity="0.76"/>
+      {map.fog && !haze && <rect width={f.width} height={vertical} fill="#a3bbc6" opacity=".18" clipPath={'url(#'+visualClip+')'} pointerEvents="none" aria-hidden="true"/>}
+      {haze && <g pointerEvents="none" clipPath={'url(#'+visualClip+')'} aria-hidden="true">
+        <defs><radialGradient id={clip+'-haze'} gradientUnits="userSpaceOnUse" cx={haze.x} cy={haze.y} r={haze.radius}>
+          <stop offset="0%" stopColor={map.fog ? '#a3bbc6' : '#605960'} stopOpacity="0.07"/>
+          <stop offset="55%" stopColor={map.fog ? '#a3bbc6' : '#605960'} stopOpacity="0.18"/>
+          <stop offset="100%" stopColor={map.fog ? '#82949e' : '#34313b'} stopOpacity={map.fog ? .48 : .76}/>
         </radialGradient></defs>
-        <rect width={f.width} height={vertical} fill={'url(#'+clip+'-smoke)'}/>
+        <rect width={f.width} height={vertical} fill={'url(#'+clip+'-haze)'}/>
       </g>}
       {route.length>1&&<polyline points={route.map(p=>`${p.x},${yPoint(p)}`).join(' ')} className="gb-game-route" vectorEffect="non-scaling-stroke"/>}
       {pickedPoint&&<g className="gb-game-destination"><circle cx={pickedPoint.x} cy={yPoint(pickedPoint)} r={size*.55} vectorEffect="non-scaling-stroke"/><path d={`M${pickedPoint.x-size} ${yPoint(pickedPoint)}h${size*2}M${pickedPoint.x} ${yPoint(pickedPoint)-size}v${size*2}`} vectorEffect="non-scaling-stroke"/></g>}

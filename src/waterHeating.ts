@@ -3,17 +3,18 @@ import { MAX_TEMPERATURE_K, physicsNumber } from './physicsUnits'
 import type { Scene, SceneObject } from './sceneTypes'
 import {
   BOIL_K, BOILING_ENTHALPY_J_KG, MIN_WATER_ENTHALPY_J_KG, VAPORIZATION_J_KG,
-  WATER_MASS_KG_M3, waterEnthalpy, waterPhase, waterVolumeM3,
+  WATER_HEAT_J_KG_K, WATER_MASS_KG_M3, waterEnthalpy, waterPhase, waterVolumeM3,
 } from './waterPhysics'
 
 const AIR_DENSITY = 1.2
 const AIR_HEAT = 1005
-const STEAM_HEAT = 1850
+export const STEAM_HEAT_J_KG_K = 1850
 
 // One well-mixed zone with a minimum effective volume for very flat scenes.
 export const roomVolumeM3 = (scene: Scene) => Math.max(.01, scene.width * scene.depth * (scene.maxZ - scene.minZ))
 export const roomAirMassKg = (scene: Scene) => AIR_DENSITY * roomVolumeM3(scene)
-export const roomHeatCapacity = (scene: Scene, steamKg: number) => roomAirMassKg(scene) * AIR_HEAT + steamKg * STEAM_HEAT
+export const roomHeatCapacity = (scene: Scene, steamKg: number, fogKg = 0) =>
+  roomAirMassKg(scene) * AIR_HEAT + steamKg * STEAM_HEAT_J_KG_K + fogKg * WATER_HEAT_J_KG_K
 
 export function checkedTemperature(k: number) {
   if (!physicsNumber(k, 0, MAX_TEMPERATURE_K)) throw Error('Тепловое действие выходит за допустимый диапазон температуры.')
@@ -39,8 +40,9 @@ export function addSteamFromWater(scene: Scene, evaporatedKg: number, excessJ: n
   const environment = scene.physics, room = environment?.atmosphere
   if (!environment || !room) throw Error('Включи тепло и воздух в физических условиях сцены.')
   const steamKg = room.steamKg + evaporatedKg
-  if (steamKg > MAX_AEROSOL_KG) throw Error('В этой сцене превышен предел учёта пара.')
-  const before = roomHeatCapacity(scene, room.steamKg), after = roomHeatCapacity(scene, steamKg)
+  const fogKg = room.fogKg ?? 0
+  if (steamKg + fogKg > MAX_AEROSOL_KG) throw Error('В этой сцене превышен предел учёта влаги в воздухе.')
+  const before = roomHeatCapacity(scene, room.steamKg, fogKg), after = roomHeatCapacity(scene, steamKg, fogKg)
   environment.ambientTemperatureK = checkedTemperature(BOIL_K + ((environment.ambientTemperatureK - BOIL_K) * before + excessJ) / after)
   room.steamKg = steamKg
 }

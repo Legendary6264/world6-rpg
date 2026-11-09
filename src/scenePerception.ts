@@ -5,7 +5,8 @@ import type { Scene, SceneObject, ScenePosition, SceneState } from './sceneTypes
 import { isArtwork, isTiledArtwork } from './visualMedia'
 import {validTabletopAppearance} from './tabletopCatalog'
 import {sceneEnvironment,validSceneEnvironment} from './sceneEnvironment'
-import {smokeVisibilityM} from './thermalPhysics'
+import {aerosolVisibilityM} from './thermalPhysics'
+import {fogExtinctionPerM} from './atmosphericMoisture'
 import {isVariableWater,waterIceCover} from './waterPhysics'
 import {isSliding} from './mechanicalProfiles'
 import {sceneOptics,visibleLightLevel} from './sceneOptics'
@@ -25,7 +26,8 @@ export type ScenePerceptions = { version: 1; heroes: HeroPerception[] }
 export type PerceptionDraft = { activeSceneId: string | null; scenes: (Omit<KnownScene, 'frame' | 'objects' | 'contacts'> & {
   objects: Pick<ObjectDisclosure, 'objectId' | 'visible'>[]; contacts: Omit<ContactDisclosure, 'id'>[] })[] }
 export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; falling?: true; support?: 'ground' | 'air' | 'object'; portrait?: string; radius?: number; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
-export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; optics?: {dim:boolean; smoke?:true; unplaced?:true};
+export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; fog?:{visibilityM?:number};
+  optics?: {dim:boolean; smoke?:true; unplaced?:true};
   title: string; description: string; frame: MapFrame; areas: KnownArea[];
   objects: (ObservedObject & { visible: boolean; sliding?: true; light?:LightLevel })[]; contacts: VisibleContact[] }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -129,7 +131,8 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
   if (!knowledge || !live) return null
   const self = live.tokens.find(t => t.actorId === value.actorId), actor = actors.find(a => a.id === value.actorId)
   const optics = self ? sceneOptics(live, self) : undefined, unplaced = !!live.physics?.vision && !self
-  const visibility = self && !optics ? smokeVisibilityM(live) : undefined
+  const fog = !!self && fogExtinctionPerM(live) >= .001
+  const visibility = self && !optics ? aerosolVisibilityM(live) : undefined
   const inSight = (p: ScenePosition) => !unplaced && (optics ? optics.seesPoint(p) :
     !self || visibility === undefined || Math.hypot(p.x - self.x, p.y - self.y, p.z - self.z) <= visibility)
   const tokenInSight = (p: ScenePosition) => optics ? optics.seesToken(p) : inSight(p)
@@ -183,8 +186,9 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
       if(effect&&inArea(effect.end,true)&&endInSight(effect.end))visuals.push({...effect,...(persistent?{persistent:true}:{})})
     }
   }
+  const range = visibility === undefined ? undefined : Number(visibility.toPrecision(2))
   return { title: knowledge.title, description: knowledge.description, frame: mapFrame(knowledge.frame), areas: knowledge.areas.map(copyArea), objects, contacts,
-    ...(visibility !== undefined ? {smokeVisibilityM:Number(visibility.toPrecision(2))} : {}),
+    ...(fog ? {fog:range === undefined ? {} : {visibilityM:range}} : range === undefined ? {} : {smokeVisibilityM:range}),
     ...(optics ? {optics:{dim:optics.dim,...(live.physics?.atmosphere?.smokeKg ? {smoke:true as const} : {})}} :
       unplaced ? {optics:{dim:false,unplaced:true as const}} : {}),
     ...(visuals.length?{visuals:visuals.slice(-40)}:{}) }

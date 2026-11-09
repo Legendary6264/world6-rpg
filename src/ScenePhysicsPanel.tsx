@@ -222,6 +222,7 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
   const [simulate, setSimulate] = useState(!!value?.atmosphere)
   const [simulateVision, setSimulateVision] = useState(!!value?.vision)
   const air = value?.atmosphere
+  const [simulateFog, setSimulateFog] = useState(air?.fogKg != null)
   function submit(event:FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if(disabled)return
@@ -232,10 +233,13 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
       if (noise !== undefined) next.backgroundNoiseDb = noise
       if (data.has('simulateThermal')) {
         const reactionHeat = data.has('reactionHeat')
+        const fogKg = data.has('simulateFog') ? number(data, 'fogKg') : air?.fogKg === undefined ? undefined : null
         next.atmosphere = {
-          oxygenFraction:number(data,'oxygenPercent')/100, smokeKg:number(data,'smokeKg'), steamKg:number(data,'steamKg'),
+          oxygenFraction:number(data,'oxygenPercent')/100, smokeKg:number(data,'smokeKg'),
+          steamKg:number(data,'steamKg') + (fogKg === null ? air?.fogKg ?? 0 : 0),
           outsideTemperatureK:celsiusToKelvin(number(data,'outsideC')), doorVentilation:data.has('doorVentilation'),
           ...(reactionHeat || air?.reactionHeat !== undefined ? {reactionHeat} : {}),
+          ...(fogKg !== undefined ? {fogKg} : {}),
         }
       }
       else if (air !== undefined) next.atmosphere = null
@@ -261,10 +265,18 @@ export function EnvironmentPhysicsPanel({value,disabled,onChange}:{value?:Physic
           <label className="w6-field"><span>Доля кислорода, %</span><input name="oxygenPercent" type="number" step="any" min="0" max="100" defaultValue={(air?.oxygenFraction ?? OUTSIDE_OXYGEN_FRACTION)*100} required/></label>
           <label className="w6-field"><span>Дым, кг</span><input name="smokeKg" type="number" step="any" min="0" max={MAX_AEROSOL_KG} defaultValue={air?.smokeKg ?? 0} required/></label>
           <label className="w6-field"><span>Водяной пар, кг</span><input name="steamKg" type="number" step="any" min="0" max={MAX_AEROSOL_KG} defaultValue={air?.steamKg ?? 0} required/></label>
+          <details className="gb-scene-details gb-wide"><summary>Влажность и туман{air?.fogKg != null ? ' · включено' : ''}</summary>
+            <label className="w6-check"><input name="simulateFog" type="checkbox" checked={simulateFog} onChange={event=>setSimulateFog(event.currentTarget.checked)}/>Рассчитывать конденсацию пара</label>
+            {simulateFog && <>
+              <label className="w6-field"><span>Капли тумана в воздухе, кг</span><input name="fogKg" type="number" step="any" min="0" max={MAX_AEROSOL_KG} defaultValue={air?.fogKg ?? 0} required/></label>
+              <p className="w6-copy">Избыток пара конденсируется в капли. Туман мешает обзору, а проветривание выводит пар и капли.</p>
+            </>}
+            {air?.fogKg ? <p className="w6-copy">При отключении расчёта масса капель прибавится к массе пара.</p> : null}
+          </details>
         </>}
       </details>
       <details className="gb-scene-details gb-wide"><summary>Свет и видимость{value?.vision ? ' · включено' : ''}</summary>
-        <label className="w6-check"><input name="simulateVision" type="checkbox" checked={simulateVision} onChange={event=>setSimulateVision(event.currentTarget.checked)}/>Учитывать освещение, преграды и дым</label>
+        <label className="w6-check"><input name="simulateVision" type="checkbox" checked={simulateVision} onChange={event=>setSimulateVision(event.currentTarget.checked)}/>Учитывать освещение, преграды, дым и туман</label>
         {simulateVision && <>
           <label className="w6-field"><span>Фоновый свет, лк</span><input name="ambientLux" type="number" min="0" max={MAX_ILLUMINANCE_LUX} step="any" defaultValue={value?.vision?.ambientLux??.2} required/><small>Общий свет сцены без фонарей.</small></label>
           <label className="w6-field"><span>Порог видимости, лк</span><input name="detectionLux" type="number" min={MIN_SIGHT_LUX} max={MAX_ILLUMINANCE_LUX} step="any" defaultValue={value?.vision?.detectionLux??1} required/><small>Ниже этого порога цель теряется из виду.</small></label>

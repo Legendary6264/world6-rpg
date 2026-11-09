@@ -8,7 +8,8 @@ import { emptyCampaign, isCampaign } from './generated/rpgSchema.mjs'
 import { effectiveActor } from './generated/rpgEngine.mjs'
 import { perceivedBody, perceivedCapabilities } from './generated/bodyPerception.mjs'
 import { assertCampaignSize } from './generated/campaignLimits.mjs'
-import { sceneReferencesValid } from './generated/scenes.mjs'
+import { isSceneState, sceneReferencesValid } from './generated/scenes.mjs'
+import { preserveScenePhysics } from './generated/physicsState.mjs'
 import { perceptionReferencesValid } from './generated/scenePerception.mjs'
 export class ApiError extends Error{constructor(status,message){super(message);this.status=status}}
 export const fail=(status,message)=>{throw new ApiError(status,message)}
@@ -22,10 +23,12 @@ export function email(value){const v=text(value,254).toLowerCase();if(!/^[^\s@]+
 export const publicUser=u=>({id:u.id,displayName:u.display_name,role:u.role,disabled:!!u.disabled})
 export function character(value){if(!value||!isCharacterDraft(value))fail(400,'Некорректный лист персонажа.');validId(value.id);const v={...normalizeCharacterDraft(value),id:value.id};if(Buffer.byteLength(JSON.stringify(v))>2*1024*1024)fail(413,'Персонаж превышает 2 МиБ.');return v}
 export const emptyWorld=()=>({characters:[],campaign:emptyCampaign()})
-export function preserveSceneRoundDurations(current,next){
+export function preservePublishedSceneFields(current,next){
  for(const scene of next?.scenes??[]){const old=current?.scenes.find(s=>s.id===scene.id)
   if(old?.roundDurationSeconds!==undefined){if(scene.roundDurationSeconds!==undefined&&scene.roundDurationSeconds!==old.roundDurationSeconds)fail(409,'Длительность раунда этой сцены уже задана.');scene.roundDurationSeconds=old.roundDurationSeconds}
  }
+ preserveScenePhysics(current,next)
+ if(next&&!isSceneState(next))fail(409,'Правки конфликтуют с сохранёнными физическими настройками сцены. Обнови редактор и проверь значения.')
 }
 export function worldSize(value){try{assertCampaignSize(value)}catch(error){fail(413,error.message)}}
 export function world(value){if(!value||!Array.isArray(value.characters)||value.characters.length>200||!isCampaign(value.campaign))fail(400,'Некорректная кампания.');const characters=value.characters.map(character);if(new Set(characters.map(c=>c.id)).size!==characters.length)fail(400,'Повторяются ID персонажей.');if(!sceneReferencesValid(value.campaign.scenes,characters.map(c=>c.id)))fail(400,'В сценах есть неизвестные персонажи.');if(!declarationReferencesValid(value.campaign.declarations,value.campaign.scenes,characters.map(c=>c.id)))fail(400,'В заявлениях есть неизвестные герои или сцены.');if(!perceptionReferencesValid(value.campaign.perceptions,value.campaign.scenes,characters.map(c=>c.id)))fail(400,'В раскрытии есть неизвестные персонажи или сцены.');if(!roundWorkReferencesValid(value.campaign.roundWork,value.campaign.scenes,characters.map(c=>c.id)))fail(400,'В переносимой работе есть неизвестные герои или сцены.');if(!atlasReferencesValid(value.campaign.atlas,characters.map(c=>c.id),value.campaign.scenes?.scenes.map(s=>s.id)??[]))fail(400,'В справочнике есть неизвестные NPC или сцены.');if(!tradeReferencesValid(value.campaign.trade,characters.map(c=>c.id),value.campaign.atlas))fail(400,'В имуществе есть недоступные герои, города или организации.');if(!economyReferencesValid(value.campaign.economy,characters.map(c=>c.id),value.campaign.trade))fail(400,'В правилах учёта есть недоступные получатели или валюты.');const candidate={characters,campaign:structuredClone(value.campaign)};worldSize(candidate);return candidate}

@@ -1,11 +1,10 @@
-import {preserveScenePhysics} from './generated/physicsState.mjs'
 import {commitWorld} from './world-coordinator.mjs'
 import { sceneAbilityVisuals } from './generated/sceneAbilityVisuals.mjs'
 import {pruneAtlas} from './generated/campaignAtlas.mjs'
 import { pruneDeclarations } from './generated/actionDeclarations.mjs'
 import { roundWorkReferencesValid } from './generated/roundWork.mjs'
 import { prunePerceptions } from './generated/scenePerception.mjs'
-import { fail, id, integer, now, text, worldSize, preserveSceneRoundDurations } from './validation.mjs'
+import { fail, id, integer, now, text, worldSize, preservePublishedSceneFields } from './validation.mjs'
 import { requireChief, requireLobbyPermission } from './permissions.mjs'
 import { hasLobbyPermission, validLobbyPermissions } from './generated/lobbyAccess.mjs'
 import { copySceneState, emptyScenes, isSceneState, sceneReferencesValid } from './generated/scenes.mjs'
@@ -81,8 +80,7 @@ export function lobbyAccessRoutes(app, { db, auth, updated, lockedMembership, re
     await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireLobbyPermission(member, 'scenes'); checkRevision(lobby, revision)
       const state = JSON.parse(lobby.world_json)
-      preserveSceneRoundDurations(state.campaign.scenes,scenes)
-      preserveScenePhysics(state.campaign.scenes,scenes)
+      preservePublishedSceneFields(state.campaign.scenes,scenes)
       if (!sceneReferencesValid(scenes, state.characters.map(c => c.id))) fail(400, 'В сценах есть неизвестные персонажи.')
       if (!roundWorkReferencesValid(state.campaign.roundWork, scenes, state.characters.map(c => c.id))) fail(409, 'Сцена нужна переносимой работе. Сначала явно разреши её судьбу.')
       state.campaign.scenes = scenes

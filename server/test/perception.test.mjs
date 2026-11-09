@@ -42,6 +42,62 @@ async function setup(t, dialect) {
 }
 
 for (const dialect of ['sqlite', 'postgres']) {
+  test('Туман в раунде скрывает НПС и рассеивается после открытия двери · ' + dialect, async t => {
+    const f = await setup(t, dialect), {api, gm, player, root} = f
+    const actorId = f.heroes[0], route = f.route(actorId), world = () => api(root + '/world', gm.token)
+    await api(route + '/review', gm.token, 'POST', {revision:await f.revision(),decision:'approve',note:''})
+    const initial = await world(), scene = initial.campaign.scenes.scenes[0]
+    Object.assign(scene,{width:12,depth:8,minZ:0,maxZ:3})
+    scene.physics = {version:1,gravityMs2:9.81,ambientTemperatureK:293.15,vision:{ambientLux:3,detectionLux:1},
+      atmosphere:{oxygenFraction:.2095,smokeKg:0,steamKg:9,fogKg:0,outsideTemperatureK:293.15,doorVentilation:true}}
+    const gate = scene.objects[0]
+    Object.assign(gate,{x:1.5,y:4,width:.2,depth:7.5,height:2.8,blocksSight:false,open:false})
+    Object.assign(scene.objects[1],{x:11,y:7})
+    Object.assign(scene.tokens[0],{x:2,y:4})
+    Object.assign(scene.tokens[1],{x:8,y:4,z:0,support:{kind:'ground'}})
+    await api(root + '/world', gm.token, 'PUT', {world:initial,revision:initial.revision})
+    const draft = f.draft(), revealed = draft.scenes[0]
+    Object.assign(revealed.areas[0],{z:0,depth:8,height:3})
+    Object.assign(revealed.contacts[0],{kind:'identified',showHeight:true})
+    await f.disclose(draft)
+    const initialMap = (await f.see()).map, npc = initialMap.contacts.find(c=>c.kind==='identified')
+    assert(npc);assert.equal(initialMap.fog,undefined)
+
+    const start = async () => {
+      await api(root + '/declarations', gm.token, 'POST', {sceneId:scene.id,participantIds:[actorId],durationSeconds:60,allowReplace:true,revision:await f.revision()}, 201)
+      return api(route + '/declarations', player.token)
+    }
+    const phase = ({id,epoch},operation) => api(root + '/declarations', gm.token, 'PATCH', {collectionId:id,epoch,operation})
+    const send = (current,action,status=200) => api(route + '/declarations', player.token, 'PUT',
+      {collectionId:current.collection.id,epoch:current.collection.epoch,baseVersion:0,controlStamp:current.controlStamp,actions:[action]},status)
+    const run = async (current, action, costs) => {
+      await send(current,action)
+      await phase(current.collection,'close')
+      const closed = await world(), {id,epoch} = closed.campaign.declarations.active
+      const preview = await api(root + '/rounds/calculate', gm.token, 'POST', {revision:closed.revision,collectionId:id,epoch,
+        input:{timings:[{actorId,entryRevision:1,budgetMs:60000,costs}],continuations:[],missingDecisions:[],interactionsConfirmed:true,rules:[]}})
+      assert.deepEqual(await world(),closed)
+      await api(root + '/rounds/apply', gm.token, 'POST', {previewId:preview.id,generation:preview.generation,commandKey:crypto.randomUUID()})
+      return {thermal:preview.summary.thermal,collection:closed.campaign.declarations.active}
+    }
+    const condensed = await run(await start(),{kind:'wait',seconds:1,note:''},[])
+    assert(condensed.thermal.fogKg>1)
+    assert(Math.abs(condensed.thermal.steamKg+condensed.thermal.fogKg-9)<1e-10)
+    const hidden = (await f.see()).map
+    assert.deepEqual(hidden.fog,{});assert.deepEqual(hidden.contacts.map(c=>c.kind),['self'])
+    assert.doesNotMatch(JSON.stringify(hidden),/steamKg|fogKg|relativeHumidityPct|ambientTemperatureK|secret-npc-id/)
+    await f.restart()
+    assert.deepEqual((await f.see()).map,hidden)
+    await phase(condensed.collection,'archive')
+    const foggy = await start()
+    assert(!foggy.options.targets.some(target=>target.id===npc.id))
+    await send(foggy,{kind:'speak',target:{kind:'contact',id:npc.id},volume:'normal',text:'Приветствую.',note:''},409)
+    const cleared = await run(foggy,{kind:'interact',operation:'open',target:{kind:'object',id:gate.id},note:''},[{index:0,personalMs:300}])
+    assert.equal(cleared.thermal.fogKg,0);assert(cleared.thermal.steamKg<3)
+    const recovered = (await f.see()).map
+    assert.equal(recovered.fog,undefined);assert(recovered.contacts.some(c=>c.id===npc.id))
+  })
+
   test('Свет и видимость: дверь, фонарь и доступность цели после применения раунда · ' + dialect, async t => {
     const f = await setup(t, dialect), { api, gm, player, root } = f
     const actorId = f.heroes[0], route = f.route(actorId), world = () => api(root + '/world', gm.token)

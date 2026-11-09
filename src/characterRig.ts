@@ -144,7 +144,9 @@ export function bindCharacterRig(group:T.Group,points:RigLandmarks){
   const targetRotations=bones.map(b=>b.quaternion.clone()),fromRotations=bones.map(b=>b.quaternion.clone())
   const matrix=new T.Matrix4(),box=new T.Box3(),transitionDuration=.2
   let current:CharacterAnimation='rest',disposed=false,transitioning=false,transitionStart=0
+  let sampledAt:number|undefined
   const pose=(seconds:number,next:CharacterAnimation)=>{
+    const time=Math.max(0,seconds)
     if(next!==current){
       mixer.stopAllAction()
       // Restore local transforms: Skeleton.pose() assumes no transformed parent.
@@ -154,8 +156,11 @@ export function bindCharacterRig(group:T.Group,points:RigLandmarks){
       // The mixer caches track values. Restore its last unblended output before
       // evaluating again, including bones absent from the new clip's tracks.
       bones.forEach((bone,i)=>bone.quaternion.copy(targetRotations[i]))
+      // A paused viewport can redraw the exact same frame.
+      if(time===sampledAt)return
     }
-    if(next!=='rest')mixer.setTime(Math.max(0,seconds))
+    if(next!=='rest')mixer.setTime(time)
+    sampledAt=time
     bones.forEach((bone,i)=>targetRotations[i].copy(bone.quaternion))
   }
   const refresh=()=>{

@@ -91,6 +91,7 @@ test('Runtime clip changes blend from the displayed pose, finish at exact target
   reference.rig.sample(10.1,'idle')
   rig.update(10.1,'idle');expectPose(start.map((q,i)=>q.clone().slerp(reference.rig.skeleton.bones[i].quaternion,.5)))
   const mid=snapshot()
+  rig.update(10.1,'idle');assert.deepEqual(snapshot(),mid,'A redraw during a paused blend holds the exact pose')
   rig.update(10.1,'walk');expectPose(mid);assert(rig.transitioning,'Interruptions begin at the currently displayed pose')
   rig.update(10.35,'walk');reference.rig.sample(10.35,'walk');expectPose(reference.rig.skeleton.bones.map(b=>b.quaternion));assert(!rig.transitioning)
   rig.update(10.4,'rest');assert(rig.transitioning)

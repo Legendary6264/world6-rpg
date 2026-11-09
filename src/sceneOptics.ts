@@ -3,7 +3,7 @@ import { DEFAULT_LIGHT_CD, lightLevel } from './opticalProfiles'
 import { objectBounds, segmentSlab } from './sceneGeometry'
 import type { ObjectBounds } from './sceneGeometry'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
-import { smokeExtinctionPerM } from './thermalPhysics'
+import { aerosolExtinctionPerM } from './thermalPhysics'
 
 const EDGE_M = .000001
 const NEAR_LIGHT_M = .25
@@ -57,7 +57,7 @@ export function sceneOptics(scene: Scene, observer: ScenePosition) {
   const vision = scene.physics?.vision
   if (!vision) return undefined
   const { ambientLux, detectionLux } = vision
-  const extinction = smokeExtinctionPerM(scene)
+  const extinction = aerosolExtinctionPerM(scene)
   const obstacles = scene.objects.filter(o => o.blocksSight && !(o.kind === 'door' && o.open))
     .map(o => ({id:o.id, bounds:objectBounds(o)}))
   const sources = scene.objects.flatMap(o => {

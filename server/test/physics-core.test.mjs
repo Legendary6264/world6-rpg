@@ -3,13 +3,15 @@ import assert from 'node:assert/strict'
 import {fixture,lobbyBody} from './fixtures.mjs'
 import {createScene,emptyScenes,sceneObject} from '../generated/scenes.mjs'
 import {physicsMaterialPreset} from '../generated/physicsMaterials.mjs'
+import {MAX_AEROSOL_KG} from '../generated/physicsState.mjs'
 
 for(const dialect of ['sqlite','postgres'])test('Физические профили: хранение, старые клиенты и приватность · '+dialect,async t=>{
   const {api,register,restart}=await fixture(t,dialect),gm=await register('owner'),player=await register('physics-player'),helper=await register('physics-helper')
   const lobby=await api('/lobbies',gm.token,'POST',lobbyBody,201),root='/lobbies/'+lobby.id
   await api(root+'/join',player.token,'POST');await api(root+'/join',helper.token,'POST')
   const scenes=createScene(emptyScenes(),'physical-scene','Физический полигон','top'),scene=scenes.scenes[0]
-  scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,backgroundNoiseDb:35}
+  scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,backgroundNoiseDb:35,
+    atmosphere:{oxygenFraction:.2095,smokeKg:0,steamKg:1,fogKg:.5,outsideTemperatureK:293.15,doorVentilation:true}}
   scene.objects=[{...sceneObject('crate','physical-object',{x:5,y:5,z:0}),width:1,depth:1,height:1,physics:{version:1,material:{...physicsMaterialPreset('water-pure'),note:'PRIVATE-PHYSICS-MATERIAL'},massKg:2,temperatureK:298.15,wetnessFraction:.25,noiseLevelDbAt1m:50}}]
   const revision=async()=>(await api(root,gm.token)).revision
   await api(root+'/scenes',gm.token,'PUT',{scenes,revision:await revision()})
@@ -37,9 +39,17 @@ for(const dialect of ['sqlite','postgres'])test('Физические профи
   })
   await t.test('Прежний полный редактор сохраняет новые поля внутри прежних профилей',async()=>{
     const snapshot=await api(root+'/world',gm.token),previous=snapshot.campaign.scenes.scenes[0]
-    delete previous.physics.backgroundNoiseDb;delete previous.objects[0].physics.noiseLevelDbAt1m
+    delete previous.physics.backgroundNoiseDb;delete previous.physics.atmosphere.fogKg;delete previous.objects[0].physics.noiseLevelDbAt1m
     await api(root+'/world',gm.token,'PUT',{world:snapshot,revision:snapshot.revision});const result=await stored()
     assert.deepEqual(result.physics,scene.physics);assert.deepEqual(result.objects[0].physics,scene.objects[0].physics)
+  })
+  await t.test('Сохранённый туман учитывается в лимите влаги и не допускает частичную запись',async()=>{
+    const before=await api(root+'/world',gm.token),legacy=structuredClone(before),air=legacy.campaign.scenes.scenes[0].physics.atmosphere
+    delete air.fogKg
+    air.steamKg=MAX_AEROSOL_KG
+    await api(root+'/scenes',gm.token,'PUT',{scenes:legacy.campaign.scenes,revision:before.revision},409)
+    await api(root+'/world',gm.token,'PUT',{world:legacy,revision:before.revision},409)
+    assert.deepEqual(await api(root+'/world',gm.token),before)
   })
   await t.test('Неизвестная версия, отрицательная масса и лишние свойства отвергаются атомарно',async()=>{
     const before=await api(root+'/scenes',gm.token)

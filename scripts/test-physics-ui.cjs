@@ -106,6 +106,18 @@ test('Тепло UI: проветривание и нагрев при реак�
   await submit();assert.equal(state.value.atmosphere,null);assert.equal(state.value.backgroundNoiseDb,35)
 })
 
+test('Туман UI: режим и масса капель сохраняются, при отключении сохраняется масса влаги',async()=>{
+  const state=await fixture(EnvironmentPhysicsPanel,{version:1,gravityMs2:9.81,ambientTemperatureK:293.15,
+    atmosphere:{oxygenFraction:.2095,smokeKg:0,steamKg:.5,outsideTemperatureK:293.15,doorVentilation:true}})
+  const named=name=>document.querySelector('[name="'+name+'"]')
+  assert.equal(named('fogKg'),null)
+  await flush(()=>named('simulateFog').click())
+  await flush(()=>{named('fogKg').value='.25'});await submit()
+  assert.equal(state.value.atmosphere.fogKg,.25);assert.equal(state.value.atmosphere.steamKg,.5)
+  await flush(()=>named('simulateFog').click());await submit()
+  assert.equal(state.value.atmosphere.fogKg,null);assert.equal(state.value.atmosphere.steamKg,.75)
+})
+
 test('Конструкции UI: прочность сохраняется, накопленный удар можно исправить без сброса материала',async()=>{
   const state=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('wood'),massKg:4,temperatureK:293.15,wetnessFraction:0},{canBreak:true})
   const name=key=>document.querySelector('[name="'+key+'"]')

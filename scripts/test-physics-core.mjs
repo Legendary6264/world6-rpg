@@ -29,6 +29,8 @@ const {advanceWaterFlow,settleWaterSupports,waterRoundChanges}=await load('water
 const {advanceMovement}=await load('sceneMovement')
 const {perceivedMap,preparePerception,emptyPerception}=await load('scenePerception')
 const {advanceThermal,applyHeat,smokeVisibilityM,thermalRoundChanges}=await load('thermalPhysics')
+const {saturatedVapourDensityKgM3}=await load('atmosphericMoisture')
+const {roomHeatCapacity}=await load('waterHeating')
 const {sceneOptics}=await load('sceneOptics')
 const {perceivedRenderModel}=await load('scene3dModel')
 const {advanceFalls,nextFallSeconds}=await load('structuralPhysics')
@@ -260,6 +262,43 @@ function thermalRoom() {
  return {state,scene,air:scene.physics.atmosphere}
 }
 
+test('Туман: при насыщении воздух нагревается, при испарении остывает, дверь выносит влагу',()=>{
+ const {state,scene,air}=thermalRoom()
+ air.steamKg=4;air.fogKg=0
+ const temperature=()=>scene.physics.ambientTemperatureK
+ const energy=()=>roomHeatCapacity(scene,air.steamKg,air.fogKg)*(temperature()-373.15)+air.steamKg*VAPORIZATION_J_KG
+ const moisture=()=>air.steamKg+air.fogKg
+ assert(Math.abs(saturatedVapourDensityKgM3(293.15)-.0173)<.0002)
+ const before=structuredClone(scene),initialEnergy=energy()
+ advanceThermal(scene,0)
+ assert(air.fogKg>0);assert(temperature()>293.15)
+ closeTo(moisture(),4)
+ assert(Math.abs(energy()-initialEnergy)<1e-6)
+ closeTo(air.steamKg,144*saturatedVapourDensityKgM3(temperature()))
+ closeTo(thermalRoundChanges(before,scene).relativeHumidityPct,100)
+ const saturated=copySceneState(state)
+ advanceThermal(scene,0);assert.deepEqual(scene,saturated.scenes[0])
+
+ scene.physics.ambientTemperatureK+=20
+ const hot=temperature(),hotEnergy=energy()
+ advanceThermal(scene,0)
+ assert.equal(air.fogKg,0);assert(temperature()<hot);closeTo(moisture(),4)
+ assert(Math.abs(energy()-hotEnergy)<1e-6)
+
+ const vented=copySceneState(saturated).scenes[0],ventedAir=vented.physics.atmosphere
+ ventedAir.outsideTemperatureK=308.15
+ vented.objects=[{...sceneObject('door','door',{x:2,y:3,z:0}),width:.2,depth:4,height:2,open:true}]
+ advanceThermal(vented,60)
+ assert.equal(ventedAir.fogKg,0);closeTo(ventedAir.steamKg,4*Math.exp(-.3*8*60/144))
+ const old=copySceneState(saturated)
+ delete old.scenes[0].physics.atmosphere.fogKg
+ preserveScenePhysics(saturated,old)
+ assert.equal(old.scenes[0].physics.atmosphere.fogKg,saturated.scenes[0].physics.atmosphere.fogKg)
+ old.scenes[0].physics.atmosphere.fogKg=null
+ preserveScenePhysics(saturated,old);assert.equal(old.scenes[0].physics.atmosphere.fogKg,null)
+ assert(isSceneState(old))
+})
+
 test('Тепло: скрытая теплота удерживает 0 °C при таянии, замерзание размыкает цепь',()=>{
  const {scene}=thermalRoom(),water={...pool('ice',4),height:.001,water:{...pureWater(),saltKg:.001,enthalpyJKg:0}}
  scene.objects=[water]
@@ -412,6 +451,14 @@ test('Дым: проекция скрывает далёкую цель, сох�
  assert(remembered.objects.some(o=>o.id==='far'&&!o.visible));assert(remembered.contacts.some(c=>c.kind==='sound'))
  air.smokeKg=0
  assert(perceivedMap(sight,state,[self,other]).contacts.some(c=>c.kind==='identified'))
+ air.fogKg=.7
+ const fog=perceivedMap(sight,state,[self,other])
+ assert(fog.fog.visibilityM<5);assert.equal(fog.smokeVisibilityM,undefined)
+ assert.deepEqual(fog.contacts.map(c=>c.kind),['self']);assert.equal(perceivedRenderModel(fog).fog,true)
+ assert.doesNotMatch(JSON.stringify(fog),/fogKg|steamKg|relativeHumidityPct/)
+ scene.physics.vision={ambientLux:3,detectionLux:1}
+ const litFog=perceivedMap(sight,state,[self,other])
+ assert.deepEqual(litFog.fog,{});assert.deepEqual(litFog.contacts.map(c=>c.kind),['self'])
 })
 
 function opticsRoom(ambientLux=0) {
