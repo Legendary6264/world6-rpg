@@ -4,6 +4,8 @@ import {isAbilityObjectEffects} from './abilityEnvironment'
 import { isAbilityPhysicsEffect, isWaterAdditive } from './abilityPhysics'
 import type { AbilityPhysicsEffect, WaterAdditive } from './abilityPhysics'
 import type {ObjectOperation} from './tabletopInteractions'
+import { MAX_SHOCK_GRIPS } from './electricalCircuit'
+import type { ShockGrip } from './electricalCircuit'
 export type RuleSceneObject={id:string;name:string;operations?:ObjectOperation[]}
 export type RuleActor={id:string;name:string;canFly?:boolean;speechEligible?:boolean;items?:{id:string;name:string;quantity?:number;consumable?:ConsumableEffect}[];abilities?:{id:string;name:string;spatial?:AbilitySpatial}[];regions?:{key:string;label:string}[];casts?:{id:string;abilityId:string;name:string;status:string;binding:'bound'|'unbound';spatial?:AbilitySpatial;chargePolicy?:ChargePolicy;roundPreparation?:boolean}[]}
 export const ruleNumbers=[['manualLocal','Локальное повреждение'],['manualSystemic','Системное поле прежнего движка'],['bleedingMlPerSecond','Кровотечение, мл/с'],['criticalChance','Шанс критического контакта, %'],['dodgeChance','Шанс уворота, %'],['criticalContactFactor','Коэффициент критического контакта']] as const
@@ -22,7 +24,7 @@ export const physicsFields = {
   'push-object': { impulseNs: 'Импульс толчка, Н·с' },
   sound: { levelDbAt1m: 'Уровень звука на 1 м, дБ' },
 } satisfies Record<AbilityPhysicsEffect['kind'], Record<string, string>>
-export type AbilityPhysicsForm = { kind: AbilityPhysicsEffect['kind']; fields: Record<string, string>; substance: WaterAdditive }
+export type AbilityPhysicsForm = { kind: AbilityPhysicsEffect['kind']; fields: Record<string, string>; substance: WaterAdditive; grips?:ShockGrip[] }
 
 export function emptyAbilityPhysicsForm(kind: AbilityPhysicsForm['kind']): AbilityPhysicsForm {
   return { kind, fields: Object.fromEntries(Object.keys(physicsFields[kind]).map(key => [key, ''])), substance: 'salt' }
@@ -37,7 +39,10 @@ function validPhysicsForm(value: unknown): value is AbilityPhysicsForm {
       !isWaterAdditive(value.substance) || !record(value.fields)) return false
   const fields = value.fields
   const keys = Object.keys(physicsFields[value.kind as AbilityPhysicsForm['kind']])
-  return Object.keys(fields).length === keys.length && keys.every(key => typeof fields[key] === 'string' && fields[key].length <= 40)
+  return Object.keys(fields).length === keys.length && keys.every(key => typeof fields[key] === 'string' && fields[key].length <= 40) &&
+    (value.grips===undefined || value.kind==='discharge' && Array.isArray(value.grips) && value.grips.length<=MAX_SHOCK_GRIPS &&
+      value.grips.every(grip=>record(grip) && Object.keys(grip).length===4 &&
+        ['actorId','objectId','handRegion','footRegion'].every(key=>typeof grip[key]==='string' && grip[key].length<=160)))
 }
 
 function physicsFormEffect(form: AbilityPhysicsForm): AbilityPhysicsEffect | null {
@@ -55,7 +60,8 @@ function physicsFormEffect(form: AbilityPhysicsForm): AbilityPhysicsEffect | nul
       break
     case 'discharge':
       effect = { kind: form.kind, returnContact: { x: n('x'), y: n('y'), z: n('z') },
-        voltageV: n('voltageV'), limitA: n('limitA'), durationMs: n('durationMs'), thresholdA: n('thresholdA') }
+        voltageV: n('voltageV'), limitA: n('limitA'), durationMs: n('durationMs'), thresholdA: n('thresholdA'),
+        ...(form.grips?.length ? {grips:form.grips} : {}) }
       break
     case 'heat':
       effect = { kind: form.kind, energyKJ: n('energyKJ') }

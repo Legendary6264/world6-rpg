@@ -2,12 +2,27 @@ import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
 import { objectBounds, overlapLength } from './sceneGeometry'
 import type { ObjectBounds } from './sceneGeometry'
 import { liquidWaterHeight, waterConductivitySM } from './waterPhysics'
+import { physicsId, physicsKeys, physicsRecord } from './physicsUnits'
 
 type Conductor = ObjectBounds & { object: SceneObject; conductivity: number | null }
-type Link = { to: number; ohms: number | null; direct?: SceneObject }
-export type DischargeSettings = { returnContact: ScenePosition; voltageV: number; limitA: number; durationMs: number; thresholdA: number }
+type BridgePath = {actorId:string; handRegion:string; footRegion:string; bodyResistanceOhm:number; insulationOhm:number}
+type Link = { to: number; ohms: number | null; direct?: SceneObject; body?:BridgePath }
+export type ShockGrip = {actorId:string;objectId:string;handRegion:string;footRegion:string}
+type BridgeContact = {point:ScenePosition;region:string;dryOhm:number;wetOhm:number}
+export type CircuitBridge = {
+  actorId:string;bodyResistanceOhm:number;hand:BridgeContact & {objectId:string};foot:BridgeContact & {objectId?:string}
+}
+export const MAX_SHOCK_GRIPS = 32
+export function isShockGrips(value:unknown):value is ShockGrip[] {
+  return Array.isArray(value) && value.length<=MAX_SHOCK_GRIPS && value.every(grip=>
+    physicsRecord(grip) && physicsKeys(grip,['actorId','objectId','handRegion','footRegion']) &&
+    Object.values(grip).every(physicsId) && grip.handRegion!==grip.footRegion) &&
+    new Set(value.map(grip=>grip.actorId)).size===value.length
+}
+export type DischargeSettings = { returnContact: ScenePosition; voltageV: number; limitA: number; durationMs: number; thresholdA: number; grips?:ShockGrip[] }
 export type CircuitResult = { status: 'open'; frozenContacts?: ('source'|'return')[] } | { status: 'unknown' } | {
   status: 'closed'; ohms: number; currentA: number; energyJ: number; path: { id: string; name: string }[]
+  bodyPath?: (BridgePath & {energyJ:number})[]
 }
 
 const axes = ['x', 'y', 'z'] as const
@@ -17,6 +32,11 @@ const length = (a: ScenePosition, b: ScenePosition) => Math.hypot(b.x - a.x, b.y
 
 const contains = (box: ObjectBounds, p: ScenePosition) => axes.every(axis => p[axis] >= box.min[axis] - EPS_M && p[axis] <= box.max[axis] + EPS_M)
 export const pointInObject = (o: SceneObject, p: ScenePosition) => contains(objectBounds(o), p)
+const iceAt = (scene:Scene,point:ScenePosition) => scene.objects.some(object=>{
+  if (!object.water || object.height <= EPS_M || !pointInObject(object,point)) return false
+  const liquid = liquidWaterHeight(object.water,object.height)
+  return liquid<object.height && (liquid<=EPS_M || point.z>object.z+liquid+EPS_M)
+})
 
 function contact(a: ObjectBounds, b: ObjectBounds): { point: ScenePosition; areaM2: number } | null {
   const spans = axes.map(k => overlapLength(a.min[k], a.max[k], b.min[k], b.max[k]))
@@ -52,7 +72,7 @@ function connected(graph: Link[][]): boolean {
 
 // A single dominant path. Each solid or water volume has a hub for contacts
 // with neighbours; electrodes in one volume can also use the direct section.
-export function calculateCircuit(scene: Scene, contactPoint: ScenePosition, settings: DischargeSettings): CircuitResult {
+export function calculateCircuit(scene: Scene, contactPoint: ScenePosition, settings: DischargeSettings, bridges:readonly CircuitBridge[]=[]): CircuitResult {
   const { returnContact, voltageV, limitA, durationMs } = settings
   if (length(contactPoint, returnContact) <= EPS_M) throw Error('Контакт разряда и обратная клемма должны быть в разных точках.')
   const parts: Conductor[] = []
@@ -70,9 +90,9 @@ export function calculateCircuit(scene: Scene, contactPoint: ScenePosition, sett
   }
   parts.sort((a, b) => a.object.id < b.object.id ? -1 : a.object.id > b.object.id ? 1 : 0)
   const graph: Link[][] = Array.from({ length: parts.length + 2 }, () => [])
-  const link = (a: number, b: number, ohms: number | null, direct?: SceneObject) => {
-    graph[a].push({ to: b, ohms, direct })
-    graph[b].push({ to: a, ohms, direct })
+  const link = (a: number, b: number, ohms: number | null, direct?: SceneObject, body?:BridgePath) => {
+    graph[a].push({ to: b, ohms, direct, body })
+    graph[b].push({ to: a, ohms, direct, body })
   }
   for (const [i, part] of parts.entries()) {
     const starts = contains(part, contactPoint), returns = contains(part, returnContact)
@@ -86,6 +106,21 @@ export function calculateCircuit(scene: Scene, contactPoint: ScenePosition, sett
       const right = resistance(other, joint.point, other.center, joint.areaM2)
       link(i + 2, j + 2, left === null || right === null ? null : left + right)
     }
+  }
+  // One confirmed grip and one supported foot form a series bridge. A single
+  // volume has one hub, so it cannot supply a separate body return here.
+  for (const {actorId,hand,foot,bodyResistanceOhm} of [...bridges].sort((a,b)=>a.actorId<b.actorId ? -1 : a.actorId>b.actorId ? 1 : 0)) {
+    const handIndex = parts.findIndex(part=>part.object.id===hand.objectId && contains(part,hand.point))
+    const wetFeet = parts.flatMap((part,index)=>part.object.kind==='water' && contains(part,foot.point) ? [index] : [])
+    const footIndex = wetFeet.length===1 ? wetFeet[0] : wetFeet.length || iceAt(scene,foot.point) ? -1 :
+      parts.findIndex(part=>part.object.id===foot.objectId && contains(part,foot.point))
+    if (handIndex<0 || footIndex<0 || handIndex===footIndex) continue
+    const handPart = parts[handIndex], footPart = parts[footIndex]
+    const insulationOhm = (handPart.object.kind==='water' ? hand.wetOhm : hand.dryOhm) +
+      (footPart.object.kind==='water' ? foot.wetOhm : foot.dryOhm)
+    const a = resistance(handPart,hand.point,handPart.center), b = resistance(footPart,foot.point,footPart.center)
+    link(handIndex+2,footIndex+2,a===null || b===null ? null : a+b+insulationOhm+bodyResistanceOhm,undefined,
+      {actorId,handRegion:hand.region,footRegion:foot.region,bodyResistanceOhm,insulationOhm})
   }
   const dist = graph.map(() => Infinity), settled = new Set<number>()
   const previous: ({ from: number; link: Link } | undefined)[] = []
@@ -103,27 +138,26 @@ export function calculateCircuit(scene: Scene, contactPoint: ScenePosition, sett
   }
   if (!Number.isFinite(dist[1])) {
     if (connected(graph)) return {status:'unknown'}
-    const touchesIce = (point:ScenePosition) => scene.objects.some(object=>{
-      if (!object.water || object.height <= EPS_M || !pointInObject(object,point)) return false
-      const liquid = liquidWaterHeight(object.water,object.height)
-      return liquid<object.height && (liquid<=EPS_M || point.z>object.z+liquid+EPS_M)
-    })
     const frozenContacts:('source'|'return')[] = []
-    if (touchesIce(contactPoint)) frozenContacts.push('source')
-    if (touchesIce(returnContact)) frozenContacts.push('return')
+    if (iceAt(scene,contactPoint)) frozenContacts.push('source')
+    if (iceAt(scene,returnContact)) frozenContacts.push('return')
     return {status:'open',...(frozenContacts.length ? {frozenContacts} : {})}
   }
 
   const path: SceneObject[] = []
+  const bodyPath:BridgePath[] = []
   for (let i = 1; previous[i];) {
     const step = previous[i]!
     if (step.link.direct) path.push(step.link.direct)
+    if (step.link.body) bodyPath.push(step.link.body)
     if (step.from >= 2) path.push(parts[step.from - 2].object)
     i = step.from
   }
   const ohms = dist[1], currentA = Math.min(limitA, voltageV / ohms)
+  const ampSquaredSeconds = currentA * currentA * durationMs / 1000
   return {
     status: 'closed', ohms, currentA, energyJ: currentA * currentA * ohms * durationMs / 1000,
     path: path.reverse().map(({ id, name }) => ({ id, name })),
+    ...(bodyPath.length ? {bodyPath:bodyPath.reverse().map(body=>({...body,energyJ:ampSquaredSeconds*body.bodyResistanceOhm}))} : {}),
   }
 }

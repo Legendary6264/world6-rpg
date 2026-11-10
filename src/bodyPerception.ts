@@ -1,6 +1,7 @@
 import { bodyRegionDefs, bodyConsequences } from './characterBody'
 import type { BodyState } from './characterBody'
 import { exposureLimits, exposureStage } from './exposureProfiles'
+import { contactLabels } from './contactProfiles'
 
 export function perceivedBody(body:BodyState){
  const injury = bodyRegionDefs(body).flatMap(region=>{
@@ -16,6 +17,9 @@ export function perceivedBody(body:BodyState){
   else symptoms.push(severity>=.5?'Сильная боль; движение этой области затруднено.':'Болезненность при движении или прикосновении.')
   if(injured.some(s=>s.id.endsWith('-wing-nerve')||s.functionGroup==='speech'))symptoms.push('Движения или чувствительность этой области нарушены.')
   if(externallyBleeding)symptoms.push('Ощущается влажность, видна кровь.')
+  const wounds = part.wound.split('\n')
+  if (wounds.includes(contactLabels.heat) || wounds.includes(contactLabels.acid)) symptoms.push('В месте контакта ощущается жжение.')
+  if (wounds.includes(contactLabels.electric)) symptoms.push('В месте контакта ощущается покалывание.')
   const diagnoses=structures.flatMap(s=>s.injuries.filter(i=>i.diagnosed).map(i=>s.name+': '+i.label))
   return [{region:region.key,label:region.label,symptoms,diagnoses}]
  })

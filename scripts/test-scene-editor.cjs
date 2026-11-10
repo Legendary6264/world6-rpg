@@ -50,6 +50,7 @@ test('Физика в редакторе: профили объекта и ср�
  await flush(()=>document.querySelector('[name=simulateExposure]').click())
  await flush(()=>document.querySelector('[name=simulateTraction]').click())
  await flush(()=>document.querySelector('[name=eventSounds]').click())
+ await flush(()=>document.querySelector('[name=simulateContacts]').click())
  await flush(()=>{
   const room=document.querySelector('[data-air-room]')
   room.querySelector('[name$="-name"]').value='Кузня'
@@ -62,6 +63,7 @@ test('Физика в редакторе: профили объекта и ср�
  assert.equal(active().physics.exposure.responseSeconds,5)
  assert.equal(active().physics.traction.iceFactor,.2)
  assert.equal(active().physics.eventSounds,true)
+ assert.equal(active().physics.contactHazards.bodyResistanceOhm,1000)
  await key('z',{ctrlKey:true});assert.deepEqual(current,withoutRooms)
  await key('z',{ctrlKey:true,shiftKey:true});assert.deepEqual(current,withRoom)
 })

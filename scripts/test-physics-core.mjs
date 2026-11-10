@@ -21,8 +21,8 @@ const units=await load('physicsUnits'),{physicsMaterialPresets,physicsMaterialPr
 const {isPhysicsBody,isPhysicsEnvironment,preserveScenePhysics,MAX_AEROSOL_KG}=await load('physicsState'),{isPhysicsEvent,orderPhysicsEvents}=await load('physicsEvents')
 const {emptyScenes,createScene,sceneObject,isSceneState,copySceneState,moveSceneObject,placeSceneToken}=await load('scenes'),{copyEditorScene}=await load('sceneEditorSceneCopy')
 const {captureSceneAssembly,assemblyLayout,isSceneAssembly}=await load('sceneAssemblies'),{mergeSceneDraft}=await load('sceneDraftMerge')
-const {emptyCampaign,isCampaign,copyCampaign}=await load('rpgSchema'),{createCharacterArchive,parseCharacterArchive}=await load('characterTransfer')
-const {createDefaultCharacter}=await load('characterModel'),{advanceWorld}=await load('rpgEngine'),{exactAmount}=await load('exactWork'),{publicObject}=await load('scenePerception')
+const {emptyCampaign,isCampaign,copyCampaign,emptyItem,copyItem}=await load('rpgSchema'),{createCharacterArchive,parseCharacterArchive}=await load('characterTransfer')
+const {createDefaultCharacter}=await load('characterModel'),{advanceWorld,applyContactDose}=await load('rpgEngine'),{exactAmount}=await load('exactWork'),{publicObject}=await load('scenePerception')
 const {pureWater,waterConductivitySM,waterPH,waterReagents}=await load('waterPhysics'),{calculateCircuit}=await load('electricalCircuit')
 const {applyAbilityPhysics}=await load('abilityPhysics')
 const {advanceWaterFlow,settleWaterSupports,waterRoundChanges}=await load('waterFlow')
@@ -42,6 +42,9 @@ const {perceivedRenderModel}=await load('scene3dModel')
 const {advanceFalls,nextFallSeconds}=await load('structuralPhysics')
 const {planSlide,slideStep,applySlide,checkDoorSlideClearance}=await load('horizontalPhysics')
 const {surfaceContact}=await load('surfaceTraction')
+const {contactChecker,surfaceDoses,shockBridges}=await load('bodyContactPhysics')
+const {defaultContactHazards,emptyContactProtection,retainContactProtection}=await load('contactProfiles')
+const {createDetailedAnatomy}=await load('anatomyModel')
 const {duplicateEditorGroup}=await load('sceneEditorCommands')
 const {BOILING_ENTHALPY_J_KG,FUSION_J_KG,VAPORIZATION_J_KG,waterVolumeM3,liquidEnthalpy}=await load('waterPhysics')
 const environment=()=>({version:1,gravityMs2:9.81,ambientTemperatureK:293.15})
@@ -201,6 +204,75 @@ test('Замерзание, оттаивание и примеси меняют 
  applyAbilityPhysics(scene,contact,'unused',{kind:'add-substance',substance:'salt',massKg:.02})
  const salted=calculateCircuit(scene,contact,settings)
  assert(salted.currentA>1000*pure.currentA);assert.deepEqual(salted.path,pure.path)
+})
+
+function contactFixture(){
+ const state=sceneState(false),scene=state.scenes[0],point=(x,y,z=0)=>({x,y,z})
+ const actor={...createDefaultCharacter(),id:'contact-hero',name:'Герой'}
+ for(const key of ['leftFoot','rightFoot','rightHand'])Object.assign(actor.body.parts[key],{maximum:20,current:20})
+ actor.body.anatomy=createDetailedAnatomy('humanoid',Object.keys(actor.body.parts))
+ const token={actorId:actor.id,...point(4,3),diameter:.6,support:{kind:'ground'}}
+ const water={...sceneObject('water','film',point(4,3)),width:2,depth:2,height:.01,
+  water:{...pureWater(),saltKg:.04,enthalpyJKg:FUSION_J_KG}}
+ const grip={...sceneObject('rock','rail',point(4.8,3,.7)),width:.2,depth:.2,height:.6,physics:body('copper')}
+ const profile={...defaultContactHazards,electricJPerHp:1,heatKelvinSecondsPerHp:10}
+ scene.physics={...environment(),contactHazards:profile}
+ scene.objects=[water,grip];scene.tokens=[token]
+ return {world:{characters:[actor],campaign:{...emptyCampaign(),scenes:state}},state,scene,actor,token,water,grip,profile,point}
+}
+
+test('Контакт с током: два проводника, жидкая фаза, хват и изоляция на нужной области',()=>{
+ const {world,scene,actor,token,water,grip,profile,point}=contactFixture()
+ const source=point(4.8,3,1),settings={returnContact:point(3.5,3,.005),voltageV:100,limitA:.5,durationMs:1000,thresholdA:.01}
+ const grips=[{actorId:actor.id,objectId:grip.id,handRegion:'rightHand',footRegion:'leftFoot'}]
+ const circuit=()=>calculateCircuit(scene,source,settings,shockBridges(world,scene,profile,grips))
+ assert.deepEqual(calculateCircuit(scene,source,settings),{status:'open'})
+ const wet=circuit()
+ assert.equal(wet.status,'closed');assert.equal(wet.bodyPath.length,1);assert(wet.bodyPath[0].energyJ>6)
+ water.water.saltKg=0
+ assert(circuit().bodyPath[0].energyJ<1e-5)
+ water.water.saltKg=.04;water.water.enthalpyJKg=0
+ assert.deepEqual(circuit(),{status:'open',frozenContacts:['return']})
+ water.water.enthalpyJKg=FUSION_J_KG
+ const boot={...emptyItem(),id:'boot',templateId:'boot',name:'Ботинок',slot:'body',covers:['leftFoot'],quantity:1,durability:100,equipped:true,
+  contactProtection:{...emptyContactProtection,dryOhm:0,wetOhm:1e6}}
+ actor.rpg.inventory=[boot]
+ const insulated=circuit()
+ assert.equal(insulated.bodyPath[0].insulationOhm,1e6);assert(insulated.bodyPath[0].energyJ<1e-4)
+ boot.durability=0;closeTo(circuit().bodyPath[0].energyJ,wet.bodyPath[0].energyJ)
+ token.x=2;assert.deepEqual(circuit(),{status:'open'})
+})
+
+test('Контактная доза: время внутри слоя, перекрытия, экипировка и остаток между ходами',()=>{
+ const {world,state,scene,actor,water,profile,point}=contactFixture()
+ water.water.enthalpyJKg=liquidEnthalpy(profile.burnAboveK+10);water.water.reagentMol=.8
+ scene.objects.push({...water,id:'overlap'})
+ const armor={...emptyItem(),id:'boot',templateId:'boot',name:'Ботинок',slot:'body',covers:['leftFoot'],quantity:1,durability:50,equipped:true,
+  contactProtection:{...emptyContactProtection,heatTransmission:.25,acidTransmission:0}}
+ actor.rpg.inventory=[armor]
+ const route=new Map([[actor.id,[{start:0,end:1,a:point(1,3),b:point(7,3)}]]])
+ const doses=surfaceDoses(world,scene,profile,6,route,new Set(),contactChecker())
+ const dose=(region,kind)=>doses.find(d=>d.region===region&&d.kind===kind)
+ closeTo(dose('leftFoot','heat').doseHp,1.25);closeTo(dose('leftFoot','heat').shieldedHp,.75)
+ closeTo(dose('leftFoot','acid').doseHp,1);closeTo(dose('rightFoot','acid').doseHp,2)
+ assert.deepEqual(surfaceDoses(world,scene,profile,6,route,new Set([actor.id]),contactChecker()),[])
+ const skin=actor.body.anatomy.structures.find(s=>s.kind==='skin'&&s.region==='leftFoot')
+ const before=skin.current
+ assert.equal(applyContactDose(world,actor.id,'leftFoot','heat',.6,'contact-1'),0)
+ const advanced=advanceWorld(world,1,'pass')
+ assert.equal(applyContactDose(advanced,actor.id,'leftFoot','heat',.6,'contact-2'),1)
+ closeTo(advanced.characters[0].body.contactDoses.leftFoot.heat,.2)
+ assert.equal(advanced.characters[0].body.parts.leftFoot.current,19)
+ assert.equal(advanced.characters[0].body.anatomy.structures.find(s=>s.id===skin.id).current,before-1)
+ assert.match(perceivedBody(advanced.characters[0].body).find(s=>s.region==='leftFoot').symptoms.join(' '),/жжение/u)
+ assert(isBodyState(advanced.characters[0].body))
+ const published=copySceneState(state)
+ delete published.scenes[0].physics.contactHazards;preserveScenePhysics(state,published)
+ assert.deepEqual(published.scenes[0].physics.contactHazards,profile)
+ const gear={...copyItem(armor),id:armor.id}
+ delete gear.contactProtection;assert(retainContactProtection([armor],[gear]))
+ assert.deepEqual(gear.contactProtection,armor.contactProtection)
+ gear.contactProtection=null;assert.equal(retainContactProtection([armor],[gear]),false)
 })
 
 function airRoomFixture() {

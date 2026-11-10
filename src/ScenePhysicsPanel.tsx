@@ -14,6 +14,7 @@ import {airAxes,airRoomsFit,isAirRoomList,MAX_AIR_ROOMS} from './airProfiles'
 import type {AirRoom} from './airProfiles'
 import {airPortal,sceneAir} from './sceneAir'
 import {defaultExposureProfile,isExposureProfile} from './exposureProfiles'
+import {defaultContactHazards,isContactHazardProfile} from './contactProfiles'
 import {defaultTractionProfile,isTractionProfile} from './surfaceTraction'
 import {bodyRegions} from './bodyRegions'
 import {isLandingProfile,isSliding,MAX_SLIDE_FRICTION,MAX_STRUCTURAL_ENERGY_J} from './mechanicalProfiles'
@@ -273,8 +274,10 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
   const [simulateVision, setSimulateVision] = useState(!!value?.vision)
   const [simulateExposure, setSimulateExposure] = useState(!!value?.exposure)
   const [simulateTraction, setSimulateTraction] = useState(!!value?.traction)
+  const [simulateContacts,setSimulateContacts] = useState(!!value?.contactHazards)
   const exposure = value?.exposure ?? defaultExposureProfile
   const traction = value?.traction ?? defaultTractionProfile
+  const contacts = value?.contactHazards ?? defaultContactHazards
   const air = value?.atmosphere
   const [simulateFog, setSimulateFog] = useState(air?.fogKg != null)
   const [rooms,setRooms] = useState<AirRoom[]>(value?.airRooms ?? [])
@@ -334,6 +337,13 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
         if (!isTractionProfile(profile)) throw Error('Сцепление должно быть от 1 до 100 %. Сцепление на льду должно быть не выше, чем на воде.')
         next.traction = profile
       } else if (value?.traction !== undefined) next.traction = null
+      if (data.has('simulateContacts')) {
+        const profile = {version:1 as const,bodyResistanceOhm:number(data,'contactBodyOhm'),electricJPerHp:number(data,'contactElectricJ'),
+          burnAboveK:celsiusToKelvin(number(data,'contactBurnC')),heatKelvinSecondsPerHp:number(data,'contactHeatKs'),
+          acidMolarSecondsPerHp:number(data,'contactAcidMolarSeconds')}
+        if (!isContactHazardProfile(profile)) throw Error('Проверь пороги и калибровку контактных повреждений.')
+        next.contactHazards = profile
+      } else if (value?.contactHazards !== undefined) next.contactHazards = null
       if (data.has('simulateVision')) next.vision = {ambientLux:number(data,'ambientLux'),detectionLux:number(data,'detectionLux')}
       else if (value?.vision !== undefined) next.vision = null
       if (!isPhysicsEnvironment(next)) throw Error('Проверь значения среды, в том числе освещённость и порог видимости.')
@@ -398,6 +408,19 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
           <p className="w6-copy gb-wide">На мокрых опорах и ледяных участках предметы тормозят дольше. Для ходьбы мастер задаёт время, достаточное для безопасного темпа.</p>
           <label className="w6-field"><span>Сцепление на воде, % от сухого</span><input name="gripWaterPct" type="number" min="1" max="100" step="any" defaultValue={traction.waterFactor*100} required/></label>
           <label className="w6-field"><span>Сцепление на льду, % от сухого</span><input name="gripIcePct" type="number" min="1" max="100" step="any" defaultValue={traction.iceFactor*100} required/></label>
+        </div>}
+      </details>
+      <details className="gb-scene-details gb-wide"><summary>Контактные повреждения{value?.contactHazards ? ' · включены' : ''}</summary>
+        <label className="w6-check"><input name="simulateContacts" type="checkbox" checked={simulateContacts} onChange={e=>setSimulateContacts(e.currentTarget.checked)}/>Учитывать разряд, жар и кислоту при контакте</label>
+        {simulateContacts && <div className="gb-properties">
+          <p className="w6-copy gb-wide">Это игровые коэффициенты. Подтверди хват при разряде. Для жара и кислоты учитывается время опоры и контакта с жидкостью. Настроенные слои экипировки уменьшают воздействие.</p>
+          {([
+            ['contactBodyOhm','Сопротивление тела, Ом',contacts.bodyResistanceOhm,1,1e9],
+            ['contactElectricJ','Энергия разряда на 1 HP, Дж',contacts.electricJPerHp,.001,1e9],
+            ['contactBurnC','Начало контактного ожога, °C',kelvinToCelsius(contacts.burnAboveK),0,999726.85],
+            ['contactHeatKs','Тепловая доза на 1 HP, К·с',contacts.heatKelvinSecondsPerHp,.001,1e9],
+            ['contactAcidMolarSeconds','Доза кислоты на 1 HP, моль·с/л',contacts.acidMolarSecondsPerHp,1e-6,1e6],
+          ] as const).map(([field,label,initial,min,max])=><label className="w6-field" key={field}><span>{label}</span><input name={field} type="number" step="any" min={min} max={max} defaultValue={initial} required/></label>)}
         </div>}
       </details>
       <details className="gb-scene-details gb-wide"><summary>Свет и видимость{value?.vision ? ' · включено' : ''}</summary>

@@ -11,7 +11,7 @@ import { manageRoundCharges } from './roundCharges'
 import type { ChargeDecision, ChargeOutcome } from './roundCharges'
 import { copyDeclaredAction } from './actionDeclarations'
 import { addAmounts, amountFromNumber, compareAmounts, exactAmount, scaleAmount, subtractAmounts } from './exactWork'
-import { advanceWorld, applyLandingImpact } from './rpgEngine'
+import { advanceWorld, applyContactDose, applyLandingImpact } from './rpgEngine'
 import type { LandingImpactResult } from './rpgEngine'
 import { bodyConsequences } from './characterBody'
 import { evaluatedParameters } from './rpgParameters'
@@ -46,8 +46,10 @@ import { tractionLabels } from './surfaceTraction'
 import type { TractionTravel } from './surfaceTraction'
 import { doorSound, impactSoundDb, landingSoundDb, roundAcoustics } from './roundSound'
 import type { RoundSound, SoundSource } from './roundSound'
-export const ROUND_EXECUTOR_VERSION = 'r22-event-acoustics-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+import { contactChecker, surfaceDoses } from './bodyContactPhysics'
+import type { ContactDose, ContactOutcome } from './bodyContactPhysics'
+export const ROUND_EXECUTOR_VERSION = 'r23-body-contact-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r22-event-acoustics-v1', 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -67,7 +69,7 @@ export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speec
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
   movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls;
   slides?: { stops:SlideStop[]; moving:SlideStatus[] }; exposure?: ExposureChange[];
-  traction?: {walks:WalkTraction[]; slides:SlideTraction[]}; sounds?:RoundSound[] }
+  traction?: {walks:WalkTraction[]; slides:SlideTraction[]}; sounds?:RoundSound[]; contacts?:ContactOutcome[] }
 export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
 const zero = exactAmount(0n), thousand = exactAmount(1000n)
@@ -242,6 +244,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const movementCheck = () => { if (++movementChecks > MAX_MOVEMENT_CHECKS) throw Error('Сцена слишком сложна для одного расчёта движения. Технический предел проверок; ничего не применено.') }
   const thermalEnabled = !!scene?.physics?.atmosphere
   const exposureProfile = scene?.physics?.exposure
+  const contactProfile = scene?.physics?.contactHazards
   const tractionEnabled = !!scene?.physics?.traction
   const physicsDecisions = [...ruleDecisions.values()].flatMap(d => d.kind === 'ability' && d.physics ? [d.physics] : [])
   const dosingReagent = physicsDecisions.some(effect => effect.kind === 'add-substance' && isWaterReagent(effect.substance))
@@ -255,6 +258,15 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const slideStops: SlideStop[] = []
   const walkTraction = new Map<string,WalkTraction>(), slideTraction = new Map<string,SlideTraction>()
   const acoustics = scene?.physics?.eventSounds ? roundAcoustics(seed,input.soundRecordedAt,listeningWindows) : undefined
+  const contactOutcomes = new Map<string,ContactOutcome>(), checkContact = contactChecker()
+  let contactIndex = 0
+  function applyDose(dose:ContactDose) {
+    const {actorId,region,kind,doseHp,shieldedHp} = dose
+    const damage = applyContactDose(candidate,actorId,region,kind,doseHp,'round-'+seed+'-contact-'+(++contactIndex))
+    const key = JSON.stringify([actorId,region,kind]), previous = contactOutcomes.get(key)
+    contactOutcomes.set(key,{...dose,damage:damage+(previous?.damage ?? 0),
+      doseHp:doseHp+(previous?.doseHp ?? 0),shieldedHp:shieldedHp+(previous?.shieldedHp ?? 0)})
+  }
   let flowReactionHeatJ = 0
   const activeScene = () => candidate.campaign.scenes?.scenes.find(s => s.id === collection.sceneId)
   function emitSound(at:ExactAmount,sound:SoundSource|undefined) {
@@ -319,7 +331,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   }
   const routesDuring = (at: ExactAmount) => movements.filter(p => compareAmounts(p.startMs, at) < 0 && compareAmounts(p.endMs, cursor) > 0)
   const advanceSegment = (at: ExactAmount, slide?: ReturnType<typeof planSlide>) => {
-    const traces = exposureProfile ? new Map<string,MovementPiece[]>() : undefined
+    const traces = exposureProfile || contactProfile ? new Map<string,MovementPiece[]>() : undefined
     const drySpeeds = tractionEnabled && movements.length ? new Map<string,number>() : undefined
     const move = (step?: SlideStep) => {
       const current = activeScene()
@@ -361,10 +373,15 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       throw Error('Интервал слишком мал для текущих игровых часов. Требуется решение мастера; время не округлено для исполнения.')
     }
     const step = slide && slideStep(slide, seconds)
+    const contactScene = contactProfile ? activeScene() : undefined
     const falls = exposureProfile ? new Map<string,ExposureFallStart>(activeScene()?.tokens.flatMap(t=>t.fall ?
       [[t.actorId,{z:t.z,speedMs:t.fall.speedMs}]] : [])) : undefined
     move(step)
     candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment), exposureProfile ? collection.sceneId : undefined)
+    if (contactProfile && contactScene && traces) {
+      const flying = new Set(activeMovements.flatMap(({work})=>work.action.kind==='move' && work.action.support==='air' ? [work.actorId] : []))
+      for (const dose of surfaceDoses(candidate,contactScene,contactProfile,seconds,traces,flying,checkContact)) applyDose(dose)
+    }
     settleFalls(seconds, at)
     const current = activeScene()
     const observe = exposureProfile && current && traces && falls ?
@@ -420,6 +437,12 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         }
       }
       const physical = result.outcome.physics
+      if (contactProfile && physical?.kind==='discharge' && physical.circuit.status==='closed') {
+        for (const body of physical.circuit.bodyPath ?? []) {
+          const doseHp = body.energyJ/(2*contactProfile.electricJPerHp)
+          for (const region of [body.handRegion,body.footRegion]) applyDose({actorId:body.actorId,region,kind:'electric',doseHp,shieldedHp:0})
+        }
+      }
       if (physical?.kind==='sound') emitSound(at,{kind:'ability',point:physical.position,levelDbAt1m:physical.levelDbAt1m})
       if (physical?.kind==='structural-impact') {
         if (acoustics && 'point' in a.target) {
@@ -500,6 +523,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     ...(water ? { water } : {}),
     ...(thermal ? { thermal } : {}),
     ...(exposure.length ? { exposure } : {}),
+    ...(contactOutcomes.size ? { contacts:[...contactOutcomes.values()] } : {}),
     ...(acoustics?.sounds.length ? {sounds:acoustics.sounds} : {}),
     ...(walkTraction.size || slideTraction.size ? {traction:{walks:[...walkTraction.values()],slides:[...slideTraction.values()]}} : {}),
     ...(landings.length || falling.length ? { falls:{landings,falling} } : {}),

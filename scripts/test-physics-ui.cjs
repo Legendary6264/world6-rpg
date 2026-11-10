@@ -170,6 +170,20 @@ test('Сцепление UI: валидируются оба коэффицие�
   await submit();assert.equal(state.value.traction,null)
 })
 
+test('Контактные повреждения UI: игровые пороги валидируются и снимаются явно',async()=>{
+  const state=await fixture(EnvironmentPhysicsPanel),named=name=>document.querySelector('[name="'+name+'"]')
+  await flush(()=>named('simulateContacts').click())
+  await flush(()=>{named('contactBodyOhm').value='0'})
+  await submit();assert(document.querySelector('[role=alert]'));assert.equal(state.value,undefined)
+  await flush(()=>{named('contactBodyOhm').value='750';named('contactBurnC').value='70';named('contactAcidMolarSeconds').value='.015'})
+  await submit()
+  assert.equal(state.value.contactHazards.bodyResistanceOhm,750)
+  assert.equal(state.value.contactHazards.burnAboveK,343.15)
+  assert.equal(state.value.contactHazards.acidMolarSecondsPerHp,.015)
+  await flush(()=>named('simulateContacts').click())
+  await submit();assert.equal(state.value.contactHazards,null)
+})
+
 test('Конструкции UI: прочность сохраняется, накопленный удар можно исправить без сброса материала',async()=>{
   const state=await fixture(ObjectPhysicsPanel,{version:1,material:physicsMaterialPreset('wood'),massKg:4,temperatureK:293.15,wetnessFraction:0},{canBreak:true})
   const name=key=>document.querySelector('[name="'+key+'"]')

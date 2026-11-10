@@ -4,6 +4,8 @@ import { isTimestamp } from './characterKnowledge'
 import { bodyRegions } from './bodyRegions'
 import { exposureLimits, isExposureLoad, isExposureProtection } from './exposureProfiles'
 import type { ExposureLoad, ExposureProtection } from './exposureProfiles'
+import { copyContactRemainders, isContactRemainders } from './contactProfiles'
+import type { ContactRemainders } from './contactProfiles'
 export { bodyRegions } from './bodyRegions'
 
 export type BodyRegion = string
@@ -21,6 +23,7 @@ export type BodyState = {
   anatomy?: DetailedAnatomy
   exposure?: ExposureLoad|null
   exposureProtection?: ExposureProtection|null
+  contactDoses?: ContactRemainders|null
   parts: Record<BodyRegion, BodyPart>
   consciousness: 'awake' | 'unconscious'
   history: BodyLog[]
@@ -46,6 +49,7 @@ export function isBodyPart(v: unknown): v is BodyPart {
 export function isBodyState(v: unknown): v is BodyState {
   if (!record(v) || !record(v.parts) || (v.anatomy !== undefined && !isDetailedAnatomy(v.anatomy, Object.keys(v.parts))) || !['awake', 'unconscious'].includes(String(v.consciousness)) ||
       (v.exposure != null && !isExposureLoad(v.exposure)) || (v.exposureProtection != null && !isExposureProtection(v.exposureProtection)) ||
+      (v.contactDoses != null && !isContactRemainders(v.contactDoses,Object.keys(v.parts))) ||
       !Array.isArray(v.history) || v.history.length > 200) return false
   return Object.keys(v.parts).length > 0 && Object.keys(v.parts).length <= 64 && Object.entries(v.parts).every(([k,p]) => !['__proto__','constructor','prototype'].includes(k) && /^[a-zA-Z0-9:_-]+$/.test(k) && k.length <= 160 && isBodyPart(p)) &&
     v.history.every(e => record(e) && typeof e.id === 'string' && e.id.length > 0 && e.id.length <= 160 &&
@@ -68,6 +72,7 @@ export function cloneBody(body?: BodyState): BodyState {
     ...(v.anatomy ? {anatomy:copyDetailedAnatomy(v.anatomy)} : {}),
     ...(v.exposure !== undefined ? {exposure:v.exposure && {...v.exposure}} : {}),
     ...(v.exposureProtection !== undefined ? {exposureProtection:v.exposureProtection && {...v.exposureProtection}} : {}),
+    ...(v.contactDoses !== undefined ? {contactDoses:v.contactDoses && copyContactRemainders(v.contactDoses)} : {}),
     consciousness: v.consciousness, history: v.history.map(e => ({ id: e.id, at: e.at, gameTime: e.gameTime, text: e.text })) }
 }
 
@@ -77,6 +82,10 @@ export function preserveBodyExposure(previous:BodyState|undefined,next:BodyState
   }
   if (next.exposureProtection === undefined && previous?.exposureProtection !== undefined) {
     next.exposureProtection = previous.exposureProtection && {...previous.exposureProtection}
+  }
+  if (next.contactDoses === undefined && previous?.contactDoses !== undefined) {
+    const doses = Object.entries(previous.contactDoses ?? {}).filter(([key])=>next.parts[key]?.present)
+    next.contactDoses = doses.length ? copyContactRemainders(Object.fromEntries(doses)) : null
   }
 }
 export function bodyRegionDefs(body: BodyState) {

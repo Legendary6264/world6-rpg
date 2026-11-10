@@ -16,6 +16,8 @@ import { statisticFields } from './characterStatistics'
 import { kineticEnergyJ } from './physicsUnits'
 import type { LandingProfile } from './mechanicalProfiles'
 import { advanceStationaryExposure } from './environmentExposure'
+import { contactLabels } from './contactProfiles'
+import type { ContactKind } from './contactProfiles'
 export type Actor = ReadyCharacterDraft & {id:string}
 export type World = {characters: Actor[]; campaign: Campaign}
 export type Plan = {fingerprint:string; world:World; text:string; details:string; eventId:string;targets?:{actorId:string;name:string;details:string}[]}
@@ -275,6 +277,40 @@ export function applyLandingImpact(world: World, actorId: string, landing: Landi
   applyAutomaticLife(target, world.campaign.seconds, eventId + '-life')
   logWorld(world, eventId, target.name + ' · ' + label, 'Энергия ' + energyJ.toFixed(3) + ' Дж.' + contact.details + trace, [actorId])
   return { status:'applied', energyJ, transmittedJ:contact.energy, damage:contact.damage }
+}
+
+// Each part keeps the fraction below one HP. Splitting time at another
+// character's action must not discard a series of small contacts.
+export function applyContactDose(world:World,actorId:string,region:string,kind:ContactKind,doseHp:number,eventId:string):number {
+  const target = world.characters.find(actor=>actor.id===actorId)
+  const part = target?.body.parts[region]
+  if (!target || target.rpg.dead || !part?.present || !part.current || doseHp<=0) return 0
+  const body = target.body, doses = body.contactDoses ?? {}, previous = doses[region]?.[kind] ?? 0
+  const total = previous+Math.min(doseHp,part.current)
+  const damage = Math.min(part.current,Math.floor(total+1e-9))
+  const remaining = damage===part.current ? 0 : Math.max(0,total-damage)
+  const next = damage===part.current ? {} : {...doses[region]}
+  if (remaining>1e-9) next[kind]=remaining
+  else delete next[kind]
+  if (Object.keys(next).length) doses[region]=next
+  else delete doses[region]
+  if (Object.keys(doses).length || body.contactDoses) body.contactDoses = Object.keys(doses).length ? doses : null
+  if (!damage) return 0
+
+  part.current -= damage
+  const label = contactLabels[kind]
+  if (!part.wound.split('\n').includes(label)) part.wound=[part.wound,label].filter(Boolean).join('\n').slice(-2000)
+  const anatomy = body.anatomy
+  if (anatomy) {
+    const skin = anatomy.structures.filter(s=>s.region===region && s.kind==='skin').sort((a,b)=>a.depth-b.depth)[0]
+    if (skin) skin.current=Math.max(0,skin.current-damage)
+    anatomy.harmRevision++
+  }
+  clampResources(target,world.campaign.seconds)
+  applyAutomaticLife(target,world.campaign.seconds,eventId+'-life')
+  const area = bodyRegionDefs(body).find(row=>row.key===region)?.label ?? region
+  logWorld(world,eventId,target.name+' · '+label,area+' · локальное повреждение '+damage+' HP.',[actorId])
+  return damage
 }
 
 function impacts(w:World,owner:Actor,target:Actor,cast:Cast,random:(targetId?:string)=>number){

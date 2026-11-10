@@ -12,6 +12,7 @@ import type { ScenePerceptions } from './scenePerception'
 import type { ActionDeclarations } from './actionDeclarations'
 import type { RoundWork } from './roundWork'
 import type { ScenePosition } from './sceneTypes'
+import type { ContactProtection } from './contactProfiles'
 export type ParameterKey = StatisticKey | 'maximumHealth' | 'maximumMana' | 'maximumShadow' | 'maximumStamina'
 export type Cost = { mana: number; shadow: number; stamina: number }
 export type ChargePolicy = { maxHoldSeconds: number | null; holdCost: Cost; requireConditions: boolean; refundPreparingPercent: number; refundReadyPercent: number }
@@ -25,6 +26,7 @@ export type ConsumableEffect = {
 }
 export type ItemDefinition = {
   consumable?: ConsumableEffect
+  contactProtection?: ContactProtection|null
   artifactCharge?: number; activationCost?: number; activationDuration?: number; activationModifiers?: Modifier[]; artifactLevel?: number; minimumLevel?: number; energyType?: 'mana'|'shadow'; energyReserve?: number; effectDescription?: string; category?: 'weapon'|'armor'|'focus'|'jewelry'|'tool'|'consumable'; shape?: 'sword'|'staff'|'ring'|'shield'|'orb'|'dagger'|'axe'|'bow'|'amulet'|'helmet'|'armor'|'potion'; color?: string; modelLength?:number; modelWidth?:number; modelDepth?:number
   artwork?: string
   name: string; description: string; massKg: number; material: string; thicknessMm: number

@@ -13,6 +13,8 @@ import { isExposureProfile } from './exposureProfiles'
 import type { ExposureProfile } from './exposureProfiles'
 import { isTractionProfile } from './surfaceTraction'
 import type { TractionProfile } from './surfaceTraction'
+import { isContactHazardProfile } from './contactProfiles'
+import type { ContactHazardProfile } from './contactProfiles'
 export { MAX_AEROSOL_KG } from './airProfiles'
 
 export const DEFAULT_BACKGROUND_NOISE_DB = 30
@@ -24,7 +26,7 @@ export type RoomAtmosphere = AirContents & {
 export type Combustion = {fuelKg:number;burnRateKgS:number;ignitionTemperatureK:number}
 export type PhysicsEnvironment = {version:1;gravityMs2:number;ambientTemperatureK:number;backgroundNoiseDb?:number|null;
   eventSounds?:true|null;atmosphere?:RoomAtmosphere|null;vision?:VisionProfile|null;airRooms?:AirRoom[]|null;
-  exposure?:ExposureProfile|null;traction?:TractionProfile|null}
+  exposure?:ExposureProfile|null;traction?:TractionProfile|null;contactHazards?:ContactHazardProfile|null}
 export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temperatureK:number;wetnessFraction:number;
   noiseLevelDbAt1m?:number|null;combustion?:Combustion|null;structure?:StructureProfile|null;sliding?:SlidingProfile|null;lightIntensityCd?:number|null}
 
@@ -61,7 +63,7 @@ const isSoundLevel = (v: unknown) => physicsNumber(v, 0, MAX_SOUND_LEVEL_DB)
 export function isPhysicsEnvironment(value: unknown): value is PhysicsEnvironment {
   if (!physicsRecord(value) || !withOptionalProfiles(value, ['version','gravityMs2','ambientTemperatureK'], {
     backgroundNoiseDb:isSoundLevel, eventSounds:v=>v===true, atmosphere:isRoomAtmosphere, vision:isVisionProfile, airRooms:isAirRoomList,
-    exposure:isExposureProfile, traction:isTractionProfile,
+    exposure:isExposureProfile, traction:isTractionProfile, contactHazards:isContactHazardProfile,
   }) || value.version !== 1 || !physicsNumber(value.gravityMs2, 0, 1e6) ||
     !physicsNumber(value.ambientTemperatureK, 0, MAX_TEMPERATURE_K)) return false
   const {airRooms,atmosphere,exposure} = value as PhysicsEnvironment
@@ -82,7 +84,8 @@ export function copyPhysicsEnvironment(value: PhysicsEnvironment | null): Physic
   if (!isPhysicsEnvironment(value)) throw Error('Проверь физические условия сцены.')
   return {...value, ...(value.atmosphere ? {atmosphere:{...value.atmosphere}} : {}), ...(value.vision ? {vision:{...value.vision}} : {}),
     ...(value.airRooms ? {airRooms:copyAirRooms(value.airRooms)} : {}), ...(value.exposure ? {exposure:{...value.exposure}} : {}),
-    ...(value.traction ? {traction:{...value.traction}} : {})}
+    ...(value.traction ? {traction:{...value.traction}} : {}),
+    ...(value.contactHazards ? {contactHazards:{...value.contactHazards}} : {})}
 }
 export function copyPhysicsBody(value: PhysicsBody | null): PhysicsBody | null {
   if (value === null) return null
@@ -118,6 +121,9 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
       }
       if (scene.physics.traction === undefined && previous.physics.traction !== undefined) {
         scene.physics.traction = previous.physics.traction && {...previous.physics.traction}
+      }
+      if (scene.physics.contactHazards === undefined && previous.physics.contactHazards !== undefined) {
+        scene.physics.contactHazards = previous.physics.contactHazards && {...previous.physics.contactHazards}
       }
     }
     const objects = new Map(previous.objects.map(object => [object.id,object]))

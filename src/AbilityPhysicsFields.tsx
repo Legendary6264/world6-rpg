@@ -1,6 +1,8 @@
 import { emptyAbilityPhysicsForm, physicsFields } from './roundRuleForms'
 import {waterReagents} from './waterPhysics'
-import type { AbilityPhysicsForm } from './roundRuleForms'
+import type { AbilityPhysicsForm, RuleActor, RuleSceneObject } from './roundRuleForms'
+import { MAX_SHOCK_GRIPS } from './electricalCircuit'
+import type { ShockGrip } from './electricalCircuit'
 
 const modeLabels = {
   'create-water': 'Создать чистую воду',
@@ -23,9 +25,13 @@ const hints = {
   sound: 'Точка выпуска станет источником короткого звука. Укажи уровень на расстоянии 1 м и включи звуки событий в акустике сцены.',
 } satisfies Record<AbilityPhysicsForm['kind'], string>
 
-export default function AbilityPhysicsFields({ title, value, onChange }: {
-  title: string; value?: AbilityPhysicsForm; onChange: (value?: AbilityPhysicsForm) => void
+export default function AbilityPhysicsFields({ title, value, actors, objects, onChange }: {
+  title: string; value?: AbilityPhysicsForm; actors:RuleActor[]; objects:RuleSceneObject[]; onChange: (value?: AbilityPhysicsForm) => void
 }) {
+  const grips = value?.grips ?? []
+  const replaceGrip = (index:number,patch:Partial<ShockGrip>)=>{
+    if (value) onChange({...value,grips:grips.map((grip,i)=>i===index?{...grip,...patch}:grip)})
+  }
   return <details className="gb-scene-details">
     <summary>Физическое действие{value ? ' · ' + modeLabels[value.kind] : ''}</summary>
     <label className="w6-field"><span>Действие со средой</span>
@@ -53,7 +59,28 @@ export default function AbilityPhysicsFields({ title, value, onChange }: {
       </div>
       {value.kind === 'add-substance' && (value.substance === 'acid' || value.substance === 'alkali') &&
         <p className="w6-copy">Укажи массу самого вещества в растворе. Соль, которая образуется при реакции, тоже проводит ток.</p>}
-      {value.kind === 'discharge' && <p className="w6-copy">Операции с объектами сработают на найденном пути при достижении заданного тока. Последствия для существ задаются в параметрах выпуска.</p>}
+      {value.kind === 'discharge' && <details className="gb-scene-details">
+        <summary>Хваты героев{grips.length ? ' · '+grips.length : ''}</summary>
+        <p className="w6-copy">Укажи, кто держится за проводник. При выпуске проверяются расстояние, опора и проводимость. Ноги должны касаться отдельного проводника. Для этого расчёта включи контактные повреждения сцены.</p>
+        {grips.map((grip,index)=>{
+          const areas = actors.find(actor=>actor.id===grip.actorId)?.regions ?? []
+          return <fieldset key={index}><legend>Хват {index+1}</legend><div className="gb-properties">
+            <label className="w6-field"><span>Герой</span><select aria-label={'Герой в цепи '+(index+1)+' '+title} value={grip.actorId}
+              onChange={e=>replaceGrip(index,{actorId:e.currentTarget.value,handRegion:'',footRegion:''})}><option value="">Выбери героя</option>
+              {actors.filter(actor=>actor.id===grip.actorId || !grips.some(other=>other.actorId===actor.id)).map(actor=><option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
+            <label className="w6-field"><span>Предмет в хвате</span><select aria-label={'Предмет в хвате '+(index+1)+' '+title} value={grip.objectId}
+              onChange={e=>replaceGrip(index,{objectId:e.currentTarget.value})}><option value="">Выбери проводник</option>
+              {objects.map(object=><option key={object.id} value={object.id}>{object.name}</option>)}</select></label>
+            {([['handRegion','Область хвата'],['footRegion','Область опоры']] as const).map(([key,label])=><label key={key} className="w6-field"><span>{label}</span>
+              <select aria-label={label+' '+(index+1)+' '+title} value={grip[key]} onChange={e=>replaceGrip(index,{[key]:e.currentTarget.value})}>
+                <option value="">Выбери область</option>{areas.map(area=><option key={area.key} value={area.key}>{area.label}</option>)}
+              </select>
+            </label>)}
+          </div><button type="button" className="w6-button" onClick={()=>onChange({...value,grips:grips.filter((_,i)=>i!==index)})}>Убрать хват {index+1}</button></fieldset>
+        })}
+        <button type="button" className="w6-button" disabled={grips.length>=Math.min(MAX_SHOCK_GRIPS,actors.length) || !objects.length}
+          onClick={()=>onChange({...value,grips:[...grips,{actorId:'',objectId:'',handRegion:'',footRegion:''}]})}>Добавить хват</button>
+      </details>}
     </>}
   </details>
 }

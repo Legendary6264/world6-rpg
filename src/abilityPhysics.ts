@@ -1,5 +1,5 @@
-import { calculateCircuit, pointInObject } from './electricalCircuit'
-import type { CircuitResult, DischargeSettings } from './electricalCircuit'
+import { calculateCircuit, isShockGrips, pointInObject } from './electricalCircuit'
+import type { CircuitBridge, CircuitResult, DischargeSettings } from './electricalCircuit'
 import { physicsId, physicsKeys, physicsNumber, physicsRecord, cubicMetresToLitres, litresToCubicMetres } from './physicsUnits'
 import { MAX_SCENE_OBJECTS, sceneObject } from './scenes'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
@@ -41,7 +41,7 @@ export type AbilityPhysicsOutcome =
       kind: 'water'; change: 'created' | 'filled' | WaterAdditive; objectId: string; volumeL: number
       composition: WaterComposition; conductivitySM: number | null; ph?: number | null; reaction?: Neutralization
     }
-  | { kind: 'discharge'; circuit: CircuitResult; thresholdA: number }
+  | { kind: 'discharge'; circuit: CircuitResult; thresholdA: number; gripsChecked?:number }
   | { kind: 'sound'; position: ScenePosition; levelDbAt1m: number }
   | HeatOutcome
   | StructuralImpactOutcome
@@ -65,7 +65,8 @@ export function isAbilityPhysicsEffect(value: unknown): value is AbilityPhysicsE
         isWaterAdditive(value.substance) && physicsNumber(value.massKg, 1e-9, isWaterReagent(value.substance) ?
           MAX_WATER_REAGENT_MOL * waterReagents[value.substance].molarMassKg : MAX_WATER_ADDITIVE_KG)
     case 'discharge':
-      return physicsKeys(value, ['kind', 'returnContact', 'voltageV', 'limitA', 'durationMs', 'thresholdA']) && isPoint(value.returnContact) &&
+      return physicsKeys(value, ['kind', 'returnContact', 'voltageV', 'limitA', 'durationMs', 'thresholdA', ...(Object.hasOwn(value,'grips')?['grips']:[])]) &&
+        (!Object.hasOwn(value,'grips') || isShockGrips(value.grips)) && isPoint(value.returnContact) &&
         physicsNumber(value.voltageV, 1e-6, 1e6) && physicsNumber(value.limitA, 1e-9, 1e6) &&
         physicsNumber(value.durationMs, .001, 86400000) && physicsNumber(value.thresholdA, 1e-9, value.limitA)
     case 'heat':
@@ -119,7 +120,7 @@ function addWaterReagent(scene: Scene, object: SceneObject, current: WaterCompos
 
 // Only called on the private candidate of a confirmed release, at its exact
 // place in the round. Persisting the candidate is the round command's job.
-export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: string, effect: AbilityPhysicsEffect, origin?: ScenePosition): AbilityPhysicsOutcome {
+export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: string, effect: AbilityPhysicsEffect, origin?: ScenePosition, bridges?:readonly CircuitBridge[]): AbilityPhysicsOutcome {
   if (!isAbilityPhysicsEffect(effect) || !inFrame(aim, scene)) throw Error('Проверь параметры физического действия и точку выпуска.')
   switch (effect.kind) {
     case 'create-water': {
@@ -168,7 +169,9 @@ export function applyAbilityPhysics(scene: Scene, aim: ScenePosition, waterId: s
     }
     case 'discharge':
       if (!inFrame(effect.returnContact, scene)) throw Error('Обратная клемма выходит за пределы сцены.')
-      return { kind: 'discharge', circuit: calculateCircuit(scene, aim, effect), thresholdA: effect.thresholdA }
+      if (effect.grips?.length && (!scene.physics?.contactHazards || !bridges)) throw Error('Для хватов разряда включи контактные повреждения сцены.')
+      return { kind: 'discharge', circuit: calculateCircuit(scene, aim, effect, bridges), thresholdA: effect.thresholdA,
+        ...(effect.grips?.length ? {gripsChecked:effect.grips.length} : {}) }
     case 'heat': {
       const targets = scene.objects.filter(o => thermalTarget(o) && pointInObject(o, aim))
       if (targets.length !== 1) throw Error('Выбери точку внутри одного объёма воды или одного объекта с теплоёмкостью.')
@@ -231,5 +234,6 @@ export function physicsOutcomeDetails(outcome: AbilityPhysicsOutcome): string {
   }
   if (circuit.status === 'unknown') return 'Разряд · на пути есть участки с неизвестной проводимостью.'
   return 'Разряд · ' + circuit.path.map(p => p.name).join(' → ') + '\n' +
-    number(circuit.ohms) + ' Ом · ' + number(circuit.currentA) + ' А · ' + number(circuit.energyJ) + ' Дж · порог операций ' + number(thresholdA) + ' А'
+    number(circuit.ohms) + ' Ом · ' + number(circuit.currentA) + ' А · ' + number(circuit.energyJ) + ' Дж · порог операций ' + number(thresholdA) + ' А' +
+    (outcome.gripsChecked ? '\nХваты в основном пути '+(circuit.bodyPath?.length ?? 0)+' из '+outcome.gripsChecked+'.' : '')
 }

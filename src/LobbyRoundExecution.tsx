@@ -9,6 +9,7 @@ import type { AcousticScene } from './acoustics'
 import { exposureLabels, exposureStage, exposureStageLabels } from './exposureProfiles'
 import { tractionLabels } from './surfaceTraction'
 import { soundLabels } from './roundSound'
+import { contactLabels } from './contactProfiles'
 import { isChargeDecision, isChargeForm } from './roundCharges'
 import LobbyRoundCharges from './LobbyRoundCharges'
 import type { ChargeForm } from './roundCharges'
@@ -270,6 +271,18 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         {visible.summary.traction.slides.map(row=><p key={JSON.stringify([row.moverId,row.objectId,row.kind])}>
           {row.moverName} · {row.name} · {tractionLabels[row.kind]} · {quantity(row.distanceM)} м скольжения · сцепление {quantity(row.factor*100)} %
         </p>)}
+      </section>}
+      {!!visible.summary.contacts?.length&&<section aria-label="Контактные повреждения">
+        <h4>Контактные повреждения</h4>
+        {visible.summary.contacts.map(row=><p key={JSON.stringify([row.actorId,row.region,row.kind])}>
+          {name(row.actorId)} · {actors.find(actor=>actor.id===row.actorId)?.regions?.find(area=>area.key===row.region)?.label ?? row.region}
+          {' · '}{contactLabels[row.kind]} · воздействие {quantity(row.doseHp)} HP · получено {row.damage} HP
+          {row.shieldedHp>0?' · защита сняла '+quantity(row.shieldedHp)+' HP':''}
+        </p>)}
+        {visible.summary.rules?.flatMap(rule=>rule.physics?.kind==='discharge' && rule.physics.circuit.status==='closed' ?
+          rule.physics.circuit.bodyPath?.map(contact=><p key={rule.key+':'+contact.actorId}>
+            {name(contact.actorId)} · через тело {quantity(contact.energyJ)} Дж · изоляция экипировки {quantity(contact.insulationOhm)} Ом
+          </p>) ?? [] : [])}
       </section>}
       {visible.summary.movementApprovals?.map(a=><p key={a.actorId}>{name(a.actorId)} · основание полёта: {a.reason}</p>)}
       {visible.summary.falls && <section aria-label="Падения и приземления">

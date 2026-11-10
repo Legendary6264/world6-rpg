@@ -5,6 +5,7 @@ import { applyAbilityPhysics, isAbilityPhysicsEffect, physicsOutcomeDetails } fr
 import type { AbilityPhysicsEffect, AbilityPhysicsOutcome } from './abilityPhysics'
 import { removeLiveObjectDisclosure } from './scenePerception'
 import { abilityAreaContains } from './abilityArea'
+import { shockBridges } from './bodyContactPhysics'
 import { activateArtifact, consumeItemPlan, equipItem, makeActionPlan, modifiersText, readyRoundPreparation, releaseRoundPlan, releaseSpatialRoundPlan } from './rpgEngine'
 import type { DeclaredAction, DeclarationCollection } from './actionDeclarations'
 import type { ActionInput } from './rpgTypes'
@@ -137,7 +138,14 @@ export function finishRoundRule(world:World,work:RoundWorkEntry,key:string,decis
         ['stone','impact'].includes(cast.ability.mechanism) && plan.targets?.length) {
       throw Error('Физический контакт уже направлен в существо. Для удара или толчка предмета выбери отдельную точку.')
     }
-    physics = applyAbilityPhysics(scene, target.point, work.id + '-water', decision.physics, origin)
+    const grips = decision.physics.kind==='discharge' ? decision.physics.grips : undefined
+    if (grips?.length && ['manual','stone','impact'].includes(cast.ability.mechanism) &&
+        plan.targets?.some(target=>grips.some(grip=>grip.actorId===target.actorId))) {
+      throw Error('Для одного героя выбери физический контакт разряда или прямой урон этого выпуска.')
+    }
+    const bridges = grips?.length && scene.physics?.contactHazards ?
+      shockBridges(plan.world,scene,scene.physics.contactHazards,grips) : undefined
+    physics = applyAbilityPhysics(scene, target.point, work.id + '-water', decision.physics, origin, bridges)
     if (physics.kind === 'structural-impact' && physics.collapsed) {
       removeLiveObjectDisclosure(plan.world.campaign.perceptions, scene.id, physics.objectId)
     }

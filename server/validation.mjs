@@ -5,6 +5,7 @@ import { declarationReferencesValid } from './generated/actionDeclarations.mjs'
 import { roundWorkReferencesValid, personalRoundWork } from './generated/roundWork.mjs'
 import { isCharacterDraft, normalizeCharacterDraft } from './generated/characterModel.mjs'
 import { preserveBodyExposure } from './generated/characterBody.mjs'
+import { retainContactProtection } from './generated/contactProfiles.mjs'
 import { emptyCampaign, isCampaign } from './generated/rpgSchema.mjs'
 import { effectiveActor } from './generated/rpgEngine.mjs'
 import { perceivedBody, perceivedCapabilities } from './generated/bodyPerception.mjs'
@@ -25,10 +26,12 @@ export const publicUser=u=>({id:u.id,displayName:u.display_name,role:u.role,disa
 function characterSize(value){if(Buffer.byteLength(JSON.stringify(value))>2*1024*1024)fail(413,'Персонаж превышает 2 МиБ.')}
 export function character(value){if(!value||!isCharacterDraft(value))fail(400,'Некорректный лист персонажа.');validId(value.id);const v={...normalizeCharacterDraft(value),id:value.id};characterSize(v);return v}
 export function retainCharacterExposure(previous,next){
- const {exposure,exposureProtection}=next.body
+ const {exposure,exposureProtection,contactDoses}=next.body
  preserveBodyExposure(previous?.body,next.body)
- if(exposure!==next.body.exposure||exposureProtection!==next.body.exposureProtection)characterSize(next)
+ const equipment=retainContactProtection(previous?.rpg?.inventory,next.rpg.inventory)
+ if(equipment||exposure!==next.body.exposure||exposureProtection!==next.body.exposureProtection||contactDoses!==next.body.contactDoses)characterSize(next)
 }
+export function retainCampaignContactProtection(previous,next){retainContactProtection(previous.items,next.items)}
 export const emptyWorld=()=>({characters:[],campaign:emptyCampaign()})
 export function preservePublishedSceneFields(current,next){
  for(const scene of next?.scenes??[]){const old=current?.scenes.find(s=>s.id===scene.id)

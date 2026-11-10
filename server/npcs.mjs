@@ -1,7 +1,7 @@
 import {commitWorld} from './world-coordinator.mjs'
 import {createHash} from 'node:crypto'
 import {isDeepStrictEqual} from 'node:util'
-import {character,world as validateWorld,fail,integer,id,now,text} from './validation.mjs'
+import {character,world as validateWorld,fail,integer,id,now,text,retainCharacterExposure} from './validation.mjs'
 import {requireLobbyPermission,requireChief} from './permissions.mjs'
 import {hasLobbyPermission} from './generated/lobbyAccess.mjs'
 import {emptyCampaign} from './generated/rpgSchema.mjs'
@@ -57,6 +57,7 @@ export function npcRoutes(app,{db,auth,updated,lockedMembership,record:recordAud
      text(b.reason,2000)
      if(lobby.energy!=='any'&&actor.profile.energy!==lobby.energy)fail(409,'Энергия NPC не подходит этому лобби.')
      if(['casts','effects','logs'].some(k=>!isDeepStrictEqual(actor.rpg[k],before.rpg[k])))fail(409,'Начатые применения, эффекты и игровой журнал меняются через раунд или явную отмену, а не заменой листа NPC.')
+     retainCharacterExposure(before,actor)
      state.characters=state.characters.map(c=>c.id===actorId?actor:c);validateWorld(state)
      await tx.run('UPDATE character_bindings SET approved=? WHERE lobby_id=? AND character_id=?',[b.approved?1:0,lobby.id,actorId])
     }else{

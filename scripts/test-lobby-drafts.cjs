@@ -2208,6 +2208,43 @@ test('Звуки событий UI: форма выпуска, частный р
   assert.equal(document.querySelector('[aria-label="Звуки событий"]'),null)
  }finally{await f.close()}
 })
+test('Контактный разряд UI: хват проверяется, а отчёт показывает урон и изоляцию',async()=>{
+ const f=await fixture()
+ try {
+  executableSpatial(f,'a')
+  const world=f.worlds.a,scene=world.campaign.scenes.scenes[0],actor=world.characters.find(a=>a.id==='npc-b-a')
+  const {defaultContactHazards,emptyContactProtection}=load('contactProfiles')
+  scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,contactHazards:{...defaultContactHazards,electricJPerHp:1}}
+  for(const area of ['rightHand','leftFoot'])Object.assign(actor.body.parts[area],{current:20,maximum:20})
+  actor.rpg.inventory=[{...load('rpgSchema').emptyItem(),id:'boot',templateId:'boot',name:'Ботинок',quantity:1,durability:100,
+   slot:'body',covers:['leftFoot'],equipped:true,contactProtection:{...emptyContactProtection,wetOhm:100}}]
+  const {sceneObject}=load('scenes'),source={x:8.7,y:2.55,z:1}
+  const rail={...sceneObject('rock','rail',{...source,z:.7}),name:'Медный поручень',width:.2,depth:.2,height:.6,
+   physics:{version:1,material:load('physicsMaterials').physicsMaterialPreset('copper'),massKg:2,temperatureK:293.15,wetnessFraction:0}}
+  scene.objects=[rail,{...sceneObject('water','pool',{x:8,y:2,z:0}),width:2,depth:1,height:.01,
+   water:{version:1,base:'pure',saltKg:.02,sedimentKg:0}}]
+  world.campaign.declarations.active.entries[0].actions[0].target.point=source
+  await spatialFields(f,'a')
+  const label=name=>'[aria-label="'+name+' Hero a · 1"]'
+  const confirm=async()=>{
+   await flush(()=>document.querySelector(label('Пространство подтверждено')).click())
+   await flush(()=>document.querySelector(label('Правила подтверждены')).click())
+  }
+  await selectValue(label('Действие со средой'),'discharge')
+  for(const [name,value] of [['X обратной клеммы, м','7,5'],['Y обратной клеммы, м','2'],['Z обратной клеммы, м','0,005'],
+   ['Напряжение источника, В','140'],['Предел тока источника, А','0,5'],['Длительность разряда, мс','500'],['Ток для операций с объектами, А','0,01']])await input(label(name),value)
+  await click('Добавить хват');await confirm()
+  assert(!enabledButton('Рассчитать последствия раунда'))
+  await selectValue(label('Герой в цепи 1'),actor.id);await selectValue(label('Предмет в хвате 1'),rail.id)
+  await selectValue(label('Область хвата 1'),'rightHand');await selectValue(label('Область опоры 1'),'leftFoot')
+  await confirm();await click('Рассчитать последствия раунда')
+  assert.deepEqual(f.executions[0].input.rules[0].physics.grips,[{actorId:actor.id,objectId:rail.id,handRegion:'rightHand',footRegion:'leftFoot'}])
+  assert.match(document.querySelector('[aria-label="Контактные повреждения"]').textContent,/NPC B.*изоляция экипировки 100 Ом/s)
+  assert.equal(actor.body.parts.leftFoot.current,20)
+  await click('Применить рассчитанный раунд')
+  assert(f.worlds.a.characters.find(a=>a.id===actor.id).body.parts.leftFoot.current<20)
+ }finally{await f.close()}
+})
 test('Пространство UI: индивидуальный неверный ввод сохраняется и не смешивается между лобби',async()=>{
  const f=await fixture()
  try {
