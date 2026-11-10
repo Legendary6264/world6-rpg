@@ -17,7 +17,7 @@ import { bodyConsequences } from './characterBody'
 import { evaluatedParameters } from './rpgParameters'
 import { copyRoundWorkEntry, isRoundWork, projectWorkProgress, remainingWorldTime } from './roundWork'
 import { previewRoundTimeline, MAX_TIMING_MS } from './roundTimeline'
-import { advanceMovement, checkClosingDoor, movementPosition, prepareMovement, supportAt, MAX_MOVEMENT_CHECKS, MAX_MOVEMENT_SEGMENTS } from './sceneMovement'
+import { advanceMovement, checkClosingDoor, jumpTraction, movementPosition, movementSupport, prepareMovement, MAX_MOVEMENT_CHECKS, MAX_MOVEMENT_SEGMENTS } from './sceneMovement'
 import { beginRoundAbility, decisionsFor, finishRoundRule, newRuleKey, roundRuleRows } from './roundRules'
 import type { RuleDecision, RuleOutcome } from './roundRules'
 import type { DeclarationCollection } from './actionDeclarations'
@@ -30,7 +30,7 @@ import { isRoundReplay } from './roundReplay'
 import type { RoundReplay } from './roundReplay'
 import { advanceWaterFlow, settleWaterSupports, waterRoundChanges } from './waterFlow'
 import type { WaterRoundChanges, WaterSupportChange, WetRouteContact } from './waterFlow'
-import type { SceneSupport } from './sceneTypes'
+import type { SceneSupport, SceneToken } from './sceneTypes'
 import { advanceThermal, settleFire, thermalRoundChanges } from './thermalPhysics'
 import type { ThermalObserver, ThermalRoundChanges } from './thermalPhysics'
 import { isVariableWater, isWaterReagent } from './waterPhysics'
@@ -42,14 +42,14 @@ import { isSliding } from './mechanicalProfiles'
 import { removeLiveObjectDisclosure } from './scenePerception'
 import { exposureChanges, roundExposureObserver } from './environmentExposure'
 import type { ExposureChange, ExposureFallStart } from './environmentExposure'
-import { tractionLabels } from './surfaceTraction'
+import { surfaceContact, tractionLabels } from './surfaceTraction'
 import type { TractionTravel } from './surfaceTraction'
 import { doorSound, impactSoundDb, landingSoundDb, roundAcoustics } from './roundSound'
 import type { RoundSound, SoundSource } from './roundSound'
 import { contactChecker, surfaceDoses } from './bodyContactPhysics'
 import type { ContactDose, ContactOutcome } from './bodyContactPhysics'
-export const ROUND_EXECUTOR_VERSION = 'r23-body-contact-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r22-event-acoustics-v1', 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+export const ROUND_EXECUTOR_VERSION = 'r24-terrain-movement-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r23-body-contact-v1', 'r22-event-acoustics-v1', 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -58,7 +58,8 @@ export type RoundExecutionInput = { timings: ActorTiming[]; continuations: Conti
   soundRecordedAt?:string }
 export type RoundExecutionEvent = { actorId: string; actionIndex: number; workId: string; atMs: ExactAmount;
   kind: 'inspect' | 'speak' | 'wait' | ObjectOperation | 'relocate' | 'move' | 'item' | 'prepare' | 'ready' | 'release'; objectId?: string; castId?:string; listening?:'listen'|'eavesdrop' }
-type RoundFallLanding = FallLanding & { atMs: ExactAmount; impact?: LandingImpactResult; region?: string }
+type Landing = Omit<FallLanding,'sourceId'> & {sourceId?:string; cause?:'jump'}
+type RoundFallLanding = Landing & { atMs: ExactAmount; impact?: LandingImpactResult; region?: string }
 type RoundFalls = { landings: RoundFallLanding[]; falling: { actorId:string; fromZ:number; toZ:number; speedMs:number }[] }
 type SlideStatus = Pick<SlideStep, 'objectId' | 'name' | 'point' | 'speedMs'>
 type SlideStop = Omit<SlideStep, 'vxMs' | 'vyMs' | 'stopped' | 'speedMs' | 'traction'> & { atMs:ExactAmount; impact?:StructuralImpactOutcome }
@@ -160,7 +161,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   if (hasMovement && (!scene || !record(input.movement) || input.movement.confirmed !== true || !Array.isArray(bodies) || bodies.length !== scene.tokens.length || bodies.length > 200 ||
       !bodies.every(b => record(b) && scene.tokens.some(t => t.actorId === b.actorId) && typeof b.heightM === 'number' && Number.isFinite(b.heightM) && b.heightM > 1e-6 && b.heightM <= 1e6 &&
         (b.flightReason === undefined || typeof b.flightReason === 'string' && b.flightReason.length <= 2000)) ||
-      new Set(bodies.map(b => b.actorId)).size !== bodies.length)) throw Error('Мастер должен подтвердить возможность ходьбы/полёта и задать высоту тела каждой отметки сцены для проверки столкновений.')
+      new Set(bodies.map(b => b.actorId)).size !== bodies.length)) throw Error('Мастер должен подтвердить возможность движения и задать высоту тела каждой отметки сцены для проверки столкновений.')
   const finished: { work: RoundWorkEntry; at: ExactAmount }[] = [], starts: {work:RoundWorkEntry;at:ExactAmount}[] = [], carried = [...held], movements: MovementPlan[] = []
   const listeningWindows:ListeningWindow[]=[]
   const planningScene = scene ? structuredClone(scene) : undefined
@@ -189,13 +190,14 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         if(decision.kind!=='item'||work.action.operation&&work.action.operation!==decision.operation)throw Error('Операция мастера должна совпадать с заявленным использованием предмета.')
       }
       if (work.action.kind === 'move' && (compareAmounts(cursor, duration) < 0 || compareAmounts(end, duration) <= 0)) {
-        const token = planningScene?.tokens.find(t => t.actorId === actorId), plan = prepareMovement(work, token, planningScene, cursor, end)
+        const token = planningScene?.tokens.find(t => t.actorId === actorId)
+        const plan = prepareMovement(work, token, planningScene, cursor, end, duration, bodies.find(b=>b.actorId===actorId)?.heightM)
         segmentCount += plan.lengths.length
         if (segmentCount > MAX_MOVEMENT_SEGMENTS) throw Error('Маршрут слишком сложен для одного расчёта. Технический предел: 4000 отрезков.')
         movements.push(plan)
         if (token && compareAmounts(end, duration) <= 0) {
           Object.assign(token, movementPosition(plan, end))
-          token.support = work.action.support === 'air' ? { kind: 'air' } : supportAt(planningScene!, token)
+          token.support = movementSupport(planningScene!,plan,end,token)
         }
       }
       if (compareAmounts(end, duration) <= 0) finished.push({ work, at: end })
@@ -225,15 +227,47 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   }
   let candidate = managed.world, cursor = zero, segment = 0, movementChecks = 0
   const movementApprovals = new Map<string,string>()
-  function checkCapabilities(plans: MovementPlan[], drySpeeds?: Map<string,number>) {
+  function checkCapabilities(plans: MovementPlan[], drySpeeds?: Map<string,number>, starting=false) {
     for (const plan of plans) {
+      if (plan.jump && (!starting || compareAmounts(plan.startMs,cursor)<0)) continue
       const actor = candidate.characters.find(a => a.id === plan.work.actorId)!, consequence = bodyConsequences(actor.body)
       if (actor.rpg.dead || actor.body.consciousness !== 'awake') throw Error('Герой потерял возможность двигаться. Мастер должен пересмотреть раунд.')
       if (plan.work.action.kind !== 'move') continue
-      if (plan.work.action.support === 'ground') {
+      if (plan.work.action.support !== 'air') {
         const speed = evaluatedParameters(actor,candidate.campaign.seconds).movement
-        if (consequence.movementFactor <= 0 || speed !== '' && Number(speed) <= 0) throw Error('Состояние тела или скорость не позволяют ходьбу. Мастер должен пересмотреть движение.')
-        drySpeeds?.set(actor.id,(speed === '' ? 1.5 : Number(speed))*consequence.movementFactor)
+        if (consequence.movementFactor <= 0 || speed !== '' && Number(speed) <= 0) throw Error(plan.work.action.support==='ground'
+          ? 'Состояние тела или скорость не позволяют ходьбу. Мастер должен пересмотреть движение.'
+          : 'Состояние тела или скорость не позволяют выполнить выбранное движение. Мастер должен пересмотреть раунд.')
+        const drySpeed = (speed === '' ? 1.5 : Number(speed))*consequence.movementFactor
+        drySpeeds?.set(actor.id,drySpeed)
+        const current = activeScene()!
+        if ((plan.jump || plan.climb) && starting && compareAmounts(plan.startMs,cursor)===0) {
+          const token = current.tokens.find(t=>t.actorId===actor.id)!
+          if (token.support.kind==='air' || token.fall) throw Error('В начале прыжка, подъёма или спуска герой должен стоять на опоре.')
+          if ((['x','y','z'] as const).some(axis=>Math.abs(token[axis]-plan.points[0][axis])>1e-6)) {
+            throw Error('Позиция героя изменилась перед началом прыжка, подъёма или спуска. Согласуй новый маршрут.')
+          }
+          movementSupport(current,plan,cursor,token)
+        }
+        if (plan.jump) {
+          if (!consequence.canSprint) throw Error('Состояние ног или нагрузка среды не позволяют оттолкнуться для прыжка.')
+          const grip = jumpTraction(current,plan.points[0],movementCheck)
+          if (plan.jump.launchMs > 4*consequence.movementFactor+1e-6 || plan.jump.horizontalMs > 2.5*drySpeed+1e-6) {
+            throw Error('Для прыжка нужна скорость отрыва выше возможностей героя. Выбери ближнюю опору или измени время.')
+          }
+          if (grip && plan.jump.horizontalMs > 2.5*drySpeed*Math.sqrt(grip.factor)+1e-6) {
+            throw Error('На «'+grip.name+'» не хватает сцепления для такого отрыва. Выбери ближнюю или другую опору.')
+          }
+        }
+        if (plan.climb) {
+          if (!consequence.twoHands) throw Error('Для подъёма или спуска нужны две работающие руки.')
+          const anchor = current.objects.find(o=>o.id===plan.climb!.id)
+          const high = plan.points[0].z>plan.points[2].z ? plan.points[0] : plan.points[2]
+          const grip = anchor && current.physics?.traction && surfaceContact(anchor,current.physics.traction,high,high)
+          const safeSpeed = Math.min(1.25,drySpeed*.5)*Math.sqrt(grip ? grip.factor : 1)
+          const routeSpeed = plan.distance/(numberOf(subtractAmounts(plan.endMs,plan.startMs))/1000)
+          if (routeSpeed>safeSpeed+1e-6) throw Error('Для подъёма или спуска по этой опоре нужно больше времени с учётом тела и сцепления.')
+        }
       } else if (!consequence.canFly) {
         const reason = bodies.find(b => b.actorId === actor.id)?.flightReason?.trim()
         if (!reason) throw Error('Нет работающего лётного аппарата. Для магического или другого полёта требуется явное основание мастера.')
@@ -251,7 +285,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const variableWater = thermalEnabled || dosingReagent || !!scene?.objects.some(object => isVariableWater(object.water))
   const horizontal = !!scene?.objects.some(o => isSliding(o.physics?.sliding)) || physicsDecisions.some(effect => effect.kind === 'push-object')
   const structural = horizontal || !!scene?.tokens.some(token => token.fall) || physicsDecisions.some(effect => effect.kind === 'structural-impact')
-  const dynamicSupports = variableWater || structural
+  const dynamicSupports = variableWater || structural || movements.some(p=>p.jump || p.climb)
   const waterSupports = new Map<string, WaterSupportChange>(), routeSupports = new Map<string, SceneSupport>()
   const wetRoutes = new Map<string, WetRouteContact>()
   const landings: RoundFallLanding[] = []
@@ -272,18 +306,20 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   function emitSound(at:ExactAmount,sound:SoundSource|undefined) {
     if (acoustics && sound) acoustics.emit(candidate,activeScene()!,at,sound)
   }
+  function recordLanding(token:SceneToken,landing:Landing,at:ExactAmount) {
+    const profile = token.landing
+    const grounded = landing.support.kind!=='air' && landing.speedMs>0
+    const impact = profile && grounded ?
+      applyLandingImpact(candidate,landing.actorId,profile,landing.speedMs,'round-'+seed+'-land-'+landings.length) : undefined
+    landings.push({...landing,atMs:at,...(impact && profile ? {impact,region:profile.region} : {})})
+    if (grounded && acoustics) emitSound(at,{kind:'landing',point:{x:token.x,y:token.y,z:token.z},levelDbAt1m:landingSoundDb(landing.speedMs)})
+  }
   function settleFalls(seconds: number, at: ExactAmount) {
     const current = activeScene()
     if (!structural || !current) return
     for (const landing of advanceFalls(current, seconds)) {
       const token = current.tokens.find(t => t.actorId === landing.actorId)!
-      const profile = token.landing
-      const impact = profile && landing.support.kind !== 'air' && landing.speedMs > 0 ?
-        applyLandingImpact(candidate, landing.actorId, profile, landing.speedMs, 'round-' + seed + '-land-' + landings.length) : undefined
-      landings.push({ ...landing, atMs:at, ...(impact && profile ? {impact, region:profile.region} : {}) })
-      if (acoustics && landing.support.kind!=='air' && landing.speedMs>0) {
-        emitSound(at,{kind:'landing',point:{x:token.x,y:token.y,z:token.z},levelDbAt1m:landingSoundDb(landing.speedMs)})
-      }
+      recordLanding(token,landing,at)
     }
   }
   function resolveLostSupport(outcome: StructuralImpactOutcome, at: ExactAmount) {
@@ -337,7 +373,8 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       const current = activeScene()
       if (!current || !movements.length) return
       // Completed paths cannot reset a rider after the surface has moved.
-      const routes = dynamicSupports ? movements.filter(p => compareAmounts(p.endMs, cursor) > 0) : movements
+      const routes = dynamicSupports ? movements.filter(p=>compareAmounts(p.endMs,cursor)>0 &&
+        (!(p.jump || p.climb) || compareAmounts(p.startMs,at)<0)) : movements
       // An active character route may run beside a slide. Crossing its swept
       // footprint within the same interval needs a new order from the GM.
       const checkedScene = slide && step ? { ...current, objects:current.objects.map(o =>
@@ -358,14 +395,14 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       if (!dynamicSupports) return
       for (const route of routes) {
         if (compareAmounts(route.startMs, at) >= 0 || (compareAmounts(at, route.endMs) < 0 && compareAmounts(at, duration) < 0)) continue
-        const support = route.work.action.kind === 'move' && route.work.action.support === 'air' ?
-          { kind: 'air' as const } : supportAt(current, movementPosition(route, at))
+        const support = movementSupport(current,route,at,movementPosition(route,at))
+        if (step && route.jump && support.kind==='object' && support.objectId===step.objectId) throw Error('Опора в точке приземления движется. Выбери устойчивую опору.')
         routeSupports.set(route.work.id, support)
       }
     }
     if (compareAmounts(cursor, at) === 0) { if (!dynamicSupports) move(); return }
     const activeMovements = routesDuring(at)
-    checkCapabilities(activeMovements,drySpeeds)
+    checkCapabilities(activeMovements,drySpeeds,true)
     const seconds = numberOf(subtractAmounts(at, cursor)) / 1000, previous = candidate.campaign.seconds
     // The legacy physiology engine uses a numeric clock and microsecond steps.
     // Exact ordering/work is preserved; unrepresentable intervals block atomically.
@@ -379,8 +416,9 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     move(step)
     candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment), exposureProfile ? collection.sceneId : undefined)
     if (contactProfile && contactScene && traces) {
-      const flying = new Set(activeMovements.flatMap(({work})=>work.action.kind==='move' && work.action.support==='air' ? [work.actorId] : []))
-      for (const dose of surfaceDoses(candidate,contactScene,contactProfile,seconds,traces,flying,checkContact)) applyDose(dose)
+      const airborne = new Set(activeMovements.flatMap(({work,jump})=>jump || work.action.kind==='move' && work.action.support==='air' ? [work.actorId] : []))
+      const climbs = new Map(activeMovements.flatMap(({work,climb})=>climb ? [[work.actorId,climb.id] as const] : []))
+      for (const dose of surfaceDoses(candidate,contactScene,contactProfile,seconds,traces,airborne,checkContact,climbs)) applyDose(dose)
     }
     settleFalls(seconds, at)
     const current = activeScene()
@@ -393,7 +431,21 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       commitSlide(step, at)
       advanceEnvironment(0, at)
     }
-    checkCapabilities(activeMovements)
+    for (const plan of activeMovements) {
+      if (!plan.jump || compareAmounts(plan.endMs,at)!==0) continue
+      const current = activeScene()!, token = current.tokens.find(t=>t.actorId===plan.work.actorId)!
+      const landing = plan.points[1]
+      if (token.support.kind==='air' || Math.abs(token.z-landing.z)>1e-6) throw Error('Опора изменилась в момент приземления. Скорректируй маршрут или порядок действий.')
+      const grip = jumpTraction(current,landing,movementCheck)
+      if (grip) {
+        const actor = candidate.characters.find(a=>a.id===token.actorId)!
+        const speed = evaluatedParameters(actor,candidate.campaign.seconds).movement
+        const safeSpeed = 2.5*(speed==='' ? 1.5 : Number(speed))*bodyConsequences(actor.body).movementFactor*Math.sqrt(grip.factor)
+        if (plan.jump.horizontalMs>safeSpeed+1e-6) throw Error('На «'+grip.name+'» не хватает сцепления для устойчивого приземления. Выбери ближнюю или другую опору.')
+      }
+      recordLanding(token,{cause:'jump',actorId:token.actorId,fromZ:plan.jump.apexZ,toZ:token.z,speedMs:plan.jump.landingMs,support:token.support},at)
+    }
+    checkCapabilities(activeMovements.filter(plan=>!plan.climb || compareAmounts(plan.endMs,at)>0))
     cursor = at
   }
   const advance = (at: ExactAmount) => {
@@ -506,7 +558,9 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const changes: MovementChange[] = movements.map(m => {
     const atMs = compareAmounts(m.endMs, duration) <= 0 ? m.endMs : duration, to = movementPosition(m, atMs)
     return { workId: m.work.id, actorId: m.work.actorId, from: movementPosition(m, m.startMs), to, atMs,
-      support: routeSupports.get(m.work.id) ?? (m.work.action.kind === 'move' && m.work.action.support === 'air' ? { kind: 'air' } : supportAt(scene!, to)), completed: compareAmounts(m.endMs, duration) <= 0 }
+      support: routeSupports.get(m.work.id) ?? movementSupport(scene!,m,atMs,to), completed: compareAmounts(m.endMs, duration) <= 0,
+      ...(m.jump ? {terrain:{kind:'jump',apexZ:m.jump.apexZ,launchMs:m.jump.launchMs,landingMs:m.jump.landingMs} as const} :
+        m.climb ? {terrain:{kind:'climb',objectId:m.climb.id} as const} : {}) }
   })
   const water = variableWater ? waterRoundChanges(scene!, activeScene()!, [...waterSupports.values()], [...wetRoutes.values()]) : undefined
   const thermal = thermalEnabled ? thermalRoundChanges(scene!, activeScene()!, flowReactionHeatJ) : undefined

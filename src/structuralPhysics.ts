@@ -57,6 +57,15 @@ export function fallTravelSeconds(distance: number, speed: number, g: number): n
   return sum > 0 ? 2 * distance / sum : Infinity
 }
 
+// A falling body can occupy a moving character's route before landing.
+export function fallSweep(scene:Scene,token:SceneToken,seconds:number) {
+  if (!token.fall) return undefined
+  const g = gravity(scene), surface = landingSurface(scene,token)
+  const elapsed = Math.min(seconds,fallTravelSeconds(token.z-surface.z,token.fall.speedMs,g))
+  const arcM = .5*g*elapsed**2
+  return {elapsed,arcM,z:Math.max(surface.z,token.z-token.fall.speedMs*elapsed-arcM)}
+}
+
 export function nextFallSeconds(scene: Scene): number {
   let nearest = Infinity
   const g = gravity(scene)

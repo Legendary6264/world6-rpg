@@ -9,8 +9,12 @@ export const actionKinds = [{ key: 'move', label: 'Идти' }, { key: 'wait', l
 export type DeclarationTarget = { kind: 'self' | 'none' } | { kind: 'point' | 'area' | 'direction'; point: ScenePosition } | { kind: 'contact' | 'object'; id: string }
 export type ListeningIntent = { mode:'listen'|'eavesdrop'; target:DeclarationTarget }
 export const listeningLabels = {listen:'Прислушиваться',eavesdrop:'Подслушивать'} as const
+export const movementLabels = {ground:'Ходьба',air:'Полёт',jump:'Прыжок',climb:'Подъём или спуск'} as const
+export type MovementMode = keyof typeof movementLabels
+export const isTerrainMovement = (mode:unknown) => mode === 'jump' || mode === 'climb'
+export const isMovementMode = (mode:unknown):mode is MovementMode => typeof mode === 'string' && Object.hasOwn(movementLabels,mode)
 export type DeclaredAction = { note: string } & (
-  { kind: 'move'; route: ScenePosition[]; support: 'ground' | 'air' } |
+  { kind: 'move'; route: ScenePosition[]; support: MovementMode } |
   { kind: 'wait'; seconds: number; listening?:ListeningIntent } |
   { kind: 'interact'; target: DeclarationTarget; operation: 'inspect' | 'take' | 'relocate' | ObjectOperation; destination?:ScenePosition } |
   { kind: 'speak'; target: DeclarationTarget; volume: 'whisper' | 'normal' | 'shout'; text: string } |
@@ -44,7 +48,8 @@ export function isDeclarationTarget(v: unknown): v is DeclarationTarget {
 }
 export function isDeclaredAction(v: unknown): v is DeclaredAction {
   if (!record(v) || !text(v.note, 1000)) return false
-  if (v.kind === 'move') return Array.isArray(v.route) && v.route.length > 0 && v.route.length <= 20 && v.route.every(point) && choice(v.support, ['ground', 'air'])
+  if (v.kind === 'move') return isMovementMode(v.support) && Array.isArray(v.route) && v.route.length > 0 &&
+    v.route.length <= (isTerrainMovement(v.support) ? 1 : 20) && v.route.every(point)
   if (v.kind === 'wait') return seconds(v.seconds)&&(v.listening===undefined||record(v.listening)&&Object.keys(v.listening).length===2&&Object.hasOwn(v.listening,'mode')&&Object.hasOwn(v.listening,'target')&&choice(v.listening.mode,['listen','eavesdrop'])&&isDeclarationTarget(v.listening.target)&&!['area','direction'].includes(v.listening.target.kind))
   if(v.listening!==undefined)return false
   if (!isDeclarationTarget(v.target) || v.kind!=='ability'&&['area','direction'].includes(v.target.kind)) return false
@@ -104,7 +109,11 @@ export function pruneDeclarations(v: ActionDeclarations, scenes: SceneState | un
   return result
 }
 export function actionSummary(a: DeclaredAction): string {
-  if (a.kind === 'move') return 'Идти: ' + a.route.map(p => `(${p.x}; ${p.y}; ${p.z})`).join(' → ') + (a.support === 'air' ? ' · воздух' : ' · земля')
+  if (a.kind === 'move') {
+    const route = a.route.map(p => `(${p.x}; ${p.y}; ${p.z})`).join(' → ')
+    if (isTerrainMovement(a.support)) return movementLabels[a.support] + ' · ' + route
+    return 'Идти: ' + route + (a.support === 'air' ? ' · воздух' : ' · земля')
+  }
   if (a.kind === 'wait') return (a.listening?listeningLabels[a.listening.mode]:'Ждать')+': '+a.seconds+' с'
   if (a.kind === 'speak') return 'Говорить · ' + ({ whisper: 'шёпот', normal: 'обычная речь', shout: 'крик' }[a.volume]) + ': ' + a.text
   if (a.kind === 'interact') return 'Взаимодействовать · ' + ({ inspect: 'осмотреть', take: 'взять', relocate:'передвинуть', ...operationLabels }[a.operation])

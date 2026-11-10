@@ -112,6 +112,131 @@ function motionWorld(a = location(2,2), b = location(25,18)) {
 }
 const motionInput = (timings,missing=['b']) => ({...input(timings,missing),movement:{confirmed:true,bodies:[{actorId:'a',heightM:2,flightReason:'Мастер подтвердил действующую левитацию и её условия'},{actorId:'b',heightM:2,flightReason:'Мастер подтвердил действующую левитацию и её условия'}]}})
 const ownToken = w => w.campaign.scenes.scenes[0].tokens.find(t=>t.actorId==='a')
+const terrainInput = ms => motionInput([timing('a',[ms],10000)])
+const terrainRound = action => collection([entry('a',[action])])
+const terrainBody = (extra={}) => ({
+  version:1,material:physicsMaterialPreset('steel'),massKg:40,temperatureK:293.15,wetnessFraction:0,...extra,
+})
+const terrainEnvironment = (extra={}) => ({version:1,gravityMs2:10,ambientTemperatureK:293.15,...extra})
+
+test('Прыжок над препятствием использует дугу, точное время, удар о землю и звук',()=>{
+  const w = motionWorld(location(2,4)), s = w.campaign.scenes.scenes[0]
+  s.physics = terrainEnvironment({eventSounds:true})
+  s.objects = [{...scenes.sceneObject('wall','curb',location(2.75,4)),width:.1,depth:1,height:.12}]
+  ownToken(w).landing = {massKg:60,region:'leftFoot',contactCm2:100}
+  w.characters[0].rpg.impact.leftFoot = {thresholdJ:1,joulesPerHp:100,referenceCm2:100}
+  const plan = terrainRound(move([location(3.5,4)],'jump')), p = terrainInput(600), before = structuredClone(w)
+  p.soundRecordedAt='2026-11-10T00:00:00.000Z'
+  delete p.movement.bodies[0].flightReason
+  const result = calculateRound(w,plan,p,'jump-curb')
+  const [route] = result.summary.movements, [landing] = result.summary.falls.landings
+  assert.equal(route.terrain.kind,'jump')
+  assert(Math.abs(route.terrain.apexZ-.45)<1e-10)
+  assert.deepEqual(landing.atMs,amount(600));assert.equal(landing.cause,'jump')
+  assert(Math.abs(landing.speedMs-3)<1e-10);assert(Math.abs(landing.impact.energyJ-270)<1e-9)
+  assert.equal(landing.impact.status,'applied');assert(landing.impact.damage>0)
+  assert(result.summary.sounds.some(sound=>sound.kind==='landing' && sound.atMs.numerator==='600'))
+  assert.deepEqual(route.support,{kind:'ground'});assert.equal(ownToken(result.world).x,3.5)
+  assert.deepEqual(w,before)
+  assert.throws(()=>calculateRound(w,terrainRound(move([location(3.5,4)])),p,'walk-curb'),/препятствие/)
+  // The curve enters an overhead slab even though the straight chord misses it.
+  s.objects.push({...scenes.sceneObject('wall','ceiling',location(2.75,4,2.25)),width:.18,depth:2,height:.15})
+  assert.throws(()=>calculateRound(w,plan,p,'jump-ceiling'),/препятствие/)
+})
+
+test('Прыжок учитывает текущую высоту другого героя и столкновение двух дуг',()=>{
+  const w = motionWorld(location(2,4),location(2.75,4)), [a,b] = w.campaign.scenes.scenes[0].tokens
+  a.diameter=.3;b.diameter=.3
+  const plan = terrainRound(move([location(3.5,4)],'jump')), p = terrainInput(600)
+  p.movement.bodies[1].heightM=.3
+  assert.equal(ownToken(calculateRound(w,plan,p,'clear-small-body').world).x,3.5)
+  p.movement.bodies[1].heightM=.5
+  assert.throws(()=>calculateRound(w,plan,p,'hit-small-body'),/пересекаются в одно время/)
+  b.x=3.5
+  plan.entries.push(entry('b',[wait(.2),move([location(2,4)],'jump')]))
+  p.timings.push({actorId:'b',entryRevision:1,budgetMs:10000,costs:[{index:1,personalMs:600}]})
+  p.missingDecisions=[]
+  assert.throws(()=>calculateRound(w,plan,p,'crossing-arcs'),/пересекаются в одно время/)
+})
+
+test('Прыжок пересекается с уже падающим персонажем до его приземления',()=>{
+  const w=motionWorld(location(2,4),location(2.75,4,2)),s=w.campaign.scenes.scenes[0]
+  s.physics=terrainEnvironment()
+  const [jumper,falling]=s.tokens
+  jumper.diameter=.3;falling.diameter=.3;falling.fall={sourceId:'removed',fromZ:2,speedMs:4}
+  const p=terrainInput(600),plan=terrainRound(move([location(3.5,4)],'jump'))
+  p.movement.bodies[0].heightM=1;p.movement.bodies[1].heightM=.35
+  const before=structuredClone(w)
+  assert.throws(()=>calculateRound(w,plan,p,'hit-falling-actor'),/пересекаются в одно время/)
+  assert.deepEqual(w,before)
+  falling.y=4.5
+  const clear=calculateRound(w,plan,p,'beside-falling-actor')
+  assert.equal(clear.summary.falls.landings.length,2)
+})
+
+test('Прыжок между опорами проверяет гравитацию, ноги, время и точку приземления',()=>{
+  const w = motionWorld(location(2,4,1)), s = w.campaign.scenes.scenes[0]
+  const platform=(id,x)=>({...scenes.sceneObject('platform',id,location(x,4)),width:.75,depth:1.2,height:1,canSupport:true,blocksMovement:true})
+  s.objects=[platform('start',2),platform('goal',3.8)]
+  s.physics=terrainEnvironment()
+  Object.assign(ownToken(w),{diameter:.35,support:{kind:'object',objectId:'start'}})
+  const plan=terrainRound(move([location(3.8,4,1)],'jump')), p=terrainInput(650)
+  const result=calculateRound(w,plan,p,'gap')
+  assert.deepEqual(ownToken(result.world).support,{kind:'object',objectId:'goal'})
+  assert.throws(()=>calculateRound(w,terrainRound(move([location(3.8,4,1)])),p,'no-bridge'),/без опоры/)
+  assert.throws(()=>calculateRound(w,plan,terrainInput(11000),'jump-over-round'),/целиком помещаться/)
+  const wounded=structuredClone(w);Object.assign(wounded.characters[0].body.parts.leftLeg,{maximum:100,current:0})
+  assert.throws(()=>calculateRound(wounded,plan,p,'one-leg'),/не позволяют оттолкнуться/)
+  s.physics.gravityMs2=0
+  assert.throws(()=>calculateRound(w,plan,p,'zero-gravity'),/не дают дугу/)
+  s.physics.gravityMs2=10;s.objects.pop()
+  assert.throws(()=>calculateRound(w,plan,p,'no-landing'),/нет опоры/)
+})
+
+test('Прыжок вниз: падение даёт большую скорость удара, а вода ограничивает отрыв и приземление',()=>{
+  const w=motionWorld(location(2,4,.4)),s=w.campaign.scenes.scenes[0]
+  w.characters[0].statistics.movement='1.5'
+  w.characters[0].rpg.formulas=w.characters[0].rpg.formulas.filter(f=>f.parameter!=='movement')
+  const pad={...scenes.sceneObject('platform','pad',location(2,4)),width:.8,depth:2,height:.4,canSupport:true,blocksMovement:true,physics:terrainBody()}
+  s.objects=[pad];s.physics=terrainEnvironment({traction:{version:1,waterFactor:.25,iceFactor:.15}})
+  Object.assign(ownToken(w),{diameter:.35,support:{kind:'object',objectId:'pad'}})
+  const plan=terrainRound(move([location(3.6,4)],'jump')), p=terrainInput(700)
+  const [landing]=calculateRound(w,plan,p,'downward-jump').summary.falls.landings
+  assert(landing.speedMs>4)
+  pad.physics.wetnessFraction=1
+  assert.throws(()=>calculateRound(w,plan,p,'slippery-takeoff'),/сцепления для такого отрыва/)
+  pad.physics.wetnessFraction=0
+  s.objects.push({...scenes.sceneObject('water','wet-floor',location(3.6,4)),width:.6,depth:1,height:.03,
+    water:{version:1,base:'pure',saltKg:0,sedimentKg:0}})
+  assert.throws(()=>calculateRound(w,plan,p,'slippery-landing'),/сцепления для устойчивого приземления/)
+})
+
+test('Подъём и спуск используют разрешённую грань, две руки и скорость с учётом мокрой поверхности',async()=>{
+  const w=motionWorld(location(2.45,4)),s=w.campaign.scenes.scenes[0]
+  const {defaultContactHazards} = await module('contactProfiles')
+  const start=location(2.45,4), top=location(3.15,4,1.2)
+  const ledge={...scenes.sceneObject('platform','ledge',location(4,4)),width:2,depth:2,height:1.2,canSupport:true,blocksMovement:true,
+    physics:terrainBody({climbable:true})}
+  s.objects=[ledge];s.physics=terrainEnvironment({traction:{version:1,waterFactor:.25,iceFactor:.15},
+    contactHazards:{...defaultContactHazards,burnAboveK:320,heatKelvinSecondsPerHp:10}})
+  const p=terrainInput(3000), plan=terrainRound(move([top],'climb'))
+  const up=calculateRound(w,plan,p,'climb-up')
+  assert.deepEqual(up.summary.movements[0].terrain,{kind:'climb',objectId:'ledge'})
+  assert.deepEqual(ownToken(up.world).support,{kind:'object',objectId:'ledge'})
+  const down=calculateRound(up.world,{...terrainRound(move([start],'climb')),id:'down'},p,'climb-down')
+  assert.deepEqual(ownToken(down.world).support,{kind:'ground'});assert.equal(ownToken(down.world).x,start.x)
+  const injured=structuredClone(w);Object.assign(injured.characters[0].body.parts.leftHand,{maximum:100,current:0})
+  assert.throws(()=>calculateRound(injured,plan,p,'no-grip'),/две работающие руки/)
+  assert.throws(()=>calculateRound(w,terrainRound(move([location(3.15,4.2,1.2)],'climb')),p,'wrong-face'),/той же гранью/)
+  ledge.physics.wetnessFraction=1
+  assert.throws(()=>calculateRound(w,plan,p,'wet-climb'),/больше времени/)
+  ledge.physics.wetnessFraction=0;ledge.physics.temperatureK=326
+  const hot=calculateRound(w,plan,p,'hot-climb')
+  assert(hot.summary.contacts.filter(row=>row.region.endsWith('Hand')).every(row=>row.kind==='heat'&&row.damage===1))
+  assert.equal(hot.summary.contacts.filter(row=>row.region.endsWith('Hand')).length,2)
+  ledge.physics.climbable=null
+  assert.throws(()=>calculateRound(w,plan,p,'no-anchor'),/разрешён подъём/)
+})
 function slidingBox(x, friction) {
   return { ...scenes.sceneObject('crate','sliding-box',location(x,5)),name:'Скользящий ящик',width:1,depth:1,height:1,
     physics:{version:1,material:physicsMaterialPreset('wood'),massKg:10,temperatureK:293.15,wetnessFraction:0,

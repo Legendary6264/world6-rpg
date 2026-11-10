@@ -11,7 +11,7 @@ async function field(label,value){await flush(()=>{const element=input(label);as
 async function submit(){await flush(()=>document.querySelector('form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})))}
 async function fixture(Panel=ObjectPhysicsPanel,initial,options={}){
   await flush(()=>root.render(null));const observed={value:initial,changes:[]}
-  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),...(Panel===WaterVolumePanel?{object:value}:{value}),scene:options.scene&&{...options.scene,physics:value},canEmitLight:options.canEmitLight,canBreak:options.canBreak,canSlide:options.canSlide,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
+  function Wrapper(){const [value,setValue]=React.useState(initial);React.useEffect(()=>{observed.value=value;observed.changes.push(value)},[value]);return React.createElement(Panel,{key:JSON.stringify(value),...(Panel===WaterVolumePanel?{object:value}:{value}),scene:options.scene&&{...options.scene,physics:value},canEmitLight:options.canEmitLight,canBreak:options.canBreak,canSlide:options.canSlide,canClimb:options.canClimb,disabled:!!options.disabled,onChange:next=>{if(options.reject)return false;setValue(next);return true}})}
   await flush(()=>root.render(React.createElement(Wrapper)));return observed
 }
 test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
@@ -79,6 +79,17 @@ test('Физика UI: неизвестная проводимость не пр
 test('Физика UI: сохранённое значение материала переживает обновление каталога',async()=>{
   const material={...physicsMaterialPreset('water-pure'),basis:'custom',name:'Материал мастера',electricalConductivitySM:3},state=await fixture(ObjectPhysicsPanel,{version:1,material,massKg:4,temperatureK:298.15,wetnessFraction:.2})
   await field('Физическая масса объекта (кг)','5');await submit();assert.equal(state.value.material.electricalConductivitySM,3);assert.equal(state.value.material.name,'Материал мастера');assert.equal(state.value.massKg,5)
+})
+test('Физика UI: мастер может разрешить подъём и явно отозвать разрешение',async()=>{
+  const initial={version:1,material:physicsMaterialPreset('steel'),massKg:40,temperatureK:293.15,wetnessFraction:.1}
+  await fixture(ObjectPhysicsPanel,initial)
+  const checkbox=()=>document.querySelector('[name="climbable"]')
+  assert.equal(checkbox(),null)
+  const state=await fixture(ObjectPhysicsPanel,initial,{canClimb:true})
+  await flush(()=>checkbox().click());await submit()
+  assert.equal(state.value.climbable,true);assert.equal(state.value.wetnessFraction,.1)
+  await flush(()=>checkbox().click());await submit()
+  assert.equal(state.value.climbable,null)
 })
 test('Физика UI: снятие профиля — явное null, отказ записи сохраняет черновик',async()=>{
   const initial={version:1,material:physicsMaterialPreset('steel'),massKg:4,temperatureK:293.15,wetnessFraction:0},state=await fixture(ObjectPhysicsPanel,initial)

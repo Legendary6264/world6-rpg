@@ -196,8 +196,9 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         {!bodyRows.length && <p role="alert">Перед расчётом размести героев в сцене.</p>}
         {bodyRows.map(b=><label className="w6-field" key={b.actorId}><span>{name(b.actorId)} · диаметр {b.diameter} м · высота тела, м</span><input aria-label={'Высота тела '+name(b.actorId)+', м'} inputMode="decimal" maxLength={40} value={bodyHeight(b.actorId)} onChange={e=>change({...draft,movementConfirmed:false,bodyHeights:{...draft.bodyHeights,[b.actorId]:e.currentTarget.value}})}/></label>)}
         {airActors.map(id=><label className="w6-field" key={id}><span>{name(id)} · основание полёта {actors.find(a=>a.id===id)?.canFly?'(необязательно при работающих крыльях)':'без работающего лётного аппарата'}</span><textarea aria-label={'Основание полёта '+name(id)} maxLength={2000} value={flightReason(id)} onChange={e=>change({...draft,movementConfirmed:false,flightReasons:{...draft.flightReasons,[id]:e.currentTarget.value}})}/></label>)}
-        <label className="w6-check"><input aria-label="Движение подтверждено мастером" type="checkbox" checked={!!draft.movementConfirmed} onChange={e=>change({...draft,movementConfirmed:e.currentTarget.checked})}/>Проверил возможность ходьбы/полёта, высоту тела и бюджет с учётом состояния героев</label>
-        <p>Ходьба требует непрерывной опоры на одной высоте и возможности двигаться. Для полёта без работающих крыльев мастер указывает основание, проверяет его условия и расходы. При разрушении опоры герой начинает падать. Маршрут согласуй после приземления.</p>
+        <label className="w6-check"><input aria-label="Движение подтверждено мастером" type="checkbox" checked={!!draft.movementConfirmed} onChange={e=>change({...draft,movementConfirmed:e.currentTarget.checked})}/>Проверил способы движения, высоту тела и бюджет с учётом состояния героев</label>
+        <p>Ходьба требует непрерывной опоры на одной высоте. Для полёта без работающих крыльев укажи основание, условия и расходы. После разрушения опоры новый маршрут можно начать с приземления.</p>
+        <p>Прыжок, подъём и спуск целиком помещаются в один раунд. Слишком короткий прыжок требует чрезмерной скорости, слишком долгий поднимает дугу выше. Подъём и спуск используют грань опоры с разрешением из редактора.</p>
       </fieldset>}
       <LobbyRoundRules rows={ruleRows} actors={actors} objects={objects.filter(o=>o.sceneId===collection.sceneId)} actorIds={bodyRows.map(b=>b.actorId)} form={ruleForm} onChange={f=>change({...draft,rules:[...(draft.rules??[]).filter(x=>x.key!==f.key&&ruleRows.some(r=>r.key===x.key)),f]})}/>
       {replayError&&!checkingAccess&&<><p role="alert">Не удалось проверить источник прежних бросков: {replayError}</p><button className="w6-button" onClick={()=>setReplayAttempt(n=>n+1)}>Повторить проверку переигровки</button></>}
@@ -233,7 +234,10 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
           {!!sound.heard.length&&<ul>{sound.heard.map(h=><li key={h.actorId}>{name(h.actorId)} · {h.direction} · {quantity(h.signalDb)} дБ при фоне {quantity(h.noiseDb)} дБ · задержка около {quantity(h.arrivalMs)} мс{h.focused?' · прислушивался':''}{h.viaDoor?' · через '+h.viaDoor:h.barriers?' · преград '+h.barriers:''}</li>)}</ul>}
         </details>)}
       </section>}
-      {!!visible.summary.movements?.length && <div aria-label="Позиции после движения">{visible.summary.movements.map(m=><p key={m.workId}>{name(m.actorId)} · ({coords(m.from)}) → ({coords(m.to)}) м · {m.support.kind==='air'?'в воздухе':m.support.kind==='ground'?'на земле':'на объекте '+objectName(collection.sceneId,m.support.objectId)} · {m.completed?'маршрут завершён':'маршрут продолжается'}</p>)}</div>}
+      {!!visible.summary.movements?.length && <div aria-label="Позиции после движения">{visible.summary.movements.map(m=><p key={m.workId}>{name(m.actorId)}
+        {m.terrain?.kind==='jump' ? ' · прыжок' : m.terrain?.kind==='climb' ? ' · '+(m.to.z>m.from.z?'подъём':'спуск')+' по объекту '+objectName(collection.sceneId,m.terrain.objectId) : ''}
+        {' · '}({coords(m.from)}) → ({coords(m.to)}) м · {m.support.kind==='air'?'в воздухе':m.support.kind==='ground'?'на земле':'на объекте '+objectName(collection.sceneId,m.support.objectId)} · {m.completed?'маршрут завершён':'маршрут продолжается'}
+        {m.terrain?.kind==='jump'&&<> · вершина дуги {quantity(m.terrain.apexZ)} м · скорость по вертикали при отрыве {quantity(m.terrain.launchMs)} м/с и при приземлении {quantity(m.terrain.landingMs)} м/с</>}</p>)}</div>}
       {visible.summary.water && <section aria-label="Растекание и смачивание">
         <h4>Вода и опоры</h4>
         {visible.summary.water.layers.map(layer => <p key={layer.id}>{layer.name} · {quantity(layer.fromL)} → {quantity(layer.toL)} л · соль {quantity(layer.saltKg)} кг · песок {quantity(layer.sedimentKg)} кг{layer.ph === undefined ? '' : ' · pH при 25 °C ' + (layer.ph === null ? 'не определён' : quantity(layer.ph))}</p>)}
@@ -289,7 +293,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         <h4>Падения и приземления</h4>
         {visible.summary.falls.falling.map(fall => <p key={fall.actorId}>{name(fall.actorId)} · продолжает падать · Z {quantity(fall.toZ)} м · скорость {quantity(fall.speedMs)} м/с</p>)}
         {visible.summary.falls.landings.map((fall, index) => <p key={fall.actorId+':'+index}>
-          {name(fall.actorId)} · {fall.support.kind==='air'?'достиг границы сцены':'приземлился'} · {quantity(fall.fromZ)} → {quantity(fall.toZ)} м по Z · {quantity(fall.speedMs)} м/с
+          {name(fall.actorId)} · {fall.cause==='jump'?'приземлился после прыжка':fall.support.kind==='air'?'достиг границы сцены':'приземлился'} · {quantity(fall.fromZ)} → {quantity(fall.toZ)} м по Z · {quantity(fall.speedMs)} м/с
           {fall.impact?.status==='applied' ? ' · ' + quantity(fall.impact.energyJ) + ' Дж, после брони ' + quantity(fall.impact.transmittedJ) + ' Дж · локальный урон ' + fall.impact.damage :
             fall.impact?.status==='unconfigured' ? ' · для области контакта нужна калибровка удара' :
             fall.impact?.status==='outside-range' ? ' · энергия удара за пределами калибровки' : ''}

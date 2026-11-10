@@ -60,6 +60,7 @@ export function shockBridges(world:World,scene:Scene,profile:ContactHazardProfil
 
 type Rates = {heat:number;acid:number}
 type Surface = ObjectBounds & Rates
+const heatRate = (temperatureK:number,profile:ContactHazardProfile) => Math.max(0,temperatureK-profile.burnAboveK)/profile.heatKelvinSecondsPerHp
 function surfaces(scene:Scene,profile:ContactHazardProfile):Surface[] {
   const air = sceneAir(scene)
   return scene.objects.flatMap(object=>{
@@ -68,14 +69,14 @@ function surfaces(scene:Scene,profile:ContactHazardProfile):Surface[] {
       if (height<=EPS) return []
       const temperatureK = waterPhase(waterEnthalpy(object.water,air?.at(object).climate.ambientTemperatureK ??
         scene.physics?.ambientTemperatureK)).temperatureK
-      const heat = Math.max(0,temperatureK-profile.burnAboveK)/profile.heatKelvinSecondsPerHp
+      const heat = heatRate(temperatureK,profile)
       const litres = object.width*object.depth*height*1000
       const excess = object.water.base==='pure' ? Math.max(0,object.water.reagentMol ?? 0) : 0
       const acid = litres>0 ? Math.min(1e9,excess/litres/profile.acidMolarSecondsPerHp) : 0
       return heat || acid ? [{...objectBounds({...object,height}),heat,acid}] : []
     }
     if (!object.physics || object.kind==='door' && object.open || !supportsSceneTokens(object)) return []
-    const heat = Math.max(0,object.physics.temperatureK-profile.burnAboveK)/profile.heatKelvinSecondsPerHp
+    const heat = heatRate(object.physics.temperatureK,profile)
     if (!heat) return []
     const bounds = objectBounds(object), top = bounds.max.z
     return [{...bounds,min:{...bounds.min,z:top-EPS},max:{...bounds.max,z:top+EPS},heat,acid:0}]
@@ -125,14 +126,28 @@ export function contactChecker() {
   }
 }
 
+function protectedDoses(actor:Actor,regions:string[],total:Rates):ContactDose[] {
+  return regions.flatMap(region=>{
+    const {heatTransmission,acidTransmission} = protectionFor(actor,region)
+    return ([['heat',heatTransmission],['acid',acidTransmission]] as const).flatMap(([kind,transmission])=>total[kind]>EPS ?
+      [{actorId:actor.id,region,kind,doseHp:total[kind]*transmission,shieldedHp:total[kind]*(1-transmission)}] : [])
+  })
+}
+
 export function surfaceDoses(world:World,scene:Scene,profile:ContactHazardProfile,seconds:number,
-    movement:ReadonlyMap<string,MovementPiece[]>,flying:ReadonlySet<string>,check:()=>void):ContactDose[] {
+    movement:ReadonlyMap<string,MovementPiece[]>,airborne:ReadonlySet<string>,check:()=>void,climbs?:ReadonlyMap<string,string>):ContactDose[] {
   const active = surfaces(scene,profile)
   if (!active.length) return []
   const actors = new Map(world.characters.map(actor=>[actor.id,actor]))
   return scene.tokens.flatMap(token=>{
     const actor = actors.get(token.actorId), trace = movement.get(token.actorId)
-    if (!actor || actor.rpg.dead || flying.has(actor.id) || token.fall || !trace && token.support.kind==='air') return []
+    if (!actor || actor.rpg.dead || airborne.has(actor.id) || token.fall || !trace && token.support.kind==='air') return []
+    const climb = climbs?.get(actor.id)
+    if (climb) {
+      const anchor = scene.objects.find(o=>o.id===climb)
+      const heat = anchor?.physics ? heatRate(anchor.physics.temperatureK,profile)*seconds : 0
+      return heat>EPS ? protectedDoses(actor,['leftHand','rightHand'],{heat,acid:0}) : []
+    }
     const regions = supportedRegions(actor)
     if (!regions.length) return []
     const total = {heat:0,acid:0}
@@ -142,10 +157,6 @@ export function surfaceDoses(world:World,scene:Scene,profile:ContactHazardProfil
       total.acid += sample.acid*seconds
     }
     if (!total.heat && !total.acid) return []
-    return regions.flatMap(region=>{
-      const {heatTransmission,acidTransmission} = protectionFor(actor,region)
-      return ([['heat',heatTransmission],['acid',acidTransmission]] as const).flatMap(([kind,transmission])=>total[kind]>EPS ?
-        [{actorId:actor.id,region,kind,doseHp:total[kind]*transmission,shieldedHp:total[kind]*(1-transmission)}] : [])
-    })
+    return protectedDoses(actor,regions,total)
   })
 }

@@ -1,7 +1,7 @@
 import { airAxes, boxVolumeM3, MIN_AIR_VOLUME_M3 } from './airProfiles'
 import type { AirContents, AirRoom } from './airProfiles'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
-import { segmentSlab } from './sceneGeometry'
+import { arcSlabs, segmentSlab } from './sceneGeometry'
 
 export type AirRegion = {
   volumeM3:number; air:AirContents; climate:{ambientTemperatureK:number}; room?:AirRoom
@@ -31,14 +31,15 @@ export function sceneAir(scene: Scene) {
 export type SceneAir = NonNullable<ReturnType<typeof sceneAir>>
 export type AirSpan = {index:number; start:number; end:number}
 
-// Fractions along a straight segment. Shared faces belong to the same region
+// Fractions along a path. Shared faces belong to the same region
 // for rays, moving tokens and a stationary point on the boundary.
-export function airSpans(layout:SceneAir,from:ScenePosition,to:ScenePosition):AirSpan[] {
+export function airSpans(layout:SceneAir,from:ScenePosition,to:ScenePosition,arcM=0):AirSpan[] {
   const hits:AirSpan[] = []
   for (let index=1;index<layout.regions.length;index++) {
     const room = layout.regions[index].room!
     let start = 0, end = 1
     for (const axis of airAxes) {
+      if (arcM && axis==='z') continue
       const hit = from[axis] === to[axis]
         ? withinRoomAxis(room,axis,from[axis],layout.frameMax) && [0,1]
         : segmentSlab(from[axis],to[axis],room.min[axis],room.max[axis])
@@ -47,7 +48,12 @@ export function airSpans(layout:SceneAir,from:ScenePosition,to:ScenePosition):Ai
       end = Math.min(end,hit[1])
       if (start >= end) break
     }
-    if (start < end) hits.push({index,start,end})
+    if (start >= end) continue
+    if (!arcM) hits.push({index,start,end})
+    else for (const [low,high] of arcSlabs(from.z,to.z,arcM,room.min.z,room.max.z)) {
+      const left = Math.max(start,low), right = Math.min(end,high)
+      if (left < right) hits.push({index,start:left,end:right})
+    }
   }
   hits.sort((a,b)=>a.start-b.start)
   let cursor = 0

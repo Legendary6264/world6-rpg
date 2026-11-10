@@ -28,7 +28,8 @@ export type PhysicsEnvironment = {version:1;gravityMs2:number;ambientTemperature
   eventSounds?:true|null;atmosphere?:RoomAtmosphere|null;vision?:VisionProfile|null;airRooms?:AirRoom[]|null;
   exposure?:ExposureProfile|null;traction?:TractionProfile|null;contactHazards?:ContactHazardProfile|null}
 export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temperatureK:number;wetnessFraction:number;
-  noiseLevelDbAt1m?:number|null;combustion?:Combustion|null;structure?:StructureProfile|null;sliding?:SlidingProfile|null;lightIntensityCd?:number|null}
+  noiseLevelDbAt1m?:number|null;combustion?:Combustion|null;structure?:StructureProfile|null;sliding?:SlidingProfile|null;lightIntensityCd?:number|null;
+  climbable?:true|null}
 
 export function isRoomAtmosphere(value: unknown): value is RoomAtmosphere {
   if (!physicsRecord(value)) return false
@@ -75,6 +76,7 @@ export function isPhysicsEnvironment(value: unknown): value is PhysicsEnvironmen
 export function isPhysicsBody(value: unknown): value is PhysicsBody {
   return physicsRecord(value) && withOptionalProfiles(value, ['version','material','massKg','temperatureK','wetnessFraction'], {
     noiseLevelDbAt1m:isSoundLevel, combustion:isCombustion, structure:isStructureProfile, sliding:isSlidingProfile, lightIntensityCd:isLightIntensity,
+    climbable:v=>v===true,
   }) && value.version === 1 &&
     isPhysicsMaterial(value.material) && physicsNumber(value.massKg, 1e-12, 1e12) &&
     physicsNumber(value.temperatureK, 0, MAX_TEMPERATURE_K) && physicsNumber(value.wetnessFraction, 0, 1)
@@ -150,6 +152,9 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
         }
         if (object.physics.lightIntensityCd === undefined && before.physics.lightIntensityCd !== undefined) {
           object.physics.lightIntensityCd = before.physics.lightIntensityCd
+        }
+        if (object.physics.climbable === undefined && before.physics.climbable !== undefined) {
+          object.physics.climbable = before.physics.climbable
         }
       }
       if (before && omittedSlide && object.physics?.sliding && slidePlacementChanged(before, object)) {

@@ -8,6 +8,7 @@ import {objectActions} from './tabletopInteractions'
 import { quickAbilityTarget } from './gameControls'
 import AbilityChargeSelect from './AbilityChargeSelect'
 import type { QuickActionDraft } from './gameControls'
+import { isMovementMode, isTerrainMovement, movementLabels } from './actionDeclarations'
 import type { DeclaredAction, DeclarationOptions, DeclarationTarget } from './actionDeclarations'
 import type { PerceivedMap } from './scenePerception'
 import type { ScenePosition } from './sceneTypes'
@@ -22,6 +23,11 @@ export default function GameActionBar({ map, point, contactId, objectId, options
   const field=<K extends keyof QuickActionDraft>(key:K,value:QuickActionDraft[K])=>onChange({...draft,[key]:value})
   const object=map?.objects.find(o=>o.id===objectId),contact=map?.contacts.find(c=>c.id===contactId&&c.kind!=='self')
   const falling = !!map?.contacts.find(c => c.kind === 'self')?.falling
+  const terrain = isTerrainMovement(movement)
+  const z = terrain && draft.movementZ?.trim() ? Number(draft.movementZ) : point?.z
+  const validZ = z!==undefined && Number.isFinite(z) && (!map || z>=map.frame.minZ && z<=map.frame.maxZ)
+  const destination = point && z!==undefined && validZ ? {...point,z} : null
+  const shownPoint = destination ?? point
   const knownObject=options?.targets.some(t=>t.kind==='object'&&t.id===objectId),knownContact=options?.targets.some(t=>t.kind==='contact'&&t.id===contactId)
   const ownContact=map?.contacts.find(c=>c.kind==='self'&&c.id===contactId),selectedContact=contact??ownContact
   const selected:DeclarationTarget|null=knownObject?{kind:'object',id:objectId}:knownContact?{kind:'contact',id:contactId}:ownContact?{kind:'self'}:null
@@ -41,9 +47,25 @@ export default function GameActionBar({ map, point, contactId, objectId, options
     <div className="gb-game-modes">{([['world','Мир'],['speak','Речь'],['item','Предметы'],['ability','Способности']] as const).filter(([id])=>!environmentOnly||id==='world'||id==='ability').map(([id,label])=><button key={id} className="w6-button" type="button" aria-pressed={mode===id} onClick={()=>field('mode',id)}>{label}</button>)}</div>
     <p className="ui-action-context"><strong>{modeHelp[0]}</strong>{modeHelp[1]}</p>
     <fieldset disabled={disabled}>
-      {mode==='world'&&<><p className="gb-game-context">{object?<><strong>{object.name}</strong> · {object.visible?'объект перед тобой':'последнее известное состояние'}{object.kind==='door'&&(object.open?' · открыта':' · закрыта')}</>:contact?<><strong>{contact.label}</strong>{contact.signs&&' · '+contact.signs}</>:point?<>Точка назначения: {point.x}; {point.y}; {point.z} м</>:'Нажми на землю, предмет или существо на карте.'}</p>
+      {mode==='world'&&<><p className="gb-game-context">{object?<><strong>{object.name}</strong> · {object.visible?'объект перед тобой':'последнее известное состояние'}{object.kind==='door'&&(object.open?' · открыта':' · закрыта')}</>:contact?<><strong>{contact.label}</strong>{contact.signs&&' · '+contact.signs}</>:shownPoint?<>Отметка ({shownPoint.x}, {shownPoint.y}, {shownPoint.z}) м</>:'Нажми на землю, предмет или существо на карте.'}</p>
         {falling && !environmentOnly && <p className="gb-game-help">Герой падает. Новый маршрут можно задать после приземления.</p>}
-        <div className="w6-buttons">{!environmentOnly&&<><select aria-label="Быстрый способ движения" disabled={falling} value={movement} onChange={e=>field('movement',e.currentTarget.value as typeof movement)}><option value="ground">Ходьба</option><option value="air">Полёт</option></select><button type="button" className="w6-button w6-primary" disabled={!point||falling} onClick={()=>{if(point&&!falling)onAdd({kind:'move',route:[point],support:movement,note:''})}}>Идти к отметке</button></>}
+        {!environmentOnly && <><div className="w6-buttons">
+          <select aria-label="Быстрый способ движения" disabled={falling} value={movement} onChange={e=>{
+            const next=e.currentTarget.value
+            if(isMovementMode(next))onChange({...draft,movement:next,movementZ:''})
+          }}>{Object.entries(movementLabels).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select>
+          <button type="button" className="w6-button w6-primary" disabled={!destination||falling} onClick={()=>{
+            if(destination&&!falling)onAdd({kind:'move',route:[destination],support:movement,note:''})
+          }}>{movement==='jump'?'Прыгнуть к отметке':movement==='climb'?'Добавить подъём или спуск':'Идти к отметке'}</button>
+        </div>{terrain&&!falling&&<>
+          {point&&<label className="w6-field"><span>Высота точки назначения, м</span><input aria-label="Высота точки назначения, м" type="number" step="any"
+            min={map?.frame.minZ} max={map?.frame.maxZ} placeholder={String(point.z)} value={draft.movementZ??''}
+            aria-invalid={!validZ} onChange={e=>field('movementZ',e.currentTarget.value)}/>
+            {!validZ&&map&&<small>Допустимая высота от {map.frame.minZ} до {map.frame.maxZ} м.</small>}</label>}
+          <p className="gb-game-help">{movement==='jump'?'Укажи точку на земле или на поверхности, куда хочешь приземлиться.':
+            'Укажи точку рядом с той же гранью опоры, сверху или снизу. Мастер должен разрешить подъём по этой грани.'} Действие занимает часть одного раунда.</p>
+        </>}</>}
+        <div className="w6-buttons">
           <button type="button" className="w6-button" disabled={!knownObject&&!knownContact} onClick={()=>onAdd({kind:'interact',target:knownObject?{kind:'object',id:objectId}:{kind:'contact',id:contactId},operation:'inspect',note:''})}>Осмотреть выбранное</button>
           {object&&objectActions(object).map(action=><button type="button" className="w6-button" key={action.operation} disabled={!knownObject||action.disabled} onClick={()=>onAdd({kind:'interact',target:{kind:'object',id:object.id},operation:action.operation,note:''})}>{action.label}{object.kind==='door'&&(action.operation==='open'||action.operation==='close')?' дверь':''}</button>)}
           {object&&objectRelocatable(object)&&<button type="button" className="w6-button" disabled={!knownObject||!point||object.sliding} onClick={()=>{if(point&&!object.sliding)onAdd({kind:'interact',target:{kind:'object',id:object.id},operation:'relocate',destination:point,note:''})}}>{object.sliding ? 'Предмет скользит' : 'Передвинуть к отметке'}</button>}

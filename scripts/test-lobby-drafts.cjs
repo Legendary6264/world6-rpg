@@ -305,6 +305,25 @@ test('Доработка игры: масштаб карты сохраняет 
   }finally{await f.close()}
 })
 
+test('Игровой экран: способ вертикального движения и точная высота сохраняются в очереди',async()=>{
+  const f=await fixture()
+  try {
+    f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+    f.perceptions.a={title:'Двор',description:'',frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[],objects:[],contacts:[{id:'self-a',kind:'self',label:'Hero a',x:3,y:3,z:0}]}
+    await f.open('a');await click('Открыть экран героя')
+    await flush(()=>document.querySelector('.gb-player-map>svg').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true})))
+    const mode='[aria-label="Быстрый способ движения"]',height='[aria-label="Высота точки назначения, м"]'
+    await selectValue(mode,'jump');await input(height,'25')
+    assert(!enabledButton('Прыгнуть к отметке'))
+    await input(height,'0.4');await click('Прыгнуть к отметке')
+    await selectValue(mode,'climb');await input(height,'1.2');await click('Добавить подъём или спуск')
+    await click('Отправить заявление')
+    assert.deepEqual(f.writes[0].actions.map(({support,route})=>[support,route]),[
+      ['jump',[{x:4,y:3,z:.4}]],['climb',[{x:4,y:3,z:1.2}]],
+    ])
+  } finally { await f.close() }
+})
+
 test('Доработка игры: развёрнутая игра удерживает фокус и освобождает прокрутку при переходе',async()=>{
   const f=await fixture()
   try{

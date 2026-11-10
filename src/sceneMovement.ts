@@ -2,26 +2,36 @@ import { addAmounts, amountFromNumber, compareAmounts, exactAmount, scaleAmount,
 import type { ExactAmount } from './exactWork'
 import type { RoundWorkEntry } from './roundWork'
 import type { Scene, SceneObject, ScenePosition, SceneSupport, SceneToken } from './sceneTypes'
-import { segmentSlab as slab } from './sceneGeometry'
+import { arcHeight, arcSlabs, segmentSlab as slab } from './sceneGeometry'
+import { isTerrainMovement } from './actionDeclarations'
 import { liquidWaterHeight, supportsSceneTokens } from './waterPhysics'
 import { surfaceContact } from './surfaceTraction'
-import type { TractionTravel } from './surfaceTraction'
+import type { SurfaceContact, TractionTravel } from './surfaceTraction'
+import { canMarkClimbable, climbPath, jumpMotion } from './terrainMovement'
+import type { JumpMotion } from './terrainMovement'
+import { fallSweep } from './structuralPhysics'
 export type MovementBody = { actorId: string; heightM: number; flightReason?: string }
-export type MovementPlan = { work: RoundWorkEntry; startMs: ExactAmount; endMs: ExactAmount; points: ScenePosition[]; lengths: number[]; distance: number }
-export type MovementChange = { workId: string; actorId: string; from: ScenePosition; to: ScenePosition; support: SceneSupport; atMs: ExactAmount; completed: boolean }
+export type MovementPlan = { work: RoundWorkEntry; startMs: ExactAmount; endMs: ExactAmount; points: ScenePosition[];
+  lengths: number[]; distance: number; jump?: JumpMotion; climb?: SceneObject }
+export type MovementChange = { workId: string; actorId: string; from: ScenePosition; to: ScenePosition; support: SceneSupport; atMs: ExactAmount; completed: boolean;
+  terrain?: {kind:'jump';apexZ:number;launchMs:number;landingMs:number} | {kind:'climb';objectId:string} }
 export const MAX_MOVEMENT_SEGMENTS = 4000, MAX_MOVEMENT_CHECKS = 200000
 const EPS = 1e-6, one = exactAmount(1n)
 const scalar = (v: ExactAmount) => Number(v.numerator) / Number(v.denominator)
 const point = (p: ScenePosition): ScenePosition => ({ x: p.x, y: p.y, z: p.z })
 const mix = (a: ScenePosition, b: ScenePosition, t: number): ScenePosition => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t })
+const curvePoint = (a:ScenePosition,b:ScenePosition,arcM:number,t:number):ScenePosition =>
+  ({...mix(a,b,t),z:arcHeight(a.z,b.z,arcM,t)})
 const same = (a: ScenePosition, b: ScenePosition) => ['x', 'y', 'z'].every(k => Math.abs(a[k as keyof ScenePosition] - b[k as keyof ScenePosition]) <= EPS)
 function path(points: ScenePosition[]) {
   const lengths = points.slice(1).map((p, i) => Math.hypot(p.x - points[i].x, p.y - points[i].y, p.z - points[i].z))
   return { points, lengths, distance: lengths.reduce((a, b) => a + b, 0) }
 }
-function onPath(p: Pick<MovementPlan, 'points' | 'lengths' | 'distance'>, fraction: number): ScenePosition {
+function onPath(p: Pick<MovementPlan, 'points' | 'lengths' | 'distance' | 'jump'>, fraction: number): ScenePosition {
   if (fraction <= 0) return point(p.points[0])
-  if (fraction >= 1 || !p.distance) return point(p.points.at(-1)!)
+  if (fraction >= 1) return point(p.points.at(-1)!)
+  if (p.jump) return curvePoint(p.points[0],p.points[1],p.jump.arcM,fraction)
+  if (!p.distance) return point(p.points.at(-1)!)
   let left = fraction * p.distance
   for (let i = 0; i < p.lengths.length; i++) {
     if (p.lengths[i] > 0 && left <= p.lengths[i]) return mix(p.points[i], p.points[i + 1], left / p.lengths[i])
@@ -38,8 +48,9 @@ export function movementPosition(p: MovementPlan, atMs: ExactAmount): ScenePosit
   const fraction = addAmounts(before, scaleAmount(scaleAmount(p.work.amount.remaining, one, p.work.amount.total), elapsed, duration))
   return onPath(p, scalar(fraction))
 }
-export function prepareMovement(work: RoundWorkEntry, token: SceneToken | undefined, scene: Scene | undefined, startMs: ExactAmount, endMs: ExactAmount): MovementPlan {
-  if (work.action.kind !== 'move' || !token || !scene) throw Error('Перед движением размести героя в сцене сбора.')
+export function prepareMovement(work: RoundWorkEntry, token: SceneToken | undefined, scene: Scene | undefined,
+    startMs: ExactAmount, endMs: ExactAmount, roundEnd:ExactAmount, heightM:number|undefined): MovementPlan {
+  if (work.action.kind !== 'move' || !token || !scene || heightM===undefined) throw Error('Перед движением размести героя в сцене сбора.')
   if (token.fall) throw Error('Герой падает. Запланируй маршрут после приземления.')
   if (!work.movement && compareAmounts(work.amount.remaining, work.amount.total) !== 0) throw Error('У прежнего движения нет начальной позиции. Согласуй восстановление маршрута с мастером; позиция не угадана.')
   const initial = work.movement?.start ?? point(token), geometry = path([initial, ...work.action.route.map(point)])
@@ -47,15 +58,44 @@ export function prepareMovement(work: RoundWorkEntry, token: SceneToken | undefi
     throw Error('Позиция или диаметр героя изменились относительно сохранённого движения. Требуется решение мастера.')
   }
   if (!geometry.points.every(p => p.x >= 0 && p.x <= scene.width && p.y >= 0 && p.y <= scene.depth && p.z >= scene.minZ && p.z <= scene.maxZ)) throw Error('Маршрут выходит за пределы сцены.')
-  if (work.action.support === 'ground' && !geometry.points.every(p => Math.abs(p.z - initial.z) <= EPS)) throw Error('Ходьба требует непрерывной опоры на одной высоте. Прыжок, подъём и падение пока требуют отдельного решения.')
+  if (work.action.support === 'ground' && !geometry.points.every(p => Math.abs(p.z - initial.z) <= EPS)) throw Error('Ходьба требует непрерывной опоры на одной высоте. Для смены высоты выбери подходящий способ движения.')
+  if (isTerrainMovement(work.action.support)) {
+    if (work.movement || compareAmounts(endMs,roundEnd)>0) throw Error('Прыжок, подъём или спуск должны целиком помещаться в один раунд. Измени порядок, бюджет или длительность раунда.')
+    if (token.support.kind==='air') throw Error('Прыжок, подъём или спуск начинаются на опоре.')
+    const goal = geometry.points[1]
+    supportAt(scene,initial)
+    supportAt(scene,goal)
+    if (work.action.support==='jump') {
+      const jump = jumpMotion(scene,initial,goal,scalar(subtractAmounts(endMs,startMs))/1000)
+      return {work,startMs,endMs,...geometry,jump}
+    }
+    const {anchor,via} = climbPath(scene,initial,goal,token.diameter/2,heightM)
+    return {work,startMs,endMs,...path([initial,via,goal]),climb:anchor}
+  }
   work.movement = { start: point(initial), diameter: token.diameter }
   return { work, startMs, endMs, ...geometry }
 }
 export function supportAt(scene: Scene, p: ScenePosition): SceneSupport {
   if (Math.abs(p.z - scene.groundZ) < EPS) return { kind: 'ground' }
   const surface = scene.objects.find(o => supportsSceneTokens(o) && Math.abs(p.z - o.z - o.height) < EPS && Math.abs(p.x - o.x) <= o.width / 2 && Math.abs(p.y - o.y) <= o.depth / 2)
-  if (!surface) throw Error('На маршруте нет опоры. Для полёта выбери движение в воздухе; падение автоматически не назначено.')
+  if (!surface) throw Error('На маршруте нет опоры в указанной точке. Выбери точку на земле или на пригодном для опоры объекте.')
   return { kind: 'object', objectId: surface.id }
+}
+export function movementSupport(scene:Scene,plan:MovementPlan,time:ExactAmount,position:ScenePosition):SceneSupport {
+  if (plan.work.action.kind==='move' && plan.work.action.support==='air' ||
+    (plan.jump || plan.climb) && compareAmounts(time,plan.startMs)>0 && compareAmounts(time,plan.endMs)<0) return {kind:'air'}
+  return supportAt(scene,position)
+}
+export function jumpTraction(scene:Scene,location:ScenePosition,check:()=>void):SurfaceContact|undefined {
+  const profile = scene.physics?.traction
+  if (!profile) return undefined
+  let limiting:SurfaceContact|undefined
+  for (const object of scene.objects) {
+    check()
+    const contact = surfaceContact(object,profile,location,location)
+    if (contact && (!limiting || contact.factor<limiting.factor)) limiting = contact
+  }
+  return limiting
 }
 type Range = [number, number]
 function rectangle(a: ScenePosition, b: ScenePosition, x: number, y: number, width: number, depth: number): Range | null {
@@ -91,17 +131,18 @@ function overlapZ(a: ScenePosition, b: ScenePosition, height: number, c: ScenePo
   // Feet at a surface, or a body just touching a ceiling, do not penetrate it.
   return slab(a.z - c.z, b.z - d.z, -height + EPS, otherHeight - EPS)
 }
-export type MovementPiece = { start: number; end: number; a: ScenePosition; b: ScenePosition }
-function tokenPosition(token: SceneToken, plans: MovementPlan[], time: ExactAmount) {
-  const started = plans.filter(p => p.work.actorId === token.actorId && compareAmounts(p.startMs, time) <= 0)
-  return started.length ? movementPosition(started.at(-1)!, time) : point(token)
+export type MovementPiece = { start: number; end: number; a: ScenePosition; b: ScenePosition; arcM?:number }
+function tokenPosition(token: SceneToken, actorPlans: MovementPlan[], time: ExactAmount) {
+  const latest = actorPlans.findLast(p=>compareAmounts(p.startMs,time)<=0)
+  return latest ? movementPosition(latest,time) : point(token)
 }
 function pieces(token: SceneToken, plans: MovementPlan[], from: ExactAmount, to: ExactAmount): MovementPiece[] {
   const fromNumber = scalar(from), toNumber = scalar(to), span = toNumber - fromNumber, cuts = [0, 1]
-  for (const p of plans.filter(p => p.work.actorId === token.actorId)) {
+  const actorPlans = plans.filter(p => p.work.actorId === token.actorId)
+  for (const p of actorPlans) {
     const before = scalar(beforeProgress(p.work)), start = scalar(p.startMs), end = scalar(p.endMs)
     const times = [start, end]; let distance = 0
-    for (const length of p.lengths) {
+    for (const length of p.jump ? [] : p.lengths) {
       distance += length
       if (p.distance && before < 1) times.push(start + (distance / p.distance - before) / (1 - before) * (end - start))
     }
@@ -109,9 +150,35 @@ function pieces(token: SceneToken, plans: MovementPlan[], from: ExactAmount, to:
   }
   const sorted = [...new Set(cuts)].sort((a, b) => a - b)
   const at = (fraction: number) => fraction === 0 ? from : fraction === 1 ? to : addAmounts(from, scaleAmount(subtractAmounts(to, from), amountFromNumber(fraction)))
-  return sorted.slice(1).map((end, i) => ({ start: sorted[i], end, a: tokenPosition(token, plans, at(sorted[i])), b: tokenPosition(token, plans, at(end)) }))
+  return sorted.slice(1).map((end, i) => {
+    const start = sorted[i], middle = fromNumber+span*(start+end)/2
+    const flight = actorPlans.find(p=>p.jump && scalar(p.startMs)<middle && scalar(p.endMs)>middle)
+    return { start, end, a:tokenPosition(token,actorPlans,at(start)), b:tokenPosition(token,actorPlans,at(end)),
+      ...(flight?.jump ? {arcM:flight.jump.arcM*(span*(end-start)/scalar(subtractAmounts(flight.endMs,flight.startMs)))**2} : {}) }
+  })
 }
-const portion = (p: MovementPiece, t: number) => mix(p.a, p.b, (t - p.start) / (p.end - p.start))
+function portion(p:MovementPiece,t:number) {
+  const fraction = (t-p.start)/(p.end-p.start)
+  return p.arcM ? curvePoint(p.a,p.b,p.arcM,fraction) : mix(p.a,p.b,fraction)
+}
+const portionArc = (p:MovementPiece,start:number,end:number) => (p.arcM ?? 0)*((end-start)/(p.end-p.start))**2
+
+function fallingPieces(scene:Scene,token:SceneToken,seconds:number):MovementPiece[]|undefined {
+  const sweep = fallSweep(scene,token,seconds)
+  if (!sweep) return undefined
+  const a = point(token), b = {...a,z:sweep.z}, end = sweep.elapsed/seconds
+  const pieces:MovementPiece[] = end>0 ? [{start:0,end,a,b,arcM:sweep.arcM}] : []
+  if (end<1) pieces.push({start:end,end:1,a:b,b})
+  return pieces
+}
+
+function checkClimbAnchor(scene:Scene,anchor:SceneObject) {
+  const current = scene.objects.find(o=>o.id===anchor.id)
+  if (!current?.physics?.climbable || !canMarkClimbable(current) || !same(current,anchor) ||
+    (['width','depth','height'] as const).some(k=>Math.abs(current[k]-anchor[k])>EPS)) {
+    throw Error('Опора для подъёма или спуска изменилась во время движения. Согласуй другой маршрут или порядок действий.')
+  }
+}
 export function checkClosingDoor(scene: Scene, objectId: string, bodies: MovementBody[], check: () => void) {
   const object = scene.objects.find(o => o.id === objectId)!
   if (object.kind !== 'door' || !object.blocksMovement || object.height <= 0) return
@@ -123,23 +190,27 @@ export function checkClosingDoor(scene: Scene, objectId: string, bodies: Movemen
   }
 }
 
-// Upright cylinders, linear path segments and static boxes between world events.
+// Upright cylinders, straight legs or jump arcs, and static boxes between events.
 // A shared bounded check counter protects a free service from pathological input.
 export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: MovementBody[], from: ExactAmount, to: ExactAmount, check: () => void,
   wetContact?: (actorId: string, object: SceneObject, kind: 'water' | 'support') => void,
   track?: (actorId:string, pieces:MovementPiece[]) => void,
   onTraction?: (actorId:string, contact:TractionTravel, speedMs:number) => void) {
-  const moving = new Set(plans.filter(p => compareAmounts(p.startMs, to) < 0 && compareAmounts(p.endMs, from) > 0).map(p => p.work.actorId))
+  const activePlans = plans.filter(p=>compareAmounts(p.startMs,to)<0 && compareAmounts(p.endMs,from)>0)
+  const moving = new Set(activePlans.map(p=>p.work.actorId))
   if (compareAmounts(from, to) < 0 && moving.size) {
-    const intervalSeconds = onTraction ? scalar(subtractAmounts(to,from))/1000 : 0
-    const trajectories = scene.tokens.map(t => ({ token: t, height: bodies.find(b => b.actorId === t.actorId)!.heightM, pieces: pieces(t, plans, from, to) }))
+    const intervalSeconds = scalar(subtractAmounts(to,from))/1000
+    const terrainActive = activePlans.some(p=>p.jump || p.climb)
+    const trajectories = scene.tokens.map(t => ({ token:t,height:bodies.find(b=>b.actorId===t.actorId)!.heightM,
+      pieces:(terrainActive ? fallingPieces(scene,t,intervalSeconds) : undefined) ?? pieces(t,plans,from,to) }))
     for (const t of trajectories.filter(t => moving.has(t.token.actorId))) {
       track?.(t.token.actorId,t.pieces)
       for (const p of t.pieces) {
         const middle = addAmounts(from, scaleAmount(subtractAmounts(to, from), amountFromNumber((p.start + p.end) / 2)))
-        const active = plans.find(m => m.work.actorId === t.token.actorId && compareAmounts(m.startMs, middle) <= 0 && compareAmounts(m.endMs, middle) >= 0)
+        const active = activePlans.find(m=>m.work.actorId===t.token.actorId && compareAmounts(m.startMs,middle)<=0 && compareAmounts(m.endMs,middle)>=0)
         const walking = active?.work.action.kind === 'move' && active.work.action.support === 'ground'
         if (walking) grounded(scene, p.a, p.b, check)
+        if (active?.climb) checkClimbAnchor(scene,active.climb)
         const traction = walking && onTraction && scene.physics?.traction
         const distance = traction ? Math.hypot(p.b.x-p.a.x,p.b.y-p.a.y) : 0
         for (const o of scene.objects) {
@@ -159,9 +230,10 @@ export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: Mov
               wetContact(t.token.actorId, o, water ? 'water' : 'support')
             }
           }
-          if (!o.blocksMovement || o.height <= 0 || o.kind === 'door' && o.open) continue
-          const overlap = overlapZ(p.a, p.b, t.height, o, o, o.height)
-          if (overlap && rectangleDistance(mix(p.a, p.b, overlap[0]), mix(p.a, p.b, overlap[1]), o.x, o.y, o.width, o.depth) < (t.token.diameter / 2 - EPS) ** 2) {
+          const solidIce = active?.jump && o.kind==='water' && supportsSceneTokens(o)
+          if ((!o.blocksMovement && !solidIce) || o.height <= 0 || o.kind === 'door' && o.open) continue
+          const overlaps = arcSlabs(p.a.z-o.z,p.b.z-o.z,p.arcM ?? 0,-t.height+EPS,o.height-EPS)
+          if (overlaps.some(([start,end])=>rectangleDistance(mix(p.a,p.b,start),mix(p.a,p.b,end),o.x,o.y,o.width,o.depth) < (t.token.diameter/2-EPS)**2)) {
             throw Error('Движение пересекает препятствие «' + o.name + '». Согласуй маршрут; частичные последствия не применены.')
           }
         }
@@ -175,10 +247,10 @@ export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: Mov
         check(); const ap = a.pieces[ai], bp = b.pieces[bi], start = Math.max(ap.start, bp.start), end = Math.min(ap.end, bp.end)
         if (start <= end) {
           const a0 = portion(ap, start), a1 = portion(ap, end), b0 = portion(bp, start), b1 = portion(bp, end)
-          const overlap = overlapZ(a0, a1, a.height, b0, b1, b.height)
-          if (overlap) {
-            const r0 = { x: a0.x - b0.x, y: a0.y - b0.y, z: 0 }, r1 = { x: a1.x - b1.x, y: a1.y - b1.y, z: 0 }
-            if (closest(mix(r0, r1, overlap[0]), mix(r0, r1, overlap[1]), 0, 0) < ((a.token.diameter + b.token.diameter) / 2 - EPS) ** 2) throw Error('Траектории персонажей пересекаются в одно время. Мастер должен согласовать движение до применения.')
+          const overlaps = arcSlabs(a0.z-b0.z,a1.z-b1.z,portionArc(ap,start,end)-portionArc(bp,start,end),-a.height+EPS,b.height-EPS)
+          const r0 = {x:a0.x-b0.x,y:a0.y-b0.y,z:0}, r1 = {x:a1.x-b1.x,y:a1.y-b1.y,z:0}
+          if (overlaps.some(([left,right])=>closest(mix(r0,r1,left),mix(r0,r1,right),0,0)<((a.token.diameter+b.token.diameter)/2-EPS)**2)) {
+            throw Error('Траектории персонажей пересекаются в одно время. Мастер должен согласовать движение до применения.')
           }
         }
         if (ap.end <= bp.end) ai++; if (bp.end <= ap.end) bi++
@@ -190,6 +262,6 @@ export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: Mov
     if (!started.length) continue
     const current = started.at(-1)!, location = movementPosition(current, to)
     Object.assign(token, location)
-    token.support = current.work.action.kind === 'move' && current.work.action.support === 'air' ? { kind: 'air' } : supportAt(scene, location)
+    token.support = movementSupport(scene,current,to,location)
   }
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { fixture, lobbyBody } from './fixtures.mjs'
 import { createDefaultCharacter } from '../generated/characterModel.mjs'
 import { createScene, emptyScenes, sceneObject } from '../generated/scenes.mjs'
+import { physicsMaterialPreset } from '../generated/physicsMaterials.mjs'
 const move = (x,y,z=0,support='ground') => ({kind:'move',route:[{x,y,z}],support,note:'PRIVATE-ROUTE'})
 for (const dialect of ['sqlite','postgres']) test('Движение XYZ, сохранение и личная видимость · '+dialect,async t=>{
   const f=await fixture(t,dialect),{api}=f,gm=await f.register('owner'),player=await f.register('moving-player')
@@ -84,5 +85,51 @@ for (const dialect of ['sqlite','postgres']) test('Движение XYZ, сох�
     let before=await world();await api(root+'/rounds/calculate',gm.token,'POST',await body(5000),400);assert.deepEqual(await world(),before)
     await install([move(18,2)],w=>{w.campaign.scenes.scenes[0].tokens.find(t=>t.actorId===npc.id).y=18;w.campaign.scenes.scenes[0].objects.push({...sceneObject('wall','PRIVATE-WALL',{x:8,y:2,z:0}),height:3})})
     before=await world();await api(root+'/rounds/calculate',gm.token,'POST',await body(5000),400);assert.deepEqual(await world(),before)
+  })
+  await t.test('Игрок заявляет прыжок и подъём; позиции сохраняются, а подъём точно переигрывается',async()=>{
+    const before=await world(), current=before.campaign.declarations.active, declarations=root+'/declarations'
+    await api(declarations,gm.token,'PATCH',{collectionId:current.id,epoch:current.epoch,operation:'archive'})
+    const edited=await world(), room=edited.campaign.scenes.scenes[0], anchorId='PRIVATE-CLIMBABLE'
+    Object.assign(hero(edited),{x:2.45,y:2,z:0,diameter:.6,support:{kind:'ground'}})
+    const actor=edited.characters.find(a=>a.id===actorId)
+    actor.statistics.movement='1.5';actor.rpg.formulas=actor.rpg.formulas.filter(formula=>formula.parameter!=='movement')
+    room.physics={version:1,gravityMs2:10,ambientTemperatureK:293.15,eventSounds:true}
+    room.objects=[{...sceneObject('platform',anchorId,{x:4,y:3,z:0}),width:2,depth:4,height:1.2,canSupport:true,blocksMovement:true,
+      physics:{version:1,material:physicsMaterialPreset('steel'),massKg:40,temperatureK:293.15,wetnessFraction:0,climbable:true}}]
+    await api(root+'/world',gm.token,'PUT',{world:edited,revision:edited.revision})
+    const legacy=await world();delete legacy.campaign.scenes.scenes[0].objects[0].physics.climbable
+    await api(root+'/world',gm.token,'PUT',{world:legacy,revision:legacy.revision})
+    assert.equal((await world()).campaign.scenes.scenes[0].objects[0].physics.climbable,true)
+    delete bodies[0].flightReason
+    async function declare(action){
+      await api(declarations,gm.token,'POST',{sceneId:scene.id,participantIds:[actorId],durationSeconds:5,allowReplace:true,revision:(await world()).revision},201)
+      const path=root+'/characters/'+actorId+'/declarations', d=await api(path,player.token)
+      const request={collectionId:d.collection.id,epoch:d.collection.epoch,baseVersion:0,controlStamp:d.controlStamp}
+      await api(path,player.token,'PUT',{...request,actions:[{...action,route:[action.route[0],{x:3,y:3,z:1}]}]},400)
+      await api(path,player.token,'PUT',{...request,actions:[action]})
+      assert.deepEqual((await api(path,player.token)).entry.actions,[action])
+      await api(declarations,gm.token,'PATCH',{collectionId:d.collection.id,epoch:d.collection.epoch,operation:'close'})
+    }
+    await declare(move(2.45,3.2,0,'jump'))
+    const starting=await world(), jump=await calc(600)
+    assert.deepEqual(await world(),starting);assert(Math.abs(jump.summary.movements[0].terrain.apexZ-.45)<1e-10)
+    assert.equal(jump.summary.falls.landings[0].cause,'jump')
+    assert(jump.summary.sounds.some(sound=>sound.kind==='landing'))
+    await apply(command(jump))
+    const jumped=await world();assert.equal(hero(jumped).y,3.2)
+    const c=jumped.campaign.declarations.active
+    await api(declarations,gm.token,'PATCH',{collectionId:c.id,epoch:c.epoch,operation:'archive'})
+    await declare(move(3.15,3.2,1.2,'climb'))
+    const atFoot=await world(), climb=await calc(3000), applied=await apply(command(climb))
+    const saved=await world(), getSelf=async()=>(await api(root+'/characters/'+actorId+'/perception',player.token)).map.contacts.find(x=>x.kind==='self')
+    assert.deepEqual(hero(saved).support,{kind:'object',objectId:anchorId})
+    assert.equal((await getSelf()).z,1.2)
+    assert(!JSON.stringify(await api(root+'/world',player.token)).includes(anchorId))
+    const receipt=applied.receipt.id, rollback=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:saved.revision,receiptId:receipt,reason:'Проверка маршрута подъёма'})
+    await api(root+'/rounds/change/apply',gm.token,'POST',command(rollback))
+    const restored=await world();assert.deepEqual(hero(restored),hero(atFoot))
+    const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:restored.revision,receiptId:receipt})
+    assert.deepEqual(replay.summary.movements,climb.summary.movements)
+    await apply(command(replay));assert.deepEqual(hero(await world()),hero(saved))
   })
 })

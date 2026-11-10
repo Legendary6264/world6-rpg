@@ -54,7 +54,7 @@ export function advanceStationaryExposure(world:World,seconds:number,simulatedSc
 function exposureTrack(layout:SceneAir,token:SceneToken,seconds:number,gravity:number,
     pieces:MovementPiece[]|undefined, fall:ExposureFallStart|undefined):AirSpan[] {
   if (layout.regions.length > 1 && pieces) {
-    return pieces.flatMap(piece=>airSpans(layout,piece.a,piece.b).map(span=>({
+    return pieces.flatMap(piece=>airSpans(layout,piece.a,piece.b,piece.arcM).map(span=>({
       index:span.index, start:lerp(piece.start,piece.end,span.start), end:lerp(piece.start,piece.end,span.end),
     })))
   }

@@ -112,7 +112,7 @@ export function WaterVolumePanel({ object, thermal, disabled, onChange }: { obje
   </details>
 }
 
-export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,canEmitLight,canBreak,canSlide,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;canBurn?:boolean;canEmitLight?:boolean;canBreak?:boolean;canSlide?:boolean;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
+export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,canEmitLight,canBreak,canSlide,canClimb,disabled,onChange}:{value?:PhysicsBody|null;ambientTemperatureK?:number;canBurn?:boolean;canEmitLight?:boolean;canBreak?:boolean;canSlide?:boolean;canClimb?:boolean;disabled:boolean;onChange:(value:PhysicsBody|null)=>boolean}) {
   const [materialId,setMaterialId]=useState(value?.material.id??''),[message,setMessage]=useState(''),[failed,setFailed]=useState(false),presets=physicsMaterialPresets()
   // A saved snapshot wins over a later catalogue default, including custom values.
   const materials=value?[...presets.filter(material=>material.id!==value.material.id),value.material]:presets
@@ -127,6 +127,8 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,can
     try {
       if (!material) throw Error('Выбери физический материал.')
       const data=new FormData(event.currentTarget),next:PhysicsBody={version:1,material:copyPhysicsMaterial(material),massKg:number(data,'physicsMassKg'),temperatureK:celsiusToKelvin(number(data,'physicsTemperatureC')),wetnessFraction:number(data,'physicsWetnessPercent')/100}
+      if (canClimb && data.has('climbable')) next.climbable = true
+      else if (value?.climbable!==undefined) next.climbable = canClimb ? null : value.climbable
       const noise = optionalNumber(data, 'noiseLevelDbAt1m', value?.noiseLevelDbAt1m)
       if (noise !== undefined) next.noiseLevelDbAt1m = noise
       const light = optionalNumber(data, 'lightIntensityCd', value?.lightIntensityCd)
@@ -153,6 +155,9 @@ export function ObjectPhysicsPanel({value,ambientTemperatureK=293.15,canBurn,can
       <label className="w6-field"><span>Масса, кг</span><input aria-label="Физическая масса объекта (кг)" name="physicsMassKg" type="number" step="any" min="0.000000000001" max="1000000000000" defaultValue={value?.massKg??''} required/></label>
       <label className="w6-field"><span>Температура, °C</span><input aria-label="Температура объекта (°C)" name="physicsTemperatureC" type="number" step="any" min="-273.15" max="999726.85" defaultValue={kelvinToCelsius(value?.temperatureK??ambientTemperatureK)} required/></label>
       <label className="w6-field gb-wide"><span>Влажность поверхности, %</span><input aria-label="Влажность поверхности (%)" name="physicsWetnessPercent" type="number" step="any" min="0" max="100" defaultValue={(value?.wetnessFraction??0)*100} required/></label>
+      {canClimb && <div className="gb-wide"><label className="w6-check"><input name="climbable" type="checkbox" defaultChecked={!!value?.climbable}/>Разрешить подъём и спуск по граням</label>
+        <p className="w6-copy">Герой может подняться на верхнюю поверхность с точки рядом с гранью или спуститься обратно.</p>
+      </div>}
       <label className="w6-field gb-wide"><span>Постоянный шум на расстоянии 1 м, дБ</span><input name="noiseLevelDbAt1m" type="number" step="any" min="0" max={MAX_SOUND_LEVEL_DB} defaultValue={value?.noiseLevelDbAt1m??''} placeholder="Без источника шума"/><small>Например, шум водопада. Оставь поле пустым для тихого объекта.</small></label>
       {(canEmitLight || value?.lightIntensityCd !== undefined) && <details className="gb-scene-details gb-wide"><summary>Источник света</summary>
         <label className="w6-field"><span>Сила света, кд</span><input name="lightIntensityCd" type="number" step="any" min="0" max={MAX_LIGHT_CD} defaultValue={value?.lightIntensityCd??''} placeholder={String(DEFAULT_LIGHT_CD)}/>
