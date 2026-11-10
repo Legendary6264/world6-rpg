@@ -9,6 +9,7 @@ import { copyWaterComposition, isWaterComposition, MAX_FLOW_CELLS, supportsScene
 import { objectBounds, overlapLength } from './sceneGeometry'
 import { isFallMotion, isLandingProfile, isSliding, onSlideFloor, restingObject, slidePlacementChanged } from './mechanicalProfiles'
 import { airRoomsFit } from './airProfiles'
+import { isTrappedByIce, validSwimHeight, waterSupportAt } from './aquaticMotion'
 export {sceneObject,sceneObjectLabels} from './sceneObjectDefaults'
 
 // Storage/rendering limits, not game rules. Coordinates and dimensions are metres.
@@ -59,12 +60,18 @@ function validScene(v: unknown): v is Scene {
     if (cells.slice(0, i).some(b => overlapLength(a.min.x, a.max.x, b.min.x, b.max.x) > tolerance &&
       overlapLength(a.min.y, a.max.y, b.min.y, b.max.y) > tolerance)) return false
   }
+  const swimmingDisabled = v.physics===null || v.physics?.aquatics===null
   return v.tokens.every(t => {
     if (!object(t) || !id(t.actorId) || !position(t, v) || !size(t.diameter) || t.diameter > 100 || !object(t.support) || t.characterModel!==undefined&&!isCharacterModel(t.characterModel) || t.facing!==undefined&&(!finite(t.facing)||t.facing<0||t.facing>=360) || t.characterAnimation!==undefined&&!isCharacterAnimation(t.characterAnimation)) return false
     if (t.landing != null && !isLandingProfile(t.landing)) return false
     if (t.fall != null && (!isFallMotion(t.fall) || t.support.kind !== 'air' || t.fall.fromZ < Number(t.z))) return false
     if (t.support.kind === 'ground') return sameHeight(Number(t.z), Number(v.groundZ))
     if (t.support.kind === 'air') return true
+    if (t.support.kind === 'water') {
+      if (swimmingDisabled || !id(t.support.objectId) || !validSwimHeight(t.support.heightM)) return false
+      const point = {x:Number(t.x),y:Number(t.y),z:Number(t.z)}
+      return waterSupportAt({objects},point,t.support.heightM)?.objectId===t.support.objectId && !isTrappedByIce({objects},point)
+    }
     if (t.support.kind !== 'object' || !id(t.support.objectId)) return false
     const objectId = t.support.objectId
     const surface = objects.find(o => o.id === objectId && supportsSceneTokens(o))
@@ -102,7 +109,8 @@ export function copySceneState(state: SceneState): SceneState {
     tokens: s.tokens.map(t => ({ actorId: t.actorId, x: t.x, y: t.y, z: t.z, diameter: t.diameter,
       ...(t.characterModel!==undefined?{characterModel:t.characterModel}:{}),...(t.facing!==undefined?{facing:t.facing}:{}),...(t.characterAnimation!==undefined?{characterAnimation:t.characterAnimation}:{}),
       ...(t.landing!==undefined?{landing:t.landing&&{...t.landing}}:{}), ...(t.fall!==undefined?{fall:t.fall&&{...t.fall}}:{}),
-      support: t.support.kind === 'object' ? { kind: 'object', objectId: t.support.objectId } : { kind: t.support.kind } })),
+      support: t.support.kind === 'water' ? {kind:'water',objectId:t.support.objectId,heightM:t.support.heightM} :
+        t.support.kind === 'object' ? { kind: 'object', objectId: t.support.objectId } : { kind: t.support.kind } })),
   })) }
 }
 function checked(state: SceneState): SceneState {
@@ -121,6 +129,9 @@ export function createScene(state: SceneState, sceneId: string, name: string, vi
 export function replaceScene(state: SceneState, scene: Scene): SceneState {
   const previous = state.scenes.find(s => s.id === scene.id)
   if (!previous) throw new Error('Сцена больше не существует.')
+  if ((scene.physics===null || scene.physics?.aquatics===null) && scene.tokens.some(t=>t.support.kind==='water')) {
+    throw new Error('Перед отключением плавания выведи персонажей из воды или назначь им другую опору.')
+  }
   if (!airRoomsFit(scene.physics?.airRooms,scene)) throw new Error('Измени границы помещений перед уменьшением сцены.')
   const originals = new Map(previous.objects.map(o => [o.id, o]))
   const objects = scene.objects.map(object => {

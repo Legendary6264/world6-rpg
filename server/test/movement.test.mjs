@@ -132,4 +132,62 @@ for (const dialect of ['sqlite','postgres']) test('Движение XYZ, сох�
     assert.deepEqual(replay.summary.movements,climb.summary.movements)
     await apply(command(replay));assert.deepEqual(hero(await world()),hero(saved))
   })
+  await t.test('Нырок, ожидание и всплытие сохраняют опору, воздух и приватность',async()=>{
+    const declarations=root+'/declarations', path=root+'/characters/'+actorId+'/declarations'
+    async function archive(){
+      const c=(await world()).campaign.declarations.active
+      await api(declarations,gm.token,'PATCH',{collectionId:c.id,epoch:c.epoch,operation:'archive'})
+    }
+    async function declare(action){
+      await api(declarations,gm.token,'POST',{sceneId:scene.id,participantIds:[actorId],durationSeconds:5,allowReplace:true,revision:(await world()).revision},201)
+      const d=await api(path,player.token)
+      await api(path,player.token,'PUT',{collectionId:d.collection.id,epoch:d.collection.epoch,baseVersion:0,controlStamp:d.controlStamp,actions:[action]})
+      await api(declarations,gm.token,'PATCH',{collectionId:d.collection.id,epoch:d.collection.epoch,operation:'close'})
+    }
+    await archive()
+    const edited=await world(), room=edited.campaign.scenes.scenes[0], waterId='PRIVATE-BASIN'
+    room.physics={version:1,gravityMs2:10,ambientTemperatureK:293.15,aquatics:{version:1,swimSpeedMs:1.25,breathSeconds:6}}
+    room.objects=[{...sceneObject('water',waterId,{x:5,y:2,z:0}),width:4,depth:2,height:3,blocksMovement:false,canSupport:false,
+      water:{version:1,base:'pure',saltKg:0,sedimentKg:0}}]
+    Object.assign(hero(edited),{x:2,y:2,z:0,support:{kind:'ground'}})
+    await api(root+'/world',gm.token,'PUT',{world:edited,revision:edited.revision})
+    const perception=()=>api(root+'/characters/'+actorId+'/perception',player.token)
+    const self=view=>view.map.contacts.find(c=>c.kind==='self')
+    const diver=w=>w.characters.find(a=>a.id===actorId)
+    await declare(move(4,2,0,'swim'))
+    const before=await world(), dive=await calc(2500)
+    assert.deepEqual(await world(),before);assert.equal(dive.summary.movements[0].terrain.kind,'swim')
+    assert(Math.abs(dive.summary.breathing[0].underwaterSeconds-3.75)<1e-5)
+    await apply(command(dive))
+    const legacy=await world(), spent=diver(legacy).body.breathUsedSeconds
+    delete legacy.campaign.scenes.scenes[0].physics.aquatics
+    delete diver(legacy).body.breathUsedSeconds
+    await api(root+'/world',gm.token,'PUT',{world:legacy,revision:legacy.revision})
+    assert.equal(diver(await world()).body.breathUsedSeconds,spent)
+    const view=await perception()
+    assert.equal(view.map.aquatics,true);assert.equal(self(view).support,'water');assert.equal(self(view).submerged,true)
+    assert(Math.abs(self(view).breathRemainingSeconds-2.25)<1e-5)
+    assert.doesNotMatch(JSON.stringify(view),/PRIVATE-BASIN|swimSpeedMs|breathUsedSeconds|heightM/)
+    await archive()
+    await declare({kind:'wait',seconds:5,note:''})
+    const waiting=await body()
+    waiting.input.timings[0].costs=[];delete waiting.input.movement
+    const held=await api(root+'/rounds/calculate',gm.token,'POST',waiting), saved=await apply(command(held))
+    const oxygen=diver(await world()).body.exposure.oxygen
+    assert(oxygen>1);assert.equal(held.summary.breathing[0].breathUsedSeconds,6)
+    await f.restart()
+    assert.equal(self(await perception()).breathRemainingSeconds,0)
+    const receiptId=saved.receipt.id
+    const rollback=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:(await world()).revision,receiptId,reason:'Проверка расхода воздуха'})
+    await api(root+'/rounds/change/apply',gm.token,'POST',command(rollback))
+    const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:(await world()).revision,receiptId})
+    assert.deepEqual(replay.summary.breathing,held.summary.breathing)
+    await apply(command(replay));assert.equal(diver(await world()).body.exposure.oxygen,oxygen)
+    await archive()
+    await declare(move(4,2,2,'swim'))
+    await apply(command(await calc(2000)))
+    const emerged=self(await perception())
+    assert.equal(emerged.z,2);assert.equal(emerged.support,'water');assert.equal(emerged.submerged,undefined)
+    assert.equal(diver(await world()).body.breathUsedSeconds,null)
+  })
 })

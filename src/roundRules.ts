@@ -6,6 +6,7 @@ import type { AbilityPhysicsEffect, AbilityPhysicsOutcome } from './abilityPhysi
 import { removeLiveObjectDisclosure } from './scenePerception'
 import { abilityAreaContains } from './abilityArea'
 import { shockBridges } from './bodyContactPhysics'
+import { submergedAirBreather } from './environmentExposure'
 import { activateArtifact, consumeItemPlan, equipItem, makeActionPlan, modifiersText, readyRoundPreparation, releaseRoundPlan, releaseSpatialRoundPlan } from './rpgEngine'
 import type { DeclaredAction, DeclarationCollection } from './actionDeclarations'
 import type { ActionInput } from './rpgTypes'
@@ -58,6 +59,14 @@ function actionInput(world:World,work:RoundWorkEntry,decision:{input:ActionInput
   return input
 }
 const unwrap=(result:ReturnType<typeof makeActionPlan>)=>{if(!result.ok)throw Error(result.message);return result.plan}
+function verifyAbilityVoice(world:World,work:RoundWorkEntry,speech:boolean|undefined) {
+  if (!speech) return
+  const scene = world.campaign.scenes?.scenes.find(s=>s.id===work.sceneId)
+  const token = scene?.tokens.find(t=>t.actorId===work.actorId), actor = world.characters.find(a=>a.id===work.actorId)
+  if (scene && token && actor && submergedAirBreather(scene,token,actor.body)) {
+    throw Error('Для голосовой способности герой должен поднять голову над водой.')
+  }
+}
 function consequences(before:World,after:World):string {
   return after.characters.flatMap(a=>{
     const old=before.characters.find(c=>c.id===a.id);if(!old)return []
@@ -70,10 +79,13 @@ export function beginRoundAbility(world:World,work:RoundWorkEntry,key:string,dec
   if(work.ability){
     const cast=world.characters.find(c=>c.id===work.actorId)?.rpg.casts.find(c=>c.id===work.ability!.castId)
     if(!cast||cast.status!=='preparing'||cast.roundPreparation?.workId!==work.id||cast.roundPreparation.binding!==decision.binding)throw Error('Сохранённая подготовка или её привязка изменились. Требуется решение мастера.')
+    verifyAbilityVoice(world,work,cast.ability.speech)
     return {world,outcome:{key,actorId:work.actorId,kind:'prepare',castId:cast.id,text:'Продолжение подготовки',details:'Без повторного расхода.'}}
   }
   if(work.amount.remaining.numerator!==work.amount.total.numerator||work.amount.remaining.denominator!==work.amount.total.denominator)throw Error('У прежней подготовки нет записи начального расхода. Решение мастера требуется до продолжения.')
   const castId=work.id+'-cast',unbound=decision.binding==='unbound'
+  const abilityId=work.action.abilityId
+  verifyAbilityVoice(world,work,world.characters.find(c=>c.id===work.actorId)?.rpg.abilities.find(a=>a.id===abilityId)?.speech)
   const plan=unwrap(makeActionPlan(world,work.actorId,work.action.abilityId,unbound?'':targetId(work),actionInput(world,work,decision,unbound),castId,()=>0,{workId:work.id,binding:decision.binding}))
   work.ability={castId}
   return {world:plan.world,outcome:{key,actorId:work.actorId,kind:'prepare',castId,text:plan.text,details:plan.details+'\n'+consequences(world,plan.world)}}
@@ -104,6 +116,7 @@ export function finishRoundRule(world:World,work:RoundWorkEntry,key:string,decis
   if(work.action.stage==='prepare') {
     const cast=actor.rpg.casts.find(c=>c.id===work.ability?.castId)
     if(!cast||cast.roundPreparation?.workId!==work.id||cast.roundPreparation.binding!==decision.binding)throw Error('Не найдена оплаченная подготовка этой работы.')
+    verifyAbilityVoice(world,work,cast.ability.speech)
     const candidate=readyRoundPreparation(world,actor.id,cast.id,work.id+'-ready',actionInput(world,work,decision,decision.binding==='unbound'))
     return {world:candidate,outcome:{key,actorId:actor.id,kind:'ready',castId:cast.id,text:'Готов заряд: '+cast.ability.name,details:'Выпуск отдельным действием; начальный расход повторно не списан.'}}
   }
@@ -113,6 +126,7 @@ export function finishRoundRule(world:World,work:RoundWorkEntry,key:string,decis
   if(work.action.castId&&castId!==work.action.castId)throw Error('Выпускаемый заряд должен совпадать с выбором игрока. Верни заявление для смены заряда.')
   const cast=actor.rpg.casts.find(c=>c.id===castId)
   if(!cast||cast.ability.id!==work.action.abilityId)throw Error('Выбери собственный готовый заряд этой способности либо её подготовку ранее в очереди.')
+  verifyAbilityVoice(world,work,cast.ability.speech)
   const rolls:number[]=[],groups=new Map<string,number[]>();let state=2166136261
   for(const ch of randomSeed??work.id)state=Math.imul(state^ch.charCodeAt(0),16777619)>>>0
   const random=(target?:string)=>{

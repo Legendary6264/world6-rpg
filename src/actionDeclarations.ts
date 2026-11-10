@@ -9,7 +9,7 @@ export const actionKinds = [{ key: 'move', label: 'Идти' }, { key: 'wait', l
 export type DeclarationTarget = { kind: 'self' | 'none' } | { kind: 'point' | 'area' | 'direction'; point: ScenePosition } | { kind: 'contact' | 'object'; id: string }
 export type ListeningIntent = { mode:'listen'|'eavesdrop'; target:DeclarationTarget }
 export const listeningLabels = {listen:'Прислушиваться',eavesdrop:'Подслушивать'} as const
-export const movementLabels = {ground:'Ходьба',air:'Полёт',jump:'Прыжок',climb:'Подъём или спуск'} as const
+export const movementLabels = {ground:'Ходьба',air:'Полёт',jump:'Прыжок',climb:'Подъём или спуск',swim:'Плавание и ныряние'} as const
 export type MovementMode = keyof typeof movementLabels
 export const isTerrainMovement = (mode:unknown) => mode === 'jump' || mode === 'climb'
 export const isMovementMode = (mode:unknown):mode is MovementMode => typeof mode === 'string' && Object.hasOwn(movementLabels,mode)
@@ -111,7 +111,7 @@ export function pruneDeclarations(v: ActionDeclarations, scenes: SceneState | un
 export function actionSummary(a: DeclaredAction): string {
   if (a.kind === 'move') {
     const route = a.route.map(p => `(${p.x}; ${p.y}; ${p.z})`).join(' → ')
-    if (isTerrainMovement(a.support)) return movementLabels[a.support] + ' · ' + route
+    if (isTerrainMovement(a.support) || a.support==='swim') return movementLabels[a.support] + ' · ' + route
     return 'Идти: ' + route + (a.support === 'air' ? ' · воздух' : ' · земля')
   }
   if (a.kind === 'wait') return (a.listening?listeningLabels[a.listening.mode]:'Ждать')+': '+a.seconds+' с'

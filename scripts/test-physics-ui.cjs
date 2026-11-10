@@ -105,6 +105,18 @@ test('Физика UI: среда допускает нулевую гравит
   await flush(()=>button('Снять условия среды').click());assert.equal(state.value,null)
 })
 
+test('Физика UI: плавание включает собственные параметры дыхания и скорости',async()=>{
+  const state=await fixture(EnvironmentPhysicsPanel,{version:1,gravityMs2:10,ambientTemperatureK:293.15})
+  const fieldByName=name=>document.querySelector('[name="'+name+'"]')
+  assert.equal(fieldByName('swimBreathSeconds'),null)
+  await flush(()=>fieldByName('simulateAquatics').click())
+  await flush(()=>{fieldByName('swimBreathSeconds').value='18';fieldByName('swimSpeedMs').value='1.4'})
+  await submit();assert.deepEqual(state.value.aquatics,{version:1,swimSpeedMs:1.4,breathSeconds:18})
+  assert.equal(state.value.gravityMs2,10)
+  await flush(()=>fieldByName('simulateAquatics').click())
+  await submit();assert.equal(state.value.aquatics,null)
+})
+
 test('Тепло UI: проветривание и нагрев при реакции сохраняются независимо',async()=>{
   const state=await fixture(EnvironmentPhysicsPanel,{version:1,gravityMs2:9.81,ambientTemperatureK:293.15,backgroundNoiseDb:35,
     atmosphere:{oxygenFraction:.18,smokeKg:.02,steamKg:.5,outsideTemperatureK:280,doorVentilation:false}})

@@ -12,7 +12,8 @@ export type SceneObject = ScenePosition & {
   physics?: PhysicsBody | null
   water?: WaterComposition | null
 }
-export type SceneSupport = { kind: 'ground' } | { kind: 'air' } | { kind: 'object'; objectId: string }
+export type SceneSupport = { kind: 'ground' } | { kind: 'air' } | { kind: 'object'; objectId: string } |
+  { kind: 'water'; objectId:string; heightM:number }
 export type SceneToken = ScenePosition & { actorId: string; diameter: number; support: SceneSupport;
   characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation;
   landing?: LandingProfile | null; fall?: FallMotion | null }

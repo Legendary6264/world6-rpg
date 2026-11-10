@@ -26,10 +26,10 @@ export const publicUser=u=>({id:u.id,displayName:u.display_name,role:u.role,disa
 function characterSize(value){if(Buffer.byteLength(JSON.stringify(value))>2*1024*1024)fail(413,'Персонаж превышает 2 МиБ.')}
 export function character(value){if(!value||!isCharacterDraft(value))fail(400,'Некорректный лист персонажа.');validId(value.id);const v={...normalizeCharacterDraft(value),id:value.id};characterSize(v);return v}
 export function retainCharacterExposure(previous,next){
- const {exposure,exposureProtection,contactDoses}=next.body
+ const {exposure,exposureProtection,contactDoses,breathUsedSeconds}=next.body
  preserveBodyExposure(previous?.body,next.body)
  const equipment=retainContactProtection(previous?.rpg?.inventory,next.rpg.inventory)
- if(equipment||exposure!==next.body.exposure||exposureProtection!==next.body.exposureProtection||contactDoses!==next.body.contactDoses)characterSize(next)
+ if(equipment||exposure!==next.body.exposure||exposureProtection!==next.body.exposureProtection||contactDoses!==next.body.contactDoses||breathUsedSeconds!==next.body.breathUsedSeconds)characterSize(next)
 }
 export function retainCampaignContactProtection(previous,next){retainContactProtection(previous.items,next.items)}
 export const emptyWorld=()=>({characters:[],campaign:emptyCampaign()})

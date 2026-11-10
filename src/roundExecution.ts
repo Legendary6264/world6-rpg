@@ -17,7 +17,7 @@ import { bodyConsequences } from './characterBody'
 import { evaluatedParameters } from './rpgParameters'
 import { copyRoundWorkEntry, isRoundWork, projectWorkProgress, remainingWorldTime } from './roundWork'
 import { previewRoundTimeline, MAX_TIMING_MS } from './roundTimeline'
-import { advanceMovement, checkClosingDoor, jumpTraction, movementPosition, movementSupport, prepareMovement, MAX_MOVEMENT_CHECKS, MAX_MOVEMENT_SEGMENTS } from './sceneMovement'
+import { advanceMovement, checkClosingDoor, jumpTraction, movementPosition, movementSupport, prepareMovement, standingSupportAt, MAX_MOVEMENT_CHECKS, MAX_MOVEMENT_SEGMENTS } from './sceneMovement'
 import { beginRoundAbility, decisionsFor, finishRoundRule, newRuleKey, roundRuleRows } from './roundRules'
 import type { RuleDecision, RuleOutcome } from './roundRules'
 import type { DeclarationCollection } from './actionDeclarations'
@@ -48,8 +48,9 @@ import { doorSound, impactSoundDb, landingSoundDb, roundAcoustics } from './roun
 import type { RoundSound, SoundSource } from './roundSound'
 import { contactChecker, surfaceDoses } from './bodyContactPhysics'
 import type { ContactDose, ContactOutcome } from './bodyContactPhysics'
-export const ROUND_EXECUTOR_VERSION = 'r24-terrain-movement-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r23-body-contact-v1', 'r22-event-acoustics-v1', 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+import { isTrappedByIce, waterSupportAt } from './aquaticMotion'
+export const ROUND_EXECUTOR_VERSION = 'r25-aquatic-movement-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r24-terrain-movement-v1', 'r23-body-contact-v1', 'r22-event-acoustics-v1', 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -70,7 +71,8 @@ export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speec
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
   movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls;
   slides?: { stops:SlideStop[]; moving:SlideStatus[] }; exposure?: ExposureChange[];
-  traction?: {walks:WalkTraction[]; slides:SlideTraction[]}; sounds?:RoundSound[]; contacts?:ContactOutcome[] }
+  traction?: {walks:WalkTraction[]; slides:SlideTraction[]}; sounds?:RoundSound[]; contacts?:ContactOutcome[];
+  breathing?: {actorId:string; underwaterSeconds:number; breathUsedSeconds:number}[] }
 export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
 const zero = exactAmount(0n), thousand = exactAmount(1000n)
@@ -227,12 +229,31 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   }
   let candidate = managed.world, cursor = zero, segment = 0, movementChecks = 0
   const movementApprovals = new Map<string,string>()
-  function checkCapabilities(plans: MovementPlan[], drySpeeds?: Map<string,number>, starting=false) {
+  function checkCapabilities(plans: MovementPlan[], drySpeeds?: Map<string,number>, starting=false, swimFootSpeeds?:Map<string,number>) {
     for (const plan of plans) {
       if (plan.jump && (!starting || compareAmounts(plan.startMs,cursor)<0)) continue
+      if (plan.swimHeightM!==undefined && !starting) continue
       const actor = candidate.characters.find(a => a.id === plan.work.actorId)!, consequence = bodyConsequences(actor.body)
       if (actor.rpg.dead || actor.body.consciousness !== 'awake') throw Error('Герой потерял возможность двигаться. Мастер должен пересмотреть раунд.')
       if (plan.work.action.kind !== 'move') continue
+      if (plan.swimHeightM!==undefined) {
+        const current=activeScene()!, token=current.tokens.find(t=>t.actorId===actor.id)!
+        const expected=movementPosition(plan,cursor)
+        if (token.fall || (['x','y','z'] as const).some(axis=>Math.abs(token[axis]-expected[axis])>1e-6)) {
+          throw Error('Положение героя изменилось перед продолжением плавания. Согласуй маршрут.')
+        }
+        const speed=evaluatedParameters(actor,candidate.campaign.seconds).movement
+        const baseSpeed=speed==='' ? 1.5 : Number(speed)
+        const maxSpeed=Math.min(aquatics!.swimSpeedMs,baseSpeed)*consequence.swimFactor
+        const remainingDistance=plan.distance*numberOf(plan.work.amount.remaining)/numberOf(plan.work.amount.total)
+        const routeSpeed=remainingDistance/(numberOf(subtractAmounts(plan.endMs,plan.startMs))/1000)
+        if (maxSpeed<=0) throw Error('Состояние тела не позволяет плавать самостоятельно.')
+        if (routeSpeed>maxSpeed+1e-6) throw Error('Доступная скорость плавания — '+maxSpeed.toLocaleString('ru-RU',{maximumSignificantDigits:3})+
+          ' м/с. Увеличь время движения или сократи маршрут.')
+        swimFootSpeeds?.set(actor.id,baseSpeed*consequence.movementFactor)
+        drySpeeds?.set(actor.id,baseSpeed*consequence.movementFactor)
+        continue
+      }
       if (plan.work.action.support !== 'air') {
         const speed = evaluatedParameters(actor,candidate.campaign.seconds).movement
         if (consequence.movementFactor <= 0 || speed !== '' && Number(speed) <= 0) throw Error(plan.work.action.support==='ground'
@@ -278,13 +299,15 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const movementCheck = () => { if (++movementChecks > MAX_MOVEMENT_CHECKS) throw Error('Сцена слишком сложна для одного расчёта движения. Технический предел проверок; ничего не применено.') }
   const thermalEnabled = !!scene?.physics?.atmosphere
   const exposureProfile = scene?.physics?.exposure
+  const aquatics = scene?.physics?.aquatics
+  const underwaterSeconds = new Map<string,number>()
   const contactProfile = scene?.physics?.contactHazards
   const tractionEnabled = !!scene?.physics?.traction
   const physicsDecisions = [...ruleDecisions.values()].flatMap(d => d.kind === 'ability' && d.physics ? [d.physics] : [])
   const dosingReagent = physicsDecisions.some(effect => effect.kind === 'add-substance' && isWaterReagent(effect.substance))
   const variableWater = thermalEnabled || dosingReagent || !!scene?.objects.some(object => isVariableWater(object.water))
   const horizontal = !!scene?.objects.some(o => isSliding(o.physics?.sliding)) || physicsDecisions.some(effect => effect.kind === 'push-object')
-  const structural = horizontal || !!scene?.tokens.some(token => token.fall) || physicsDecisions.some(effect => effect.kind === 'structural-impact')
+  const structural = horizontal || !!aquatics || !!scene?.tokens.some(token => token.fall) || physicsDecisions.some(effect => effect.kind === 'structural-impact')
   const dynamicSupports = variableWater || structural || movements.some(p=>p.jump || p.climb)
   const waterSupports = new Map<string, WaterSupportChange>(), routeSupports = new Map<string, SceneSupport>()
   const wetRoutes = new Map<string, WetRouteContact>()
@@ -351,11 +374,11 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     }
   }
   function advanceEnvironment(seconds: number, at: ExactAmount, observe?:ThermalObserver) {
-    if (!variableWater) return
+    if (!variableWater && !aquatics) return
     const current = activeScene()
     if (!current) return
     if (thermalEnabled) flowReactionHeatJ += advanceThermal(current, seconds, observe)
-    else advanceWaterFlow(current, seconds)
+    else if (variableWater) advanceWaterFlow(current, seconds)
     for (const change of settleWaterSupports(current)) {
       if (movements.some(p => p.work.actorId === change.actorId && compareAmounts(p.endMs, at) > 0)) {
         throw Error('Уровень водной опоры изменился во время запланированного маршрута. Заверши маршрут до изменения уровня или выбери устойчивую опору.')
@@ -364,17 +387,33 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       waterSupports.set(change.actorId, previous ?
         { ...previous, toZ: change.toZ, lostSupport: previous.lostSupport || change.lostSupport } : change)
     }
+    if (aquatics) for (const token of current.tokens) {
+      const previous = token.support
+      if (previous.kind!=='water') continue
+      if (isTrappedByIce(current,token)) throw Error('Вода замёрзла вокруг героя. Мастер должен согласовать, как герой покинет лёд.')
+      const support=waterSupportAt(current,token,previous.heightM)
+      if (support) { token.support=support; continue }
+      if (movements.some(p=>p.work.actorId===token.actorId && compareAmounts(p.startMs,at)<0 && compareAmounts(p.endMs,at)>0)) {
+        throw Error('На незавершённом маршруте стало недостаточно воды. Согласуй плавание и порядок действий.')
+      }
+      token.support=standingSupportAt(current,token,true) ?? {kind:'air'}
+      if (token.support.kind==='air' && (current.physics?.gravityMs2 ?? 9.81)>0) {
+        token.fall={sourceId:previous.objectId,fromZ:token.z,speedMs:0}
+      }
+      waterSupports.set(token.actorId,{actorId:token.actorId,waterId:previous.objectId,fromZ:token.z,toZ:token.z,lostSupport:true})
+    }
   }
   const routesDuring = (at: ExactAmount) => movements.filter(p => compareAmounts(p.startMs, at) < 0 && compareAmounts(p.endMs, cursor) > 0)
   const advanceSegment = (at: ExactAmount, slide?: ReturnType<typeof planSlide>) => {
-    const traces = exposureProfile || contactProfile ? new Map<string,MovementPiece[]>() : undefined
+    const traces = exposureProfile || contactProfile || aquatics ? new Map<string,MovementPiece[]>() : undefined
     const drySpeeds = tractionEnabled && movements.length ? new Map<string,number>() : undefined
+    const swimFootSpeeds = aquatics ? new Map<string,number>() : undefined
     const move = (step?: SlideStep) => {
       const current = activeScene()
       if (!current || !movements.length) return
       // Completed paths cannot reset a rider after the surface has moved.
       const routes = dynamicSupports ? movements.filter(p=>compareAmounts(p.endMs,cursor)>0 &&
-        (!(p.jump || p.climb) || compareAmounts(p.startMs,at)<0)) : movements
+        (!(p.jump || p.climb || p.swimHeightM!==undefined) || compareAmounts(p.startMs,at)<0)) : movements
       // An active character route may run beside a slide. Crossing its swept
       // footprint within the same interval needs a new order from the GM.
       const checkedScene = slide && step ? { ...current, objects:current.objects.map(o =>
@@ -391,7 +430,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         walkTraction.set(key,{...contact,actorId,factor:Math.min(contact.factor,previous?.factor ?? 1),
           distanceM:contact.distanceM+(previous?.distanceM ?? 0),
           speedMs:Math.max(speedMs,previous?.speedMs ?? 0),safeSpeedMs:Math.min(safeSpeedMs,previous?.safeSpeedMs ?? Infinity)})
-      } : undefined)
+      } : undefined,swimFootSpeeds)
       if (!dynamicSupports) return
       for (const route of routes) {
         if (compareAmounts(route.startMs, at) >= 0 || (compareAmounts(at, route.endMs) < 0 && compareAmounts(at, duration) < 0)) continue
@@ -402,7 +441,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     }
     if (compareAmounts(cursor, at) === 0) { if (!dynamicSupports) move(); return }
     const activeMovements = routesDuring(at)
-    checkCapabilities(activeMovements,drySpeeds,true)
+    checkCapabilities(activeMovements,drySpeeds,true,swimFootSpeeds)
     const seconds = numberOf(subtractAmounts(at, cursor)) / 1000, previous = candidate.campaign.seconds
     // The legacy physiology engine uses a numeric clock and microsecond steps.
     // Exact ordering/work is preserved; unrepresentable intervals block atomically.
@@ -411,19 +450,24 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     }
     const step = slide && slideStep(slide, seconds)
     const contactScene = contactProfile ? activeScene() : undefined
-    const falls = exposureProfile ? new Map<string,ExposureFallStart>(activeScene()?.tokens.flatMap(t=>t.fall ?
+    const falls = exposureProfile || aquatics ? new Map<string,ExposureFallStart>(activeScene()?.tokens.flatMap(t=>t.fall ?
       [[t.actorId,{z:t.z,speedMs:t.fall.speedMs}]] : [])) : undefined
+    const swimmerHeights = aquatics ? new Map<string,number>(activeScene()?.tokens.flatMap(t=>
+      t.support.kind==='water' ? [[t.actorId,t.support.heightM]] : [])) : undefined
+    for (const p of activeMovements) if (p.swimHeightM!==undefined) swimmerHeights?.set(p.work.actorId,p.swimHeightM)
     move(step)
-    candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment), exposureProfile ? collection.sceneId : undefined)
+    candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment), exposureProfile || aquatics ? collection.sceneId : undefined)
     if (contactProfile && contactScene && traces) {
       const airborne = new Set(activeMovements.flatMap(({work,jump})=>jump || work.action.kind==='move' && work.action.support==='air' ? [work.actorId] : []))
       const climbs = new Map(activeMovements.flatMap(({work,climb})=>climb ? [[work.actorId,climb.id] as const] : []))
-      for (const dose of surfaceDoses(candidate,contactScene,contactProfile,seconds,traces,airborne,checkContact,climbs)) applyDose(dose)
+      for (const dose of surfaceDoses(candidate,contactScene,contactProfile,seconds,traces,airborne,checkContact,climbs,swimmerHeights)) applyDose(dose)
     }
     settleFalls(seconds, at)
     const current = activeScene()
-    const observe = exposureProfile && current && traces && falls ?
-      roundExposureObserver(candidate,current,exposureProfile,seconds,traces,falls) : undefined
+    const observe = current && traces && falls ?
+      roundExposureObserver(candidate,current,exposureProfile,seconds,traces,falls,
+        swimmerHeights && {heights:swimmerHeights,underwaterSeconds,check:movementCheck}) : undefined
+    if (observe && !thermalEnabled) { observe(undefined,0); observe(undefined,1) }
     advanceEnvironment(seconds, at, observe)
     if (step) {
       // A break at the end of this segment cannot open a route for water
@@ -507,7 +551,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         if (slide?.endSeconds === 0) commitSlide(slideStep(slide, 0), at)
       }
       if (physical?.kind === 'heat' || physical?.kind === 'water' &&
-          (physical.reaction || physical.change === 'filled' || thermalEnabled && physical.change === 'created')) advanceEnvironment(0, at)
+          (physical.reaction || physical.change === 'filled' || aquatics || thermalEnabled && physical.change === 'created')) advanceEnvironment(0, at)
       if (thermalEnabled && result.outcome.environment?.some(effect => effect.operation === 'ignite')) settleFire(activeScene()!)
       events.push({actorId:work.actorId,actionIndex:work.origin.actionIndex,workId:work.id,atMs:at,kind:result.outcome.kind,...(result.outcome.castId?{castId:result.outcome.castId}:{})})
       continue
@@ -560,9 +604,10 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     return { workId: m.work.id, actorId: m.work.actorId, from: movementPosition(m, m.startMs), to, atMs,
       support: routeSupports.get(m.work.id) ?? movementSupport(scene!,m,atMs,to), completed: compareAmounts(m.endMs, duration) <= 0,
       ...(m.jump ? {terrain:{kind:'jump',apexZ:m.jump.apexZ,launchMs:m.jump.launchMs,landingMs:m.jump.landingMs} as const} :
-        m.climb ? {terrain:{kind:'climb',objectId:m.climb.id} as const} : {}) }
+        m.climb ? {terrain:{kind:'climb',objectId:m.climb.id} as const} :
+        m.swimHeightM!==undefined ? {terrain:{kind:'swim'} as const} : {}) }
   })
-  const water = variableWater ? waterRoundChanges(scene!, activeScene()!, [...waterSupports.values()], [...wetRoutes.values()]) : undefined
+  const water = variableWater || aquatics ? waterRoundChanges(scene!, activeScene()!, [...waterSupports.values()], [...wetRoutes.values()]) : undefined
   const thermal = thermalEnabled ? thermalRoundChanges(scene!, activeScene()!, flowReactionHeatJ) : undefined
   const exposure = exposureChanges(world,candidate)
   const falling = structural ? (activeScene()?.tokens ?? []).flatMap(token => token.fall ?
@@ -577,6 +622,8 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     ...(water ? { water } : {}),
     ...(thermal ? { thermal } : {}),
     ...(exposure.length ? { exposure } : {}),
+    ...(underwaterSeconds.size ? {breathing:[...underwaterSeconds].map(([actorId,elapsed])=>({actorId,underwaterSeconds:elapsed,
+      breathUsedSeconds:candidate.characters.find(a=>a.id===actorId)?.body.breathUsedSeconds ?? 0}))} : {}),
     ...(contactOutcomes.size ? { contacts:[...contactOutcomes.values()] } : {}),
     ...(acoustics?.sounds.length ? {sounds:acoustics.sounds} : {}),
     ...(walkTraction.size || slideTraction.size ? {traction:{walks:[...walkTraction.values()],slides:[...slideTraction.values()]}} : {}),

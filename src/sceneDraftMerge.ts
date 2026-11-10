@@ -131,7 +131,7 @@ export function mergeSceneDraft(baseValue: SceneState | undefined, localValue: S
     if (!v) return 'Герой убран со сцены'
     const scene = localScenes.get(v.sceneId) ?? remoteScenes.get(v.sceneId), support = v.token.support
     const surface = support.kind === 'object' ? scene?.objects.find(o => o.id === support.objectId)?.name : undefined
-    return `${scene?.name ?? v.sceneId} · X ${v.token.x}; Y ${v.token.y}; Z ${v.token.z} · ${support.kind === 'object' ? 'на опоре «' + (surface ?? 'недоступна') + '»' : support.kind === 'ground' ? 'на земле' : 'в воздухе'}`
+    return `${scene?.name ?? v.sceneId} · X ${v.token.x}; Y ${v.token.y}; Z ${v.token.z} · ${support.kind === 'object' ? 'на опоре «' + (surface ?? 'недоступна') + '»' : support.kind === 'ground' ? 'на земле' : support.kind==='water' ? 'в воде' : 'в воздухе'}`
   }
   for (const actorId of new Set([...right.keys(), ...left.keys(), ...old.keys()])) {
     const before = old.get(actorId), mine = left.get(actorId), theirs = right.get(actorId), id = key('actor', actorId)

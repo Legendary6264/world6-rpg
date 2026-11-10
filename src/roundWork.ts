@@ -3,6 +3,7 @@ import { amountFromNumber, compareAmounts, copyAmount, exactAmount, isExactAmoun
 import type { DeclaredAction } from './actionDeclarations'
 import type { ExactAmount } from './exactWork'
 import type { ScenePosition, SceneState } from './sceneTypes'
+import { validSwimHeight } from './aquaticMotion'
 
 export const MAX_ROUND_WORK_ENTRIES = 200
 const MAX_PERSONAL_MS = 1_000_000_000_000
@@ -11,7 +12,7 @@ export type RoundWorkEntry = {
   origin: { collectionId: string; epoch: number; entryRevision: number; actionIndex: number }
   action: DeclaredAction
   amount: { unit: 'personal-ms' | 'world-ms'; total: ExactAmount; remaining: ExactAmount }
-  movement?: { start: ScenePosition; diameter: number }
+  movement?: { start: ScenePosition; diameter: number; swimHeightM?:number }
   targetActorId?: string
   ability?: { castId: string }
 }
@@ -35,7 +36,9 @@ export function isRoundWorkEntry(v: unknown): v is RoundWorkEntry {
       !integer(v.origin.epoch, 1, 1e9) || !integer(v.origin.entryRevision, 1, 1e9) || !integer(v.origin.actionIndex, 0, 19) ||
       !isDeclaredAction(v.action) || !knownShape(v.action, copyDeclaredAction(v.action)) ||
       !record(v.amount) || !keys(v.amount, ['unit', 'total', 'remaining']) || !isExactAmount(v.amount.total) || !isExactAmount(v.amount.remaining)) return false
-  if (v.movement !== undefined && (v.action.kind !== 'move' || !record(v.movement) || !keys(v.movement, ['start', 'diameter']) ||
+  if (v.movement !== undefined && (v.action.kind !== 'move' || !record(v.movement) ||
+      !keys(v.movement, v.action.support==='swim' ? ['start','diameter','swimHeightM'] : ['start','diameter']) ||
+      v.action.support==='swim' && !validSwimHeight(v.movement.swimHeightM) ||
       !position(v.movement.start) ||
       typeof v.movement.diameter !== 'number' || !Number.isFinite(v.movement.diameter) || v.movement.diameter < 0.1 || v.movement.diameter > 100)) return false
   if (v.targetActorId !== undefined && (!['ability','item'].includes(v.action.kind) || !('target' in v.action) || v.action.target.kind !== 'contact' || !id(v.targetActorId))) return false
@@ -57,7 +60,7 @@ export function copyRoundWorkEntry(e: RoundWorkEntry): RoundWorkEntry {
   return { id: e.id, actorId: e.actorId, sceneId: e.sceneId,
     origin: { collectionId: e.origin.collectionId, epoch: e.origin.epoch, entryRevision: e.origin.entryRevision, actionIndex: e.origin.actionIndex },
     action: copyDeclaredAction(e.action), amount: { unit: e.amount.unit, total: copyAmount(e.amount.total), remaining: copyAmount(e.amount.remaining) },
-    ...(e.movement ? { movement: { start: { ...e.movement.start }, diameter: e.movement.diameter } } : {}),
+    ...(e.movement ? { movement: { ...e.movement, start: { ...e.movement.start } } } : {}),
     ...(e.targetActorId ? {targetActorId:e.targetActorId} : {}), ...(e.ability ? {ability:{castId:e.ability.castId}} : {}) }
 }
 export const copyRoundWork = (v: RoundWork): RoundWork => ({ version: 1, entries: v.entries.map(copyRoundWorkEntry) })

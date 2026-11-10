@@ -18,15 +18,18 @@ export default function GameActionBar({ map, point, contactId, objectId, options
   map: PerceivedMap | null; point: ScenePosition | null; contactId: string; objectId: string;
   options: DeclarationOptions | null; disabled: boolean; onAdd: (action: DeclaredAction) => boolean; draft: QuickActionDraft; onChange: (draft: QuickActionDraft) => void;
 }) {
-  const {mode,movement,text,volume,item,ability,aim}=draft
+  const {mode,text,volume,item,ability,aim}=draft
   const modeHelp={world:['Окружение и движение','Выбери точку, предмет или существо на сцене. Здесь появятся доступные действия.'],speak:['Реплика героя','Напиши слова героя и выбери громкость. Реплика попадёт в план хода.'],item:['Предмет из инвентаря','Выбери предмет и нужное действие с ним.'],ability:['Применение способности','Выбери способность, заряд и цель. Проверь область перед добавлением в план.']}[mode]
   const field=<K extends keyof QuickActionDraft>(key:K,value:QuickActionDraft[K])=>onChange({...draft,[key]:value})
   const object=map?.objects.find(o=>o.id===objectId),contact=map?.contacts.find(c=>c.id===contactId&&c.kind!=='self')
-  const falling = !!map?.contacts.find(c => c.kind === 'self')?.falling
-  const terrain = isTerrainMovement(movement)
-  const z = terrain && draft.movementZ?.trim() ? Number(draft.movementZ) : point?.z
+  const self = map?.contacts.find(c=>c.kind==='self'), falling = !!self?.falling
+  const movement = draft.movement==='swim' && map && !map.aquatics ? 'ground' : draft.movement
+  const swimming = movement==='swim', terrain = isTerrainMovement(movement)
+  const pool = swimming && object?.visible && object.liquidSurfaceZ!==undefined ? object : undefined
+  const movePoint = point ?? (pool ? {x:pool.x,y:pool.y,z:pool.z} : null)
+  const z = (terrain || swimming) && draft.movementZ?.trim() ? Number(draft.movementZ) : point?.z
   const validZ = z!==undefined && Number.isFinite(z) && (!map || z>=map.frame.minZ && z<=map.frame.maxZ)
-  const destination = point && z!==undefined && validZ ? {...point,z} : null
+  const destination = movePoint && z!==undefined && validZ ? {...movePoint,z} : null
   const shownPoint = destination ?? point
   const knownObject=options?.targets.some(t=>t.kind==='object'&&t.id===objectId),knownContact=options?.targets.some(t=>t.kind==='contact'&&t.id===contactId)
   const ownContact=map?.contacts.find(c=>c.kind==='self'&&c.id===contactId),selectedContact=contact??ownContact
@@ -49,21 +52,25 @@ export default function GameActionBar({ map, point, contactId, objectId, options
     <fieldset disabled={disabled}>
       {mode==='world'&&<><p className="gb-game-context">{object?<><strong>{object.name}</strong> · {object.visible?'объект перед тобой':'последнее известное состояние'}{object.kind==='door'&&(object.open?' · открыта':' · закрыта')}</>:contact?<><strong>{contact.label}</strong>{contact.signs&&' · '+contact.signs}</>:shownPoint?<>Отметка ({shownPoint.x}, {shownPoint.y}, {shownPoint.z}) м</>:'Нажми на землю, предмет или существо на карте.'}</p>
         {falling && !environmentOnly && <p className="gb-game-help">Герой падает. Новый маршрут можно задать после приземления.</p>}
+        {self?.support==='water' && !environmentOnly && <p className="gb-game-help">{self.submerged?'Голова под водой.':'Голова над водой.'}
+          {self.breathRemainingSeconds!==undefined && <> Запас воздуха {self.breathRemainingSeconds.toLocaleString('ru-RU',{maximumFractionDigits:1})} с.</>}</p>}
         {!environmentOnly && <><div className="w6-buttons">
           <select aria-label="Быстрый способ движения" disabled={falling} value={movement} onChange={e=>{
             const next=e.currentTarget.value
             if(isMovementMode(next))onChange({...draft,movement:next,movementZ:''})
-          }}>{Object.entries(movementLabels).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select>
+          }}>{Object.entries(movementLabels).filter(([id])=>id!=='swim'||!map||map.aquatics).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select>
           <button type="button" className="w6-button w6-primary" disabled={!destination||falling} onClick={()=>{
             if(destination&&!falling)onAdd({kind:'move',route:[destination],support:movement,note:''})
-          }}>{movement==='jump'?'Прыгнуть к отметке':movement==='climb'?'Добавить подъём или спуск':'Идти к отметке'}</button>
-        </div>{terrain&&!falling&&<>
-          {point&&<label className="w6-field"><span>Высота точки назначения, м</span><input aria-label="Высота точки назначения, м" type="number" step="any"
-            min={map?.frame.minZ} max={map?.frame.maxZ} placeholder={String(point.z)} value={draft.movementZ??''}
-            aria-invalid={!validZ} onChange={e=>field('movementZ',e.currentTarget.value)}/>
-            {!validZ&&map&&<small>Допустимая высота от {map.frame.minZ} до {map.frame.maxZ} м.</small>}</label>}
-          <p className="gb-game-help">{movement==='jump'?'Укажи точку на земле или на поверхности, куда хочешь приземлиться.':
-            'Укажи точку рядом с той же гранью опоры, сверху или снизу. Мастер должен разрешить подъём по этой грани.'} Действие занимает часть одного раунда.</p>
+          }}>{movement==='jump'?'Прыгнуть к отметке':movement==='climb'?'Добавить подъём или спуск':swimming?'Плыть к отметке':'Идти к отметке'}</button>
+        </div>{(terrain||swimming)&&!falling&&<>
+          {movePoint&&<label className="w6-field"><span>{swimming?'Высота ног в точке назначения, м':'Высота точки назначения, м'}</span><input aria-label="Высота точки назначения, м" type="number" step="any"
+            min={map?.frame.minZ} max={map?.frame.maxZ} placeholder={point ? String(point.z) : 'Укажи высоту'} value={draft.movementZ??''}
+            aria-invalid={z!==undefined&&!validZ} onChange={e=>field('movementZ',e.currentTarget.value)}/>
+            {z!==undefined&&!validZ&&map&&<small>Допустимая высота от {map.frame.minZ} до {map.frame.maxZ} м.</small>}</label>}
+          {pool&&<p className="gb-game-help">Поверхность воды {pool.liquidSurfaceZ} м по Z. {point?'Используется отметка на карте.':'Выбран центр водоёма.'}</p>}
+          <p className="gb-game-help">{swimming?'Выбери точку в воде или на берегу. Чтобы нырнуть, опусти отметку ног. Чтобы вдохнуть, подними её ближе к поверхности.':
+            (movement==='jump'?'Укажи точку на земле или на поверхности, куда хочешь приземлиться.':
+              'Укажи точку рядом с той же гранью опоры, сверху или снизу. Мастер должен разрешить подъём по этой грани.')+' Действие занимает часть одного раунда.'}</p>
         </>}</>}
         <div className="w6-buttons">
           <button type="button" className="w6-button" disabled={!knownObject&&!knownContact} onClick={()=>onAdd({kind:'interact',target:knownObject?{kind:'object',id:objectId}:{kind:'contact',id:contactId},operation:'inspect',note:''})}>Осмотреть выбранное</button>

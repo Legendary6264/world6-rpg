@@ -25,7 +25,7 @@ export default function SceneOutliner({scene,actors,items,primary,layers,build,d
  const selected=new Set(items.map(keyOf)),actorMap=new Map(actors.map(a=>[a.id,a]))
  const entries:Entry[]=[...scene.tokens.map(t=>{
   const name=actorMap.get(t.actorId)?.name||'Без имени',type='Персонаж'
-  return {item:{kind:'token' as const,id:t.actorId},key:'token:'+t.actorId,name,type,words:normalize(name+' '+type+' герой'),detail:(t.support.kind==='air'?'В воздухе':'На опоре')+' · Z '+t.z+' м',hidden:false,protected:false}
+  return {item:{kind:'token' as const,id:t.actorId},key:'token:'+t.actorId,name,type,words:normalize(name+' '+type+' герой'),detail:(t.support.kind==='air'?'В воздухе':t.support.kind==='water'?'В воде':'На опоре')+' · Z '+t.z+' м',hidden:false,protected:false}
  }),...scene.objects.map(o=>{
   const type=sceneObjectLabels[o.kind],asset=legacyAsset(o),label=tabletopAsset(o.asset)?.name??artworkLabels[o.artwork??'']??''
   const image=asset?import.meta.env.BASE_URL+'legacy-thumbnails/'+asset.slug+'.png':o.asset?import.meta.env.BASE_URL+'tabletop-thumbnails/'+o.asset+'.png':undefined

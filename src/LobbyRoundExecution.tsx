@@ -199,6 +199,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         <label className="w6-check"><input aria-label="Движение подтверждено мастером" type="checkbox" checked={!!draft.movementConfirmed} onChange={e=>change({...draft,movementConfirmed:e.currentTarget.checked})}/>Проверил способы движения, высоту тела и бюджет с учётом состояния героев</label>
         <p>Ходьба требует непрерывной опоры на одной высоте. Для полёта без работающих крыльев укажи основание, условия и расходы. После разрушения опоры новый маршрут можно начать с приземления.</p>
         <p>Прыжок, подъём и спуск целиком помещаются в один раунд. Слишком короткий прыжок требует чрезмерной скорости, слишком долгий поднимает дугу выше. Подъём и спуск используют грань опоры с разрешением из редактора.</p>
+        <p>Плавание использует глубину воды и высоту тела. Незавершённый маршрут переносится. Если герой остаётся с головой под водой, ожидание расходует запас воздуха.</p>
       </fieldset>}
       <LobbyRoundRules rows={ruleRows} actors={actors} objects={objects.filter(o=>o.sceneId===collection.sceneId)} actorIds={bodyRows.map(b=>b.actorId)} form={ruleForm} onChange={f=>change({...draft,rules:[...(draft.rules??[]).filter(x=>x.key!==f.key&&ruleRows.some(r=>r.key===x.key)),f]})}/>
       {replayError&&!checkingAccess&&<><p role="alert">Не удалось проверить источник прежних бросков: {replayError}</p><button className="w6-button" onClick={()=>setReplayAttempt(n=>n+1)}>Повторить проверку переигровки</button></>}
@@ -225,7 +226,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
       {visible.summary.events.map(e => <p key={e.workId+':'+e.kind}>{name(e.actorId)} · {{inspect:'осмотр',speak:'реплика',wait:'ожидание',move:'перемещение',open:'открытие объекта',close:'закрытие объекта',lock:'запирание',unlock:'отпирание',ignite:'зажигание',extinguish:'тушение',activate:'активация',deactivate:'отключение',relocate:'перенос предмета',item:'предмет',prepare:'начало подготовки',ready:'готовый заряд',release:'выпуск'}[e.kind]}{e.listening?' · '+({listen:'прислушивание',eavesdrop:'подслушивание'}[e.listening]):''}{e.objectId ? ' · ' + objectName(collection.sceneId, e.objectId) : ''} · {e.atMs.numerator}/{e.atMs.denominator} мс</p>)}
       {!!visible.summary.rules?.length&&<div aria-label="Последствия предметов и способностей">{visible.summary.rules.map(r=><article key={r.key+':'+r.kind}><p>{r.text}</p><pre className="w6-copy">{r.details}</pre>{r.targets&&<div aria-label="Цели пространственного выпуска"><p>Получателей: {r.targets.length}</p>{r.targets.map(t=><details key={t.actorId}><summary>{t.name}</summary><pre className="w6-copy">{t.details}</pre></details>)}</div>}</article>)}</div>}
       {!!visible.summary.listeningWindows?.length&&<section aria-label="Время внимания слушателей"><h4>Заявленное внимание</h4>{visible.summary.listeningWindows.map(r=><p key={r.key}>{name(r.actorId)} · {listeningPlanLabel(r)} · {listeningFocusLabel(r,objects.filter(o=>o.sceneId===r.sceneId))} · с {Number(r.fromMs.numerator)/Number(r.fromMs.denominator)/1000} до {Number(r.toMs.numerator)/Number(r.toMs.denominator)/1000} с раунда · {r.completes?'ожидание завершится':'продолжится в следующем раунде'}</p>)}<p className="w6-copy">При включённых звуках событий прислушивание помогает заметить их в это время. Слышимость реплик подтверждает мастер.</p></section>}
-      {!!visible.summary.speech?.length&&<div aria-label="Расчёт слышимости">{visible.summary.speech.map(s=><article key={s.key}><h4>{name(s.actorId)} · реплика</h4>{s.interruption==='breathing' ? <p>Крик сорвался из-за нехватки дыхания.</p> : <><p className="w6-prose">{s.text}</p><p>Других слушателей: {s.heard.length}</p>{s.heard.map(h=><div key={h.actorId}><strong>{name(h.actorId)} · обозначение говорящего: {h.speaker}</strong><p className="w6-prose">{h.text}</p></div>)}</>}</article>)}</div>}
+      {!!visible.summary.speech?.length&&<div aria-label="Расчёт слышимости">{visible.summary.speech.map(s=><article key={s.key}><h4>{name(s.actorId)} · реплика</h4>{s.interruption ? <p>{s.interruption==='underwater'?'Реплика сорвалась под водой.':'Крик сорвался из-за нехватки дыхания.'}</p> : <><p className="w6-prose">{s.text}</p><p>Других слушателей: {s.heard.length}</p>{s.heard.map(h=><div key={h.actorId}><strong>{name(h.actorId)} · обозначение говорящего: {h.speaker}</strong><p className="w6-prose">{h.text}</p></div>)}</>}</article>)}</div>}
       {!!visible.summary.sounds?.length&&<section aria-label="Звуки событий">
         <h4>Звуки событий</h4>
         {visible.summary.sounds.map((sound,index)=><details className="gb-scene-details" key={index}>
@@ -235,8 +236,8 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         </details>)}
       </section>}
       {!!visible.summary.movements?.length && <div aria-label="Позиции после движения">{visible.summary.movements.map(m=><p key={m.workId}>{name(m.actorId)}
-        {m.terrain?.kind==='jump' ? ' · прыжок' : m.terrain?.kind==='climb' ? ' · '+(m.to.z>m.from.z?'подъём':'спуск')+' по объекту '+objectName(collection.sceneId,m.terrain.objectId) : ''}
-        {' · '}({coords(m.from)}) → ({coords(m.to)}) м · {m.support.kind==='air'?'в воздухе':m.support.kind==='ground'?'на земле':'на объекте '+objectName(collection.sceneId,m.support.objectId)} · {m.completed?'маршрут завершён':'маршрут продолжается'}
+        {m.terrain?.kind==='jump' ? ' · прыжок' : m.terrain?.kind==='climb' ? ' · '+(m.to.z>m.from.z?'подъём':'спуск')+' по объекту '+objectName(collection.sceneId,m.terrain.objectId) : m.terrain?.kind==='swim' ? ' · плавание' : ''}
+        {' · '}({coords(m.from)}) → ({coords(m.to)}) м · {m.support.kind==='air'?'в воздухе':m.support.kind==='ground'?'на земле':m.support.kind==='water'?'в воде':'на объекте '+objectName(collection.sceneId,m.support.objectId)} · {m.completed?'маршрут завершён':'маршрут продолжается'}
         {m.terrain?.kind==='jump'&&<> · вершина дуги {quantity(m.terrain.apexZ)} м · скорость по вертикали при отрыве {quantity(m.terrain.launchMs)} м/с и при приземлении {quantity(m.terrain.landingMs)} м/с</>}</p>)}</div>}
       {visible.summary.water && <section aria-label="Растекание и смачивание">
         <h4>Вода и опоры</h4>
@@ -261,6 +262,10 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
           {thermal.water.map(layer => <p key={layer.id}>{layer.name} · {layer.volumeL > 0 ? quantity(layer.temperatureK - 273.15) + ' °C · лёд ' + quantity(layer.iceFraction * 100) + ' % · ' + quantity(layer.volumeL) + ' л' : 'вода испарилась'}</p>)}
         </section>
       })()}
+      {!!visible.summary.breathing?.length && <section aria-label="Дыхание под водой">
+        <h4>Дыхание под водой</h4>
+        {visible.summary.breathing.map(row=><p key={row.actorId}>{name(row.actorId)} · голова под водой {quantity(row.underwaterSeconds)} с · израсходовано запаса воздуха к концу раунда {quantity(row.breathUsedSeconds)} с</p>)}
+      </section>}
       {!!visible.summary.exposure?.length && <section aria-label="Воздействие среды на героев">
         <h4>Воздействие среды на героев</h4>
         {visible.summary.exposure.map(({actorId,changes})=><div key={actorId}><strong>{name(actorId)}</strong>

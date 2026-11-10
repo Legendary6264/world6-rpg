@@ -53,13 +53,13 @@ export function shockBridges(world:World,scene:Scene,profile:ContactHazardProfil
     return [{actorId,bodyResistanceOhm:profile.bodyResistanceOhm,
       hand:{point:handPoint,objectId,region:handRegion,...protectionFor(actor,handRegion)},
       foot:{point:{x:token.x,y:token.y,z:token.z},region:footRegion,
-        ...(token.support.kind==='object'?{objectId:token.support.objectId}:{}),...protectionFor(actor,footRegion)},
+        ...(token.support.kind==='object'||token.support.kind==='water'?{objectId:token.support.objectId}:{}),...protectionFor(actor,footRegion)},
     }]
   })
 }
 
 type Rates = {heat:number;acid:number}
-type Surface = ObjectBounds & Rates
+type Surface = ObjectBounds & Rates & {liquid?:true}
 const heatRate = (temperatureK:number,profile:ContactHazardProfile) => Math.max(0,temperatureK-profile.burnAboveK)/profile.heatKelvinSecondsPerHp
 function surfaces(scene:Scene,profile:ContactHazardProfile):Surface[] {
   const air = sceneAir(scene)
@@ -73,7 +73,7 @@ function surfaces(scene:Scene,profile:ContactHazardProfile):Surface[] {
       const litres = object.width*object.depth*height*1000
       const excess = object.water.base==='pure' ? Math.max(0,object.water.reagentMol ?? 0) : 0
       const acid = litres>0 ? Math.min(1e9,excess/litres/profile.acidMolarSecondsPerHp) : 0
-      return heat || acid ? [{...objectBounds({...object,height}),heat,acid}] : []
+      return heat || acid ? [{...objectBounds({...object,height}),heat,acid,liquid:true as const}] : []
     }
     if (!object.physics || object.kind==='door' && object.open || !supportsSceneTokens(object)) return []
     const heat = heatRate(object.physics.temperatureK,profile)
@@ -134,10 +134,22 @@ function protectedDoses(actor:Actor,regions:string[],total:Rates):ContactDose[] 
   })
 }
 
+function pathDose(pieces:MovementPiece[],active:Surface[],seconds:number,check:()=>void,offset=0):Rates {
+  const total = {heat:0,acid:0}
+  for (const piece of pieces) {
+    const sample = pieceDose(offset ? {...piece,a:{...piece.a,z:piece.a.z+offset},b:{...piece.b,z:piece.b.z+offset}} : piece,active,check)
+    total.heat+=sample.heat*seconds
+    total.acid+=sample.acid*seconds
+  }
+  return total
+}
+
 export function surfaceDoses(world:World,scene:Scene,profile:ContactHazardProfile,seconds:number,
-    movement:ReadonlyMap<string,MovementPiece[]>,airborne:ReadonlySet<string>,check:()=>void,climbs?:ReadonlyMap<string,string>):ContactDose[] {
+    movement:ReadonlyMap<string,MovementPiece[]>,airborne:ReadonlySet<string>,check:()=>void,
+    climbs?:ReadonlyMap<string,string>,swimmers?:ReadonlyMap<string,number>):ContactDose[] {
   const active = surfaces(scene,profile)
   if (!active.length) return []
+  const liquid = swimmers?.size ? active.filter(surface=>surface.liquid) : []
   const actors = new Map(world.characters.map(actor=>[actor.id,actor]))
   return scene.tokens.flatMap(token=>{
     const actor = actors.get(token.actorId), trace = movement.get(token.actorId)
@@ -149,14 +161,20 @@ export function surfaceDoses(world:World,scene:Scene,profile:ContactHazardProfil
       return heat>EPS ? protectedDoses(actor,['leftHand','rightHand'],{heat,acid:0}) : []
     }
     const regions = supportedRegions(actor)
-    if (!regions.length) return []
-    const total = {heat:0,acid:0}
-    for (const piece of trace ?? [{start:0,end:1,a:token,b:token}]) {
-      const sample = pieceDose(piece,active,check)
-      total.heat += sample.heat*seconds
-      total.acid += sample.acid*seconds
+    const pieces = trace ?? [{start:0,end:1,a:token,b:token}]
+    const height = swimmers?.get(actor.id)
+    if (height!==undefined) {
+      // Sample each exposed region at a representative height on the body.
+      // Feet still use the ordinary contact model when the route reaches a bank.
+      const feet = new Set(regions)
+      return bodyRegionDefs(actor.body).flatMap(({key,group})=>{
+        const part=actor.body.parts[key]
+        if (!part.present || !part.current) return []
+        const fraction = group==='head' ? .88 : group==='torso' ? .6 : group.endsWith('Leg') ? .25 : .45
+        const total = feet.has(key) ? pathDose(pieces,active,seconds,check) : pathDose(pieces,liquid,seconds,check,height*fraction)
+        return protectedDoses(actor,[key],total)
+      })
     }
-    if (!total.heat && !total.acid) return []
-    return protectedDoses(actor,regions,total)
+    return regions.length ? protectedDoses(actor,regions,pathDose(pieces,active,seconds,check)) : []
   })
 }

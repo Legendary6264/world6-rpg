@@ -11,7 +11,7 @@ export type TractionTravel = Omit<SurfaceContact,'start'|'end'> & {distanceM:num
 export const defaultTractionProfile:TractionProfile = {version:1,waterFactor:.75,iceFactor:.2}
 export const tractionLabels = {wet:'Мокрая поверхность',slush:'Вода со льдом',ice:'Лёд'} as const
 const EPS_M = 1e-6
-const FLOOR_FILM_M = .1
+export const FLOOR_FILM_M = .1
 
 export function isTractionProfile(value:unknown):value is TractionProfile {
   return physicsRecord(value) && physicsKeys(value,['version','waterFactor','iceFactor']) &&

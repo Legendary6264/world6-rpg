@@ -118,6 +118,168 @@ const terrainBody = (extra={}) => ({
   version:1,material:physicsMaterialPreset('steel'),massKg:40,temperatureK:293.15,wetnessFraction:0,...extra,
 })
 const terrainEnvironment = (extra={}) => ({version:1,gravityMs2:10,ambientTemperatureK:293.15,...extra})
+const basin = (id='pool',x=6,width=6,height=3) => ({
+  ...scenes.sceneObject('water',id,location(x,4)),width,depth:4,height,blocksMovement:false,canSupport:false,
+  water:{version:1,base:'pure',saltKg:0,sedimentKg:0},
+})
+function aquaticWorld(from=location(2,4),breathSeconds=4) {
+  const w=motionWorld(from), scene=w.campaign.scenes.scenes[0]
+  scene.physics=terrainEnvironment({aquatics:{version:1,swimSpeedMs:1.25,breathSeconds}})
+  scene.objects=[basin()]
+  return {w,scene}
+}
+const inWater=(w,objectId='pool')=>{ownToken(w).support={kind:'water',objectId,heightM:2}}
+const waitRound=(w,seconds,seed)=>calculateRound(w,{...terrainRound(wait(seconds)),id:seed,durationSeconds:seconds},input([timing('a')],['b']),seed)
+const near=(actual,expected)=>assert(Math.abs(actual-expected)<1e-5,`${actual} ≈ ${expected}`)
+
+test('Плавание с берега, задержка дыхания между раундами, всплытие и выход',()=>{
+  const {w}=aquaticWorld(), route=terrainRound(move([location(5,4)],'swim')), p=terrainInput(3000)
+  const before=structuredClone(w), dive=calculateRound(w,route,p,'dive-entry'), actor=dive.world.characters[0]
+  assert.deepEqual(w,before)
+  assert.deepEqual(ownToken(dive.world).support,{kind:'water',objectId:'pool',heightM:2})
+  assert(scenes.isSceneState(dive.world.campaign.scenes))
+  assert.equal(dive.summary.movements[0].terrain.kind,'swim')
+  near(dive.summary.breathing[0].underwaterSeconds,9)
+  near(actor.body.breathUsedSeconds,4);near(actor.body.exposure.oxygen,2)
+  const parked=waitRound(dive.world,4,'wait-underwater')
+  near(parked.summary.breathing[0].underwaterSeconds,4);near(parked.world.characters[0].body.exposure.oxygen,3.6)
+  const rise=calculateRound(parked.world,{...terrainRound(move([location(5,4,2)],'swim')),id:'rise'},terrainInput(2500),'rise')
+  near(rise.summary.breathing[0].underwaterSeconds,1.55)
+  assert.equal(rise.world.characters[0].body.breathUsedSeconds,null)
+  assert.equal(ownToken(rise.world).support.kind,'water')
+  const exit=calculateRound(rise.world,{...terrainRound(move([location(5,4),location(2,4)],'swim')),id:'shore'},terrainInput(7500),'shore')
+  assert.deepEqual(ownToken(exit.world).support,{kind:'ground'})
+  assert.equal(ownToken(exit.world).x,2)
+  assert.throws(()=>calculateRound(w,terrainRound(move([location(5,4)])),p,'walk-deep'),/слишком глубоко/)
+})
+
+test('Плавание: соседние ячейки, непрерывная глубина и точный перенос незаконченного маршрута',()=>{
+  const {w,scene}=aquaticWorld(location(4.5,4,1),30)
+  scene.objects=[basin('left',5,2),basin('right',7,2)];inWater(w,'left')
+  const route=terrainRound(move([location(7.5,4,1)],'swim')), p=terrainInput(12000)
+  const first=calculateRound(w,route,p,'swim-partial')
+  assert.equal(first.summary.movements[0].completed,false)
+  near(ownToken(first.world).x,7);assert.equal(ownToken(first.world).support.objectId,'right')
+  const copied=scenes.copySceneState(first.world.campaign.scenes)
+  assert.deepEqual(copied,first.world.campaign.scenes)
+  const continuation={...motionInput([],['b']),continuations:[{actorId:'a',mode:'continue',budgetMs:10000}]}
+  const next={...collection([]),id:'swim-next'}
+  const resumed=calculateRound(first.world,next,continuation,'swim-next')
+  assert.equal(ownToken(resumed.world).x,7.5);assert.equal(resumed.world.campaign.roundWork.entries.length,0)
+  const changed=structuredClone(continuation);changed.movement.bodies[0].heightM=1.9
+  assert.throws(()=>calculateRound(first.world,next,changed,'swim-height'),/Высота тела изменилась/)
+  scene.objects[1].x=8
+  const before=structuredClone(w)
+  assert.throws(()=>calculateRound(w,route,p,'swim-gap'),/участок без воды/);assert.deepEqual(w,before)
+})
+
+test('Два пловца сталкиваются на одной глубине и расходятся на разных уровнях',()=>{
+  const {w,scene}=aquaticWorld(location(4,4),30);inWater(w)
+  const other=scene.tokens[1]
+  Object.assign(other,location(8,4),{support:{kind:'water',objectId:'pool',heightM:2}})
+  const round=collection([entry('a',[move([location(8,4)],'swim')]),entry('b',[move([location(4,4)],'swim')])])
+  const p=motionInput([timing('a',[5000],10000),timing('b',[5000],10000)],[])
+  const before=structuredClone(w)
+  assert.throws(()=>calculateRound(w,round,p,'swimmer-collision'),/пересекаются в одно время/)
+  assert.deepEqual(w,before)
+  other.z=2;round.entries[1].actions[0].route[0].z=2
+  const pass=calculateRound(w,round,p,'different-depths')
+  assert.equal(ownToken(pass.world).x,8)
+  assert.equal(pass.summary.breathing.length,1)
+  assert.throws(()=>scenes.replaceScene(w.campaign.scenes,{...scene,physics:{...scene.physics,aquatics:null}}),/Перед отключением плавания/)
+})
+
+test('Плавание проверяет тело, скорость и ледяную преграду',async()=>{
+  const {w,scene}=aquaticWorld(location(5,4));inWater(w)
+  for(const key of ['leftLeg','rightLeg']) Object.assign(w.characters[0].body.parts[key],{maximum:10,current:0})
+  const route=terrainRound(move([location(5.5,4)],'swim'))
+  assert.throws(()=>calculateRound(w,route,terrainInput(200),'swim-too-fast'),/Доступная скорость плавания/)
+  assert.doesNotThrow(()=>calculateRound(w,route,terrainInput(2000),'swim-arms-only'))
+  assert.throws(()=>calculateRound(w,terrainRound(move([location(2,4)],'swim')),terrainInput(6000),'disabled-shore'),/для выхода на сушу/)
+  const {FUSION_J_KG}=await module('waterPhysics')
+  scene.objects[0].water.enthalpyJKg=FUSION_J_KG
+  assert.doesNotThrow(()=>calculateRound(w,route,terrainInput(2000),'liquid-check'))
+  const frozen=aquaticWorld();frozen.scene.objects[0].water.enthalpyJKg=0
+  assert.throws(()=>calculateRound(frozen.w,terrainRound(move([location(5,4)],'swim')),terrainInput(6000),'swim-ice'),/воде достаточной глубины/)
+  assert.throws(()=>calculateRound(frozen.w,terrainRound(move([location(5,4)])),terrainInput(6000),'walk-into-ice'),/препятствие/)
+})
+
+test('При выходе из воды тонкий лёд на берегу ограничивает сцепление',()=>{
+  const {w,scene}=aquaticWorld(location(5,4),30);inWater(w)
+  const actor=w.characters[0]
+  actor.statistics.movement='1.5';actor.rpg.formulas=actor.rpg.formulas.filter(f=>f.parameter!=='movement')
+  scene.physics.traction={version:1,waterFactor:.6,iceFactor:.1}
+  const film=basin('icy-shore',2,.8,.03);film.water.enthalpyJKg=0;scene.objects.push(film)
+  const route=terrainRound(move([location(2,4)],'swim'))
+  assert.throws(()=>calculateRound(w,route,terrainInput(4000),'fast-icy-shore'),/Сцепление/)
+  const safe=calculateRound(w,route,terrainInput(8000),'safe-icy-shore')
+  assert.equal(ownToken(safe.world).support.kind,'ground')
+  assert(safe.summary.traction.walks.some(t=>t.objectId==='icy-shore'&&t.kind==='ice'))
+})
+
+test('Погружение учитывает рабочие жабры и не раскрывает несостоявшуюся реплику',async()=>{
+  const {w}=aquaticWorld(location(5,4));inWater(w)
+  const {applyRace}=await module('characterPresets'), {breathesUnderwater}=await module('characterBody')
+  const sea={...applyRace(w.characters[0],'marine'),id:'a'}
+  assert(breathesUnderwater(sea.body))
+  const aquatic={...w,characters:[sea,w.characters[1]]}
+  const held=waitRound(aquatic,10,'gills')
+  near(held.summary.breathing[0].underwaterSeconds,10);assert.equal(held.world.characters[0].body.breathUsedSeconds,undefined)
+  for(const organ of sea.body.anatomy.structures.filter(s=>s.functionGroup==='waterBreathing')) organ.current=0
+  assert(!breathesUnderwater(sea.body))
+  assert.equal(waitRound(aquatic,10,'damaged-gills').world.characters[0].body.breathUsedSeconds,4)
+  const speech={kind:'speak',text:'СЕКРЕТНАЯ РЕПЛИКА',volume:'normal',target:{kind:'none'},note:''}
+  const inputWithSpeech={...input([timing('a',[1000],10000)],['b']),speech:[{
+    key:'new:a:0',confirmed:true,reason:'Герой находится рядом',recordedAt:'2026-11-10T00:00:00.000Z',
+    hearers:[{actorId:'b',clarity:'clear',speaker:'Голос',fragment:'',signs:''}],
+  }]}
+  const outcome=calculateRound(w,terrainRound(speech),inputWithSpeech,'speech-underwater')
+  assert.equal(outcome.summary.speech[0].interruption,'underwater')
+  assert.deepEqual(outcome.summary.speech[0].heard,[])
+  assert(!JSON.stringify(outcome.world.characters[1].journal).includes(speech.text))
+})
+
+test('Под водой голосовая способность проверяет возможность речи при подготовке',async()=>{
+  const {w}=aquaticWorld(location(5,4));inWater(w)
+  const {emptyAbility}=await module('rpgSchema')
+  w.characters[0].rpg.abilities.push({...emptyAbility(),id:'voice',templateId:'voice-test',name:'Голос',speech:true,approved:true})
+  const action={kind:'ability',stage:'prepare',abilityId:'voice',target:{kind:'none'},note:''}
+  const d={region:'torso',distanceM:0,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',
+    gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:''}
+  const p={...input([timing('a',[1000],10000)],['b']),rules:[{key:'new:a:0',kind:'ability',confirmed:true,binding:'unbound',charge:'',input:d}]}
+  const before=structuredClone(w)
+  assert.throws(()=>calculateRound(w,terrainRound(action),p,'voice-underwater'),/голосовой способности/)
+  assert.deepEqual(w,before)
+  ownToken(w).z=2
+  assert(calculateRound(w,terrainRound(action),p,'voice-above-water').summary.events.some(e=>e.kind==='ready'))
+})
+
+test('При нырянии жидкость касается погружённых областей тела',async()=>{
+  const {w,scene}=aquaticWorld(location(5,4,2));inWater(w)
+  const {defaultContactHazards}=await module('contactProfiles')
+  scene.physics.contactHazards={...defaultContactHazards,acidMolarSecondsPerHp:.0001}
+  scene.objects[0].water.reagentMol=10
+  for(const key of ['head','torso','leftFoot','leftHand']) Object.assign(w.characters[0].body.parts[key],{maximum:20,current:20})
+  const shallow=waitRound(w,1,'surface-contact')
+  assert(shallow.summary.contacts.some(c=>c.region==='leftFoot'&&c.kind==='acid'&&c.damage>0))
+  assert(!shallow.summary.contacts.some(c=>['head','torso'].includes(c.region)))
+  ownToken(w).z=0
+  const deep=waitRound(w,1,'submerged-contact')
+  assert(deep.summary.contacts.some(c=>c.region==='head'&&c.kind==='acid'&&c.damage>0))
+})
+
+test('После снижения уровня воды персонаж теряет водную опору и приземляется в следующем интервале',()=>{
+  const {w,scene}=aquaticWorld(location(4,4,.2));inWater(w,'upstream')
+  scene.objects=[basin('upstream',4,2,1),basin('downstream',6,2,0)]
+  for(const object of scene.objects) object.water.flow=true
+  const drain=waitRound(w,10,'flow-releases-swimmer')
+  assert(drain.summary.water.supports.some(s=>s.actorId==='a'&&s.lostSupport))
+  assert.equal(ownToken(drain.world).support.kind,'air')
+  assert.equal(ownToken(drain.world).fall.sourceId,'upstream')
+  const landed=waitRound(drain.world,2,'swimmer-landing')
+  assert.equal(ownToken(landed.world).support.kind,'ground')
+  assert(scenes.isSceneState(landed.world.campaign.scenes))
+})
 
 test('Прыжок над препятствием использует дугу, точное время, удар о землю и звук',()=>{
   const w = motionWorld(location(2,4)), s = w.campaign.scenes.scenes[0]

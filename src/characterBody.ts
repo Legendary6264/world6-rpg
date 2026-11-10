@@ -6,6 +6,8 @@ import { exposureLimits, isExposureLoad, isExposureProtection } from './exposure
 import type { ExposureLoad, ExposureProtection } from './exposureProfiles'
 import { copyContactRemainders, isContactRemainders } from './contactProfiles'
 import type { ContactRemainders } from './contactProfiles'
+import { MAX_BREATH_SECONDS } from './aquaticMotion'
+import { physicsNumber } from './physicsUnits'
 export { bodyRegions } from './bodyRegions'
 
 export type BodyRegion = string
@@ -23,6 +25,7 @@ export type BodyState = {
   anatomy?: DetailedAnatomy
   exposure?: ExposureLoad|null
   exposureProtection?: ExposureProtection|null
+  breathUsedSeconds?: number|null
   contactDoses?: ContactRemainders|null
   parts: Record<BodyRegion, BodyPart>
   consciousness: 'awake' | 'unconscious'
@@ -50,6 +53,7 @@ export function isBodyState(v: unknown): v is BodyState {
   if (!record(v) || !record(v.parts) || (v.anatomy !== undefined && !isDetailedAnatomy(v.anatomy, Object.keys(v.parts))) || !['awake', 'unconscious'].includes(String(v.consciousness)) ||
       (v.exposure != null && !isExposureLoad(v.exposure)) || (v.exposureProtection != null && !isExposureProtection(v.exposureProtection)) ||
       (v.contactDoses != null && !isContactRemainders(v.contactDoses,Object.keys(v.parts))) ||
+      (v.breathUsedSeconds != null && !physicsNumber(v.breathUsedSeconds,0,MAX_BREATH_SECONDS)) ||
       !Array.isArray(v.history) || v.history.length > 200) return false
   return Object.keys(v.parts).length > 0 && Object.keys(v.parts).length <= 64 && Object.entries(v.parts).every(([k,p]) => !['__proto__','constructor','prototype'].includes(k) && /^[a-zA-Z0-9:_-]+$/.test(k) && k.length <= 160 && isBodyPart(p)) &&
     v.history.every(e => record(e) && typeof e.id === 'string' && e.id.length > 0 && e.id.length <= 160 &&
@@ -72,11 +76,13 @@ export function cloneBody(body?: BodyState): BodyState {
     ...(v.anatomy ? {anatomy:copyDetailedAnatomy(v.anatomy)} : {}),
     ...(v.exposure !== undefined ? {exposure:v.exposure && {...v.exposure}} : {}),
     ...(v.exposureProtection !== undefined ? {exposureProtection:v.exposureProtection && {...v.exposureProtection}} : {}),
+    ...(v.breathUsedSeconds !== undefined ? {breathUsedSeconds:v.breathUsedSeconds} : {}),
     ...(v.contactDoses !== undefined ? {contactDoses:v.contactDoses && copyContactRemainders(v.contactDoses)} : {}),
     consciousness: v.consciousness, history: v.history.map(e => ({ id: e.id, at: e.at, gameTime: e.gameTime, text: e.text })) }
 }
 
 export function preserveBodyExposure(previous:BodyState|undefined,next:BodyState) {
+  if (next.breathUsedSeconds===undefined && previous?.breathUsedSeconds!==undefined) next.breathUsedSeconds=previous.breathUsedSeconds
   if (next.exposure === undefined && previous?.exposure !== undefined) {
     next.exposure = previous.exposure && {...previous.exposure}
   }
@@ -96,6 +102,13 @@ export function partCondition(p: BodyPart): 'absent' | 'unset' | 'healthy' | 'da
 }
 export const conditionLabels = { absent: 'Отсутствует', unset: 'Не настроено', healthy: 'Цела', damaged: 'Повреждена', disabled: 'Не действует' }
 const structureUsable=(s:AnatomyStructure,body:BodyState)=>!!body.parts[s.region]?.present&&!s.injuries.some(i=>i.blocksUse)&&s.current>0
+export function breathesUnderwater(body:BodyState):boolean {
+  return !!body.exposureProtection?.breathing || !!body.anatomy?.structures.some(s=>{
+    const part = body.parts[s.region]
+    return s.functionGroup==='waterBreathing' && structureUsable(s,body) && partCondition(part)!=='disabled' &&
+      !part.injuries?.some(injury=>injury.blocksUse)
+  })
+}
 export function bodyConsequences(body: BodyState) {
   const regions = bodyRegionDefs(body)
   const detailed = anatomicalConsequences(body.anatomy)
@@ -109,6 +122,7 @@ export function bodyConsequences(body: BodyState) {
     return Math.max(0,...(p.injuries??[]).map(i=>i.slowdown),state === 'damaged' ? p.damagedSlowdown : ['absent', 'disabled'].includes(state) ? p.disabledSlowdown : 0)
   }))
   const environment = exposureLimits(body.exposure)
+  const swimFactor = awake ? (.3*(Number(leftHand)+Number(rightHand))+.2*(Number(leftLeg)+Number(rightLeg)))*environment.movementFactor : 0
   const movementFactor = awake && (leftLeg || rightLeg) ? Math.max(0, 1 - (sideLoss('leftLeg') + sideLoss('rightLeg')) / 100)*environment.movementFactor : 0
   const canSprint = awake && leftLeg && rightLeg && movementFactor > 0 && environment.severity < 2
   const bird=body.anatomy?.form==='bird'
@@ -135,7 +149,7 @@ export function bodyConsequences(body: BodyState) {
   if (movementFactor < 1) notices.push('Скорость ходьбы снижена на ' + Math.round((1 - movementFactor) * 100) + '%.')
   for (const r of regions) if ((body.parts[r.key].vital || ['head','torso'].includes(r.key)) && partCondition(body.parts[r.key]) === 'disabled') notices.push(r.label + ': критическое повреждение; сознание и летальность определяет мастер.')
   const bleeding = regions.reduce((sum, r) => Math.min(Number.MAX_SAFE_INTEGER, sum + body.parts[r.key].bleeding), 0)
-  return { leftHand, rightHand, twoHands: leftHand && rightHand, canSprint, canFly, flightFactor, flightReasons, hasWings, movementFactor, notices, bleeding }
+  return { leftHand, rightHand, twoHands: leftHand && rightHand, canSprint, canFly, flightFactor, flightReasons, hasWings, movementFactor, swimFactor, notices, bleeding }
 }
 export function effectiveBodySpeed(body: BodyState, speed: string, sprint = false): string {
   if (!speed.trim()) return ''

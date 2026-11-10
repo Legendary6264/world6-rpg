@@ -4,6 +4,7 @@ import {physicsMaterialPresets} from './physicsMaterials'
 import {copyPhysicsMaterial} from './physicsMaterials'
 import {DEFAULT_BACKGROUND_NOISE_DB,MAX_AEROSOL_KG,MAX_SOUND_LEVEL_DB,OUTSIDE_OXYGEN_FRACTION,isPhysicsBody,isPhysicsEnvironment} from './physicsState'
 import type {PhysicsBody,PhysicsEnvironment} from './physicsState'
+import {defaultAquaticProfile,isAquaticProfile,MAX_BREATH_SECONDS} from './aquaticMotion'
 import {celsiusToKelvin,cubicMetresToLitres,kelvinToCelsius,physicsNumber} from './physicsUnits'
 import {
   FUSION_J_KG, ICE_HEAT_J_KG_K, MAX_WATER_ADDITIVE_KG, isWaterComposition, isWaterReagent, liquidEnthalpy,
@@ -280,6 +281,8 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
   const [simulateExposure, setSimulateExposure] = useState(!!value?.exposure)
   const [simulateTraction, setSimulateTraction] = useState(!!value?.traction)
   const [simulateContacts,setSimulateContacts] = useState(!!value?.contactHazards)
+  const [simulateAquatics,setSimulateAquatics] = useState(!!value?.aquatics)
+  const aquatic = value?.aquatics ?? defaultAquaticProfile
   const exposure = value?.exposure ?? defaultExposureProfile
   const traction = value?.traction ?? defaultTractionProfile
   const contacts = value?.contactHazards ?? defaultContactHazards
@@ -349,6 +352,11 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
         if (!isContactHazardProfile(profile)) throw Error('Проверь пороги и калибровку контактных повреждений.')
         next.contactHazards = profile
       } else if (value?.contactHazards !== undefined) next.contactHazards = null
+      if (data.has('simulateAquatics')) {
+        const profile = {version:1 as const,swimSpeedMs:number(data,'swimSpeedMs'),breathSeconds:number(data,'swimBreathSeconds')}
+        if (!isAquaticProfile(profile)) throw Error('Проверь скорость плавания и запас воздуха.')
+        next.aquatics=profile
+      } else if (value?.aquatics!==undefined) next.aquatics=null
       if (data.has('simulateVision')) next.vision = {ambientLux:number(data,'ambientLux'),detectionLux:number(data,'detectionLux')}
       else if (value?.vision !== undefined) next.vision = null
       if (!isPhysicsEnvironment(next)) throw Error('Проверь значения среды, в том числе освещённость и порог видимости.')
@@ -359,6 +367,14 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
     <form onSubmit={submit} aria-label="Физические условия сцены"><fieldset className="gb-properties gb-physics-properties" disabled={disabled}>
       <label className="w6-field gb-wide"><span>Гравитация вниз по Z, м/с²</span><input aria-label="Гравитация сцены (м/с²)" name="physicsGravityMs2" type="number" min="0" max="1000000" step="any" defaultValue={value?.gravityMs2??9.81} required/></label>
       <label className="w6-field gb-wide"><span>Температура среды, °C</span><input aria-label="Температура среды (°C)" name="physicsAmbientC" type="number" min="-273.15" max="999726.85" step="any" defaultValue={kelvinToCelsius(value?.ambientTemperatureK??293.15)} required/></label>
+      <details className="gb-scene-details gb-wide"><summary>Плавание и дыхание</summary>
+        <label className="w6-check"><input name="simulateAquatics" type="checkbox" checked={simulateAquatics} onChange={e=>setSimulateAquatics(e.currentTarget.checked)}/>Разрешить плавание и ныряние</label>
+        {simulateAquatics&&<div className="gb-properties">
+          <label className="w6-field"><span>Предел скорости плавания, м/с</span><input name="swimSpeedMs" type="number" step="any" min=".1" max="20" defaultValue={aquatic.swimSpeedMs} required/></label>
+          <label className="w6-field"><span>Запас воздуха, с</span><input name="swimBreathSeconds" type="number" step="any" min="1" max={MAX_BREATH_SECONDS} defaultValue={aquatic.breathSeconds} required/></label>
+          <p className="w6-copy gb-wide">Задай объём воды с достаточной глубиной. Высота отметки соответствует ногам героя. При погружении головы расходуется запас воздуха.</p>
+        </div>}
+      </details>
       <details className="gb-scene-details gb-wide"><summary>Акустика{value?.eventSounds ? ' · звуки включены' : ''}</summary>
         <label className="w6-field"><span>Фоновый шум, дБ</span><input name="backgroundNoiseDb" type="number" min="0" max={MAX_SOUND_LEVEL_DB} step="any" defaultValue={value?.backgroundNoiseDb??''} placeholder={String(DEFAULT_BACKGROUND_NOISE_DB)}/><small>Пустое поле использует {DEFAULT_BACKGROUND_NOISE_DB} дБ.</small></label>
         <label className="w6-check"><input name="eventSounds" type="checkbox" defaultChecked={!!value?.eventSounds}/>Записывать услышанные звуки событий</label>

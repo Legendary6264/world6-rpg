@@ -324,6 +324,26 @@ test('Игровой экран: способ вертикального дви�
   } finally { await f.close() }
 })
 
+test('Игровой экран: по видимому водоёму можно выбрать нырок и увидеть остаток воздуха',async()=>{
+  const f=await fixture()
+  try {
+    f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+    f.declarations.a.options.targets=[{id:'pool',kind:'object',label:'Озеро'}]
+    f.perceptions.a={title:'Берег',description:'',aquatics:true,frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[],
+      objects:[{id:'pool',name:'Озеро',kind:'water',x:7,y:6,z:0,width:5,depth:4,height:3,open:false,visible:true,waterVolume:true,liquidSurfaceZ:3}],
+      contacts:[{id:'self-a',kind:'self',label:'Hero a',x:6,y:5,z:0,support:'water',submerged:true,breathRemainingSeconds:6}]}
+    await f.open('a');await click('Открыть экран героя')
+    await selectValue('[aria-label="Быстрый способ движения"]','swim')
+    await flush(()=>document.querySelector('[aria-label="Объект: Озеро"]').dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true})))
+    assert.match(document.body.textContent,/Запас воздуха 6 с/)
+    assert(!enabledButton('Плыть к отметке'))
+    await input('[aria-label="Высота точки назначения, м"]','0.8')
+    await click('Плыть к отметке');await click('Отправить заявление')
+    const [swim]=f.writes[0].actions
+    assert.equal(swim.support,'swim');assert.deepEqual(swim.route,[{x:7,y:6,z:.8}])
+  } finally { await f.close() }
+})
+
 test('Доработка игры: развёрнутая игра удерживает фокус и освобождает прокрутку при переходе',async()=>{
   const f=await fixture()
   try{

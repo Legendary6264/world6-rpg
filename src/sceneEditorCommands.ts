@@ -13,7 +13,7 @@ export function translateEditorSelection(state:SceneState,selection:EditorSelect
   return moveSceneObject(state,scene.id,next)
  }
  const t=scene.tokens.find(t=>t.actorId===selection.id);if(!t)throw Error('Персонаж больше не находится на сцене.')
- if(delta.z&&t.support.kind!=='air')throw Error('Высота персонажа определяется опорой. Сначала выбери другую опору или состояние «В воздухе».')
+ if(delta.z&&t.support.kind!=='air'&&t.support.kind!=='water')throw Error('Высота персонажа определяется опорой. Сначала выбери другую опору или состояние «В воздухе».')
  return placeSceneToken(state,scene.id,{...t,x:round(t.x+delta.x),y:round(t.y+delta.y),z:round(t.z+delta.z)})
 }
 export function duplicateEditorObject(state:SceneState,objectId:string,newId:string,step=.5):SceneState {
@@ -42,7 +42,7 @@ export function translateEditorGroup(state:SceneState,items:readonly EditorItem[
  const tokens=scene.tokens.map(t=>{
   if(t.support.kind==='object'&&movedObjects.has(t.support.objectId))return move(t)
   if(!selected.has('token:'+t.actorId))return t
-  if(delta.z&&t.support.kind!=='air')throw Error('Высота персонажа определяется опорой. Сначала выбери другую опору или состояние «В воздухе».')
+  if(delta.z&&t.support.kind!=='air'&&t.support.kind!=='water')throw Error('Высота персонажа определяется опорой. Сначала выбери другую опору или состояние «В воздухе».')
   return move(t)
  })
  return replaceScene(state,{...scene,objects,tokens})

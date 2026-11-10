@@ -2,6 +2,7 @@ import {ObjectPhysicsPanel,EnvironmentPhysicsPanel,LandingPhysicsPanel,WaterVolu
 import {canSlide} from './mechanicalProfiles'
 import {supportsSceneTokens} from './waterPhysics'
 import {canMarkClimbable} from './terrainMovement'
+import {validSwimHeight,waterSupportAt} from './aquaticMotion'
 import DisclosureMenu from './DisclosureMenu'
 import {characterModels,characterModelFor,isCharacterModel,characterAnimations,isCharacterAnimation} from './characterAppearance'
 import {editorKey} from './sceneEditorKeyboard'
@@ -395,10 +396,23 @@ export default function SceneEditor({ value, actors, disabled = false, onChange,
   function saveToken(event: FormEvent<HTMLFormElement>) {
     if (!scene || !selectedToken) return
     const d = formData(event), supportKey = str(d, 'support'), at = coords(d)
-    const support: SceneSupport = supportKey === 'ground' ? { kind: 'ground' } : supportKey === 'air' ? { kind: 'air' } : { kind: 'object', objectId: supportKey.slice(7) }
-    if (support.kind === 'ground') at.z = scene.groundZ
-    else if (support.kind === 'object') { const o = scene.objects.find(o => o.id === support.objectId); if (o) at.z = o.z + o.height }
-    perform(() => placeSceneToken(state, scene.id, { ...selectedToken, ...at, support, diameter: num(d, 'diameter'), characterModel:isCharacterModel(str(d,'characterModel'))?str(d,'characterModel') as import('./characterAppearance').CharacterModelId:selectedToken.characterModel, facing:num(d,'facing'), characterAnimation:isCharacterAnimation(str(d,'characterAnimation'))?str(d,'characterAnimation') as import('./characterAppearance').CharacterAnimation:selectedToken.characterAnimation }))
+    perform(() => {
+      let support:SceneSupport
+      if (supportKey==='water') {
+        const height = num(d,'swimHeightM'), water = validSwimHeight(height) && waterSupportAt(scene,at,height)
+        if (!water) throw Error('Для размещения в воде укажи высоту тела и точку ног внутри достаточно глубокого объёма.')
+        support=water
+      } else if (supportKey==='ground') {
+        support={kind:'ground'}
+        at.z=scene.groundZ
+      } else if (supportKey==='air') support={kind:'air'}
+      else {
+        const objectId=supportKey.slice(7), object=scene.objects.find(o=>o.id===objectId)
+        support={kind:'object',objectId}
+        if (object) at.z=object.z+object.height
+      }
+      return placeSceneToken(state, scene.id, { ...selectedToken, ...at, support, diameter: num(d, 'diameter'), characterModel:isCharacterModel(str(d,'characterModel'))?str(d,'characterModel') as import('./characterAppearance').CharacterModelId:selectedToken.characterModel, facing:num(d,'facing'), characterAnimation:isCharacterAnimation(str(d,'characterAnimation'))?str(d,'characterAnimation') as import('./characterAppearance').CharacterAnimation:selectedToken.characterAnimation })
+    })
   }
   const positionFields = (at: ScenePosition) => <><Numeric name="x" label="X (м)" value={at.x} min={0} max={scene?.width}/><Numeric name="y" label="Y (м)" value={at.y} min={0} max={scene?.depth}/><Numeric name="z" label="Z — высота (м)" value={at.z} min={scene?.minZ} max={scene?.maxZ}/></>
   return <section className={'gb-scene-editor gb-tabletop-workspace'+(workspace?' gb-workspace-full':'')+(expanded?' gb-editor-expanded':'')+(mode==='play'?' gb-workspace-play':'')} aria-label="Конструктор сцен мастера" data-mobile-panel={mobilePanel} tabIndex={-1} onKeyDownCapture={event=>{if(tool==='paste'&&event.key==='Escape'&&!(event.target as HTMLElement).closest('[role=dialog],[role=menu],.ui-disclosure-menu')){event.preventDefault();event.stopPropagation();cancelPaste()}}} onKeyDown={keydown} onPointerDown={()=>{if(context)setContext(null)}}>
@@ -449,7 +463,9 @@ export default function SceneEditor({ value, actors, disabled = false, onChange,
         <p className="w6-copy gb-wide">Облик задаёт внешность фигурки. Игровые предметы и способности задаются в листе героя.</p>
         {positionFields(selectedToken)}<Numeric name="diameter" label="Занимаемый диаметр (м)" value={selectedToken.diameter} min={.1} max={100}/>
         <Label label="Опора персонажа"><select name="support" defaultValue={selectedToken.support.kind === 'object' ? 'object:' + selectedToken.support.objectId : selectedToken.support.kind}>
-          <option value="ground">Земля сцены</option><option value="air">В воздухе</option>{scene.objects.filter(supportsSceneTokens).map(o => <option key={o.id} value={'object:' + o.id}>{o.name} · верх {o.z + o.height} м</option>)}</select></Label>
+          <option value="ground">Земля сцены</option><option value="air">В воздухе</option>{(scene.physics?.aquatics||selectedToken.support.kind==='water')&&<option value="water">В воде</option>}{scene.objects.filter(supportsSceneTokens).map(o => <option key={o.id} value={'object:' + o.id}>{o.name} · верх {o.z + o.height} м</option>)}</select></Label>
+        {(scene.physics?.aquatics||selectedToken.support.kind==='water')&&<Numeric name="swimHeightM" label="Высота тела в воде (м)"
+          value={selectedToken.support.kind==='water'?selectedToken.support.heightM:1.8} min={.1} max={100}/>}
         <p className="w6-copy gb-wide">При опоре на землю или объект Z вычисляется по поверхности. Для объекта X/Y должны лежать на нём. Диаметр задаёт пространство тела, а не размер портрета. Состояние «В воздухе» назначает мастер; оно не выдаёт способность полёта.</p>
         <div className="w6-buttons gb-wide"><button className="w6-button w6-primary" disabled={disabled}>Сохранить параметры персонажа</button><button className="w6-button" type="button" disabled={disabled} onClick={() => {
           if (perform(() => replaceScene(state, { ...scene, tokens: scene.tokens.filter(t => t.actorId !== selectedToken.actorId) }))) setSelection(null)

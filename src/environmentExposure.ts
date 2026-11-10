@@ -1,4 +1,4 @@
-import { exposureKinds, stepExposureLoad } from './exposureProfiles'
+import { defaultExposureProfile, exposureKinds, stepExposureLoad } from './exposureProfiles'
 import type { ExposureKind, ExposureLoad, ExposureProfile } from './exposureProfiles'
 import { airSpans, sceneAir } from './sceneAir'
 import type { AirRegion, AirSpan, SceneAir } from './sceneAir'
@@ -6,6 +6,10 @@ import { fallTravelSeconds } from './structuralPhysics'
 import type { MovementPiece } from './sceneMovement'
 import type { Scene, SceneToken } from './sceneTypes'
 import type { Actor, World } from './rpgEngine'
+import { AIRWAY_HEIGHT, airwaySubmerged, liquidSpans, mergeSpans } from './aquaticMotion'
+import type { AquaticProfile } from './aquaticMotion'
+import { breathesUnderwater } from './characterBody'
+import type { BodyState } from './characterBody'
 
 type AirSample = {oxygenFraction:number; smokeMgM3:number; temperatureK:number}
 export type ExposureFallStart = {z:number;speedMs:number}
@@ -19,35 +23,59 @@ const strain = (sample:AirSample, profile:ExposureProfile):ExposureLoad => ({
   heat:(sample.temperatureK-profile.hotK)/10, cold:(profile.coldK-sample.temperatureK)/10,
 })
 const lerp = (a:number,b:number,t:number) => a+(b-a)*t
+export const submergedAirBreather = (scene:Scene,token:SceneToken,body:BodyState) =>
+  !!scene.physics?.aquatics && token.support.kind==='water' && airwaySubmerged(scene,token,token.support.heightM) && !breathesUnderwater(body)
 
-function applyLoad(actor:Actor,intensity:ExposureLoad|undefined,seconds:number,responseSeconds:number) {
+function applyLoad(actor:Actor,intensity:ExposureLoad|undefined,seconds:number,responseSeconds:number,holdOxygen=false) {
   const before = actor.body.exposure
   const next = stepExposureLoad(before,intensity,seconds,responseSeconds,actor.body.exposureProtection)
-  if (next || before) actor.body.exposure = next
+  if (holdOxygen && before?.oxygen) {
+    actor.body.exposure = {smoke:0,heat:0,cold:0,...next,oxygen:before.oxygen}
+  } else if (next || before) actor.body.exposure = next
+}
+
+function applyMedium(actor:Actor,air:ExposureLoad|undefined,seconds:number,responseSeconds:number,
+    aquatic:AquaticProfile|null|undefined,submerged:boolean) {
+  const used = actor.body.breathUsedSeconds ?? 0
+  if (aquatic && submerged && !breathesUnderwater(actor.body)) {
+    const holding = Math.min(seconds,Math.max(0,aquatic.breathSeconds-used))
+    actor.body.breathUsedSeconds = Math.min(aquatic.breathSeconds,used+seconds)
+    if (holding>0) applyLoad(actor,undefined,holding,responseSeconds,true)
+    if (seconds>holding) applyLoad(actor,{oxygen:4,smoke:0,heat:0,cold:0},seconds-holding,responseSeconds)
+    return
+  }
+  if (used>0 && (submerged || !(air && air.oxygen>0) || actor.body.exposureProtection?.breathing)) {
+    actor.body.breathUsedSeconds = Math.max(0,used-2*seconds) || null
+  }
+  if (air || actor.body.exposure) applyLoad(actor,submerged ? undefined : air,seconds,responseSeconds)
 }
 
 // When time advances, rooms outside the simulated round use their saved air.
 // Unplaced heroes and scenes with exposure disabled supply recovery time.
 export function advanceStationaryExposure(world:World,seconds:number,simulatedSceneId?:string) {
-  const conditions = new Map<string,{intensity:ExposureLoad; responseSeconds:number}>(), skipped = new Set<string>()
+  const conditions = new Map<string,{intensity?:ExposureLoad; responseSeconds:number; aquatic?:AquaticProfile|null; submerged:boolean}>()
+  const skipped = new Set<string>()
   for (const scene of world.campaign.scenes?.scenes ?? []) {
-    const profile = scene.physics?.exposure
-    if (!profile) continue
+    const profile = scene.physics?.exposure, aquatic = scene.physics?.aquatics
+    if (!profile && !aquatic) continue
     if (scene.id === simulatedSceneId) {
       for (const token of scene.tokens) skipped.add(token.actorId)
       continue
     }
-    const layout = sceneAir(scene)
-    if (!layout) continue
-    const byRegion = layout.regions.map(region=>strain(readAir(region),profile))
+    const layout = profile ? sceneAir(scene) : undefined
+    const byRegion = layout && profile ? layout.regions.map(region=>strain(readAir(region),profile)) : []
     for (const token of scene.tokens) {
-      conditions.set(token.actorId,{intensity:byRegion[layout.indexAt(token)],responseSeconds:profile.responseSeconds})
+      const submerged = !!aquatic && token.support.kind==='water' && airwaySubmerged(scene,token,token.support.heightM)
+      conditions.set(token.actorId,{intensity:layout ? byRegion[layout.indexAt(token)] : undefined,
+        responseSeconds:profile?.responseSeconds ?? defaultExposureProfile.responseSeconds,aquatic,submerged})
     }
   }
   for (const actor of world.characters) {
     if (actor.rpg.dead || skipped.has(actor.id)) continue
     const condition = conditions.get(actor.id)
-    if (condition || actor.body.exposure) applyLoad(actor,condition?.intensity,seconds,condition?.responseSeconds ?? 1)
+    if (condition || actor.body.exposure || actor.body.breathUsedSeconds) {
+      applyMedium(actor,condition?.intensity,seconds,condition?.responseSeconds ?? 1,condition?.aquatic,!!condition?.submerged)
+    }
   }
 }
 
@@ -71,19 +99,45 @@ function exposureTrack(layout:SceneAir,token:SceneToken,seconds:number,gravity:n
   return [{index:layout.indexAt(token),start:0,end:1}]
 }
 
-export function roundExposureObserver(world:World,scene:Scene,profile:ExposureProfile,seconds:number,
-    movements:ReadonlyMap<string,MovementPiece[]>, falls:ReadonlyMap<string,ExposureFallStart>) {
+type MediumSpan = AirSpan & {submerged?:true}
+function withWater(scene:Scene,token:SceneToken,air:AirSpan[],pieces:MovementPiece[]|undefined,heightM:number,check:()=>void):MediumSpan[] {
+  const submerged = mergeSpans((pieces ?? [{start:0,end:1,a:token,b:token}]).flatMap(piece=>
+    liquidSpans(scene,piece.a,piece.b,heightM*AIRWAY_HEIGHT,0,piece.arcM ?? 0,check).map<[number,number]>(([start,end])=>
+      [lerp(piece.start,piece.end,start),lerp(piece.start,piece.end,end)])))
+  return air.flatMap(span=>{
+    const result:MediumSpan[] = []
+    let cursor=span.start
+    for (const [start,end] of submerged) {
+      const left=Math.max(cursor,start), right=Math.min(span.end,end)
+      if (right<=left) continue
+      if (cursor<left) result.push({...span,start:cursor,end:left})
+      result.push({...span,start:left,end:right,submerged:true})
+      cursor=right
+    }
+    if (cursor<span.end) result.push({...span,start:cursor})
+    return result
+  })
+}
+
+export function roundExposureObserver(world:World,scene:Scene,profile:ExposureProfile|null|undefined,seconds:number,
+    movements:ReadonlyMap<string,MovementPiece[]>, falls:ReadonlyMap<string,ExposureFallStart>,
+    swimming?:{heights:ReadonlyMap<string,number>; underwaterSeconds:Map<string,number>; check:()=>void}) {
   const actors = new Map(world.characters.map(actor=>[actor.id,actor]))
+  const aquatic = scene.physics?.aquatics
+  const responseSeconds = profile?.responseSeconds ?? defaultExposureProfile.responseSeconds
   let before:AirSample[]|undefined, previous = 0
-  let tracks:{actor:Actor; spans:AirSpan[]; next:number}[] = []
-  return (layout:SceneAir,fraction:number) => {
-    const after = layout.regions.map(readAir)
+  let tracks:{actor:Actor; spans:MediumSpan[]; next:number}[] = []
+  return (layout:SceneAir|undefined,fraction:number) => {
+    const after = profile && layout ? layout.regions.map(readAir) : []
     if (!before) {
       tracks = scene.tokens.flatMap(token=>{
         const actor = actors.get(token.actorId)
         if (!actor || actor.rpg.dead) return []
-        const spans = exposureTrack(layout,token,seconds,scene.physics?.gravityMs2 ?? 9.81,
-          movements.get(actor.id),falls.get(actor.id))
+        const pieces = movements.get(actor.id)
+        const air = profile && layout ? exposureTrack(layout,token,seconds,scene.physics?.gravityMs2 ?? 9.81,
+          pieces,falls.get(actor.id)) : [{index:0,start:0,end:1}]
+        const heightM = swimming?.heights.get(actor.id)
+        const spans = aquatic && swimming && heightM!==undefined ? withWater(scene,token,air,pieces,heightM,swimming.check) : air
         return [{actor,spans,next:0}]
       })
     } else {
@@ -93,9 +147,14 @@ export function roundExposureObserver(world:World,scene:Scene,profile:ExposurePr
           if (end > start) {
             const weight = ((start+end)/2-previous)/(fraction-previous)
             const a = before[span.index], b = after[span.index]
-            const sample = {oxygenFraction:lerp(a.oxygenFraction,b.oxygenFraction,weight),
+            const sample = a && b && {oxygenFraction:lerp(a.oxygenFraction,b.oxygenFraction,weight),
               smokeMgM3:lerp(a.smokeMgM3,b.smokeMgM3,weight), temperatureK:lerp(a.temperatureK,b.temperatureK,weight)}
-            applyLoad(track.actor,strain(sample,profile),seconds*(end-start),profile.responseSeconds)
+            const elapsed = seconds*(end-start)
+            applyMedium(track.actor,sample && profile ? strain(sample,profile) : undefined,elapsed,responseSeconds,aquatic,!!span.submerged)
+            if (span.submerged && swimming) {
+              const {underwaterSeconds} = swimming, id = track.actor.id
+              underwaterSeconds.set(id,(underwaterSeconds.get(id) ?? 0)+elapsed)
+            }
           }
           if (span.end > fraction) break
           track.next++

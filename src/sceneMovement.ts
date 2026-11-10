@@ -4,17 +4,18 @@ import type { RoundWorkEntry } from './roundWork'
 import type { Scene, SceneObject, ScenePosition, SceneSupport, SceneToken } from './sceneTypes'
 import { arcHeight, arcSlabs, segmentSlab as slab } from './sceneGeometry'
 import { isTerrainMovement } from './actionDeclarations'
-import { liquidWaterHeight, supportsSceneTokens } from './waterPhysics'
-import { surfaceContact } from './surfaceTraction'
+import { liquidWaterHeight, supportsSceneTokens, waterIceCover } from './waterPhysics'
+import { FLOOR_FILM_M, surfaceContact } from './surfaceTraction'
 import type { SurfaceContact, TractionTravel } from './surfaceTraction'
 import { canMarkClimbable, climbPath, jumpMotion } from './terrainMovement'
 import type { JumpMotion } from './terrainMovement'
 import { fallSweep } from './structuralPhysics'
+import { liquidSpans, mergeSpans, SWIM_DRAFT, validSwimHeight, waterSupportAt } from './aquaticMotion'
 export type MovementBody = { actorId: string; heightM: number; flightReason?: string }
 export type MovementPlan = { work: RoundWorkEntry; startMs: ExactAmount; endMs: ExactAmount; points: ScenePosition[];
-  lengths: number[]; distance: number; jump?: JumpMotion; climb?: SceneObject }
+  lengths: number[]; distance: number; jump?: JumpMotion; climb?: SceneObject; swimHeightM?:number }
 export type MovementChange = { workId: string; actorId: string; from: ScenePosition; to: ScenePosition; support: SceneSupport; atMs: ExactAmount; completed: boolean;
-  terrain?: {kind:'jump';apexZ:number;launchMs:number;landingMs:number} | {kind:'climb';objectId:string} }
+  terrain?: {kind:'jump';apexZ:number;launchMs:number;landingMs:number} | {kind:'climb';objectId:string} | {kind:'swim'} }
 export const MAX_MOVEMENT_SEGMENTS = 4000, MAX_MOVEMENT_CHECKS = 200000
 const EPS = 1e-6, one = exactAmount(1n)
 const scalar = (v: ExactAmount) => Number(v.numerator) / Number(v.denominator)
@@ -58,6 +59,17 @@ export function prepareMovement(work: RoundWorkEntry, token: SceneToken | undefi
     throw Error('Позиция или диаметр героя изменились относительно сохранённого движения. Требуется решение мастера.')
   }
   if (!geometry.points.every(p => p.x >= 0 && p.x <= scene.width && p.y >= 0 && p.y <= scene.depth && p.z >= scene.minZ && p.z <= scene.maxZ)) throw Error('Маршрут выходит за пределы сцены.')
+  if (work.action.support==='swim') {
+    if (!scene.physics?.aquatics) throw Error('Мастер должен включить плавание в физических условиях сцены.')
+    if (!validSwimHeight(heightM)) throw Error('Для плавания укажи высоту тела от 0,1 до 100 м.')
+    if (work.movement && work.movement.swimHeightM!==heightM || token.support.kind==='water' && token.support.heightM!==heightM) {
+      throw Error('Высота тела изменилась относительно плавания. Согласуй новую высоту отметки и маршрут.')
+    }
+    if (token.support.kind!=='water' && !geometry.points.some(p=>waterSupportAt(scene,p,heightM))) throw Error('На маршруте нужна хотя бы одна точка в воде достаточной глубины.')
+    work.movement = {start:point(initial),diameter:token.diameter,swimHeightM:heightM}
+    return {work,startMs,endMs,...geometry,swimHeightM:heightM}
+  }
+  if (token.support.kind==='water' && work.action.support!=='air') throw Error('Сначала выйди из воды маршрутом плавания.')
   if (work.action.support === 'ground' && !geometry.points.every(p => Math.abs(p.z - initial.z) <= EPS)) throw Error('Ходьба требует непрерывной опоры на одной высоте. Для смены высоты выбери подходящий способ движения.')
   if (isTerrainMovement(work.action.support)) {
     if (work.movement || compareAmounts(endMs,roundEnd)>0) throw Error('Прыжок, подъём или спуск должны целиком помещаться в один раунд. Измени порядок, бюджет или длительность раунда.')
@@ -75,13 +87,24 @@ export function prepareMovement(work: RoundWorkEntry, token: SceneToken | undefi
   work.movement = { start: point(initial), diameter: token.diameter }
   return { work, startMs, endMs, ...geometry }
 }
-export function supportAt(scene: Scene, p: ScenePosition): SceneSupport {
+const solidForSwimmer = (object:SceneObject) => object.kind!=='water' || waterIceCover(object)==='ice'
+export function standingSupportAt(scene:Scene,p:ScenePosition,swimming=false):SceneSupport|undefined {
   if (Math.abs(p.z - scene.groundZ) < EPS) return { kind: 'ground' }
-  const surface = scene.objects.find(o => supportsSceneTokens(o) && Math.abs(p.z - o.z - o.height) < EPS && Math.abs(p.x - o.x) <= o.width / 2 && Math.abs(p.y - o.y) <= o.depth / 2)
-  if (!surface) throw Error('На маршруте нет опоры в указанной точке. Выбери точку на земле или на пригодном для опоры объекте.')
-  return { kind: 'object', objectId: surface.id }
+  const surface = scene.objects.find(o => (!swimming || solidForSwimmer(o)) && supportsSceneTokens(o) &&
+    Math.abs(p.z-o.z-o.height)<EPS && Math.abs(p.x-o.x)<=o.width/2 && Math.abs(p.y-o.y)<=o.depth/2)
+  return surface && {kind:'object',objectId:surface.id}
+}
+export function supportAt(scene: Scene, p: ScenePosition): SceneSupport {
+  const support = standingSupportAt(scene,p)
+  if (!support) throw Error('На маршруте нет опоры в указанной точке. Выбери точку на земле или на пригодном для опоры объекте.')
+  return support
 }
 export function movementSupport(scene:Scene,plan:MovementPlan,time:ExactAmount,position:ScenePosition):SceneSupport {
+  if (plan.swimHeightM!==undefined) {
+    const support = waterSupportAt(scene,position,plan.swimHeightM) ?? standingSupportAt(scene,position,true)
+    if (!support) throw Error('В точке маршрута недостаточно воды для плавания или твёрдой опоры для выхода.')
+    return support
+  }
   if (plan.work.action.kind==='move' && plan.work.action.support==='air' ||
     (plan.jump || plan.climb) && compareAmounts(time,plan.startMs)>0 && compareAmounts(time,plan.endMs)<0) return {kind:'air'}
   return supportAt(scene,position)
@@ -104,18 +127,20 @@ function rectangle(a: ScenePosition, b: ScenePosition, x: number, y: number, wid
   const left = Math.max(horizontal[0], vertical[0]), right = Math.min(horizontal[1], vertical[1])
   return left <= right ? [left, right] : null
 }
-function grounded(scene: Scene, a: ScenePosition, b: ScenePosition, check: () => void) {
-  if (Math.abs(a.z - scene.groundZ) < EPS && Math.abs(b.z - scene.groundZ) < EPS) return
+function standingSpans(scene:Scene,a:ScenePosition,b:ScenePosition,check:()=>void,swimming=false):Range[] {
+  if (Math.abs(a.z-scene.groundZ)<EPS && Math.abs(b.z-scene.groundZ)<EPS) return [[0,1]]
   const ranges: Range[] = []
   for (const o of scene.objects) {
     check()
-    if (!supportsSceneTokens(o) || Math.abs(a.z - o.z - o.height) >= EPS || Math.abs(b.z - o.z - o.height) >= EPS) continue
+    if (swimming && !solidForSwimmer(o) || !supportsSceneTokens(o) || Math.abs(a.z - o.z - o.height) >= EPS || Math.abs(b.z - o.z - o.height) >= EPS) continue
     const covered = rectangle(a, b, o.x, o.y, o.width, o.depth)
     if (covered) ranges.push(covered)
   }
-  ranges.sort((a, b) => a[0] - b[0]); let end = 0
-  for (const r of ranges) { if (r[0] > end + 1e-12) break; end = Math.max(end, r[1]) }
-  if (end < 1) throw Error('Маршрут ходьбы пересекает участок без опоры. Согласуй другой маршрут или способ движения.')
+  return ranges
+}
+function continuousSupport(ranges:Range[]) {
+  const [first] = mergeSpans(ranges)
+  return !!first && first[0]<=1e-12 && first[1]>=1
 }
 function closest(a: ScenePosition, b: ScenePosition, x: number, y: number) {
   const dx = b.x - a.x, dy = b.y - a.y, square = dx * dx + dy * dy
@@ -195,12 +220,13 @@ export function checkClosingDoor(scene: Scene, objectId: string, bodies: Movemen
 export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: MovementBody[], from: ExactAmount, to: ExactAmount, check: () => void,
   wetContact?: (actorId: string, object: SceneObject, kind: 'water' | 'support') => void,
   track?: (actorId:string, pieces:MovementPiece[]) => void,
-  onTraction?: (actorId:string, contact:TractionTravel, speedMs:number) => void) {
+  onTraction?: (actorId:string, contact:TractionTravel, speedMs:number) => void,
+  swimFootSpeeds?:ReadonlyMap<string,number>) {
   const activePlans = plans.filter(p=>compareAmounts(p.startMs,to)<0 && compareAmounts(p.endMs,from)>0)
   const moving = new Set(activePlans.map(p=>p.work.actorId))
   if (compareAmounts(from, to) < 0 && moving.size) {
     const intervalSeconds = scalar(subtractAmounts(to,from))/1000
-    const terrainActive = activePlans.some(p=>p.jump || p.climb)
+    const terrainActive = activePlans.some(p=>p.jump || p.climb || p.swimHeightM!==undefined)
     const trajectories = scene.tokens.map(t => ({ token:t,height:bodies.find(b=>b.actorId===t.actorId)!.heightM,
       pieces:(terrainActive ? fallingPieces(scene,t,intervalSeconds) : undefined) ?? pieces(t,plans,from,to) }))
     for (const t of trajectories.filter(t => moving.has(t.token.actorId))) {
@@ -209,17 +235,39 @@ export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: Mov
         const middle = addAmounts(from, scaleAmount(subtractAmounts(to, from), amountFromNumber((p.start + p.end) / 2)))
         const active = activePlans.find(m=>m.work.actorId===t.token.actorId && compareAmounts(m.startMs,middle)<=0 && compareAmounts(m.endMs,middle)>=0)
         const walking = active?.work.action.kind === 'move' && active.work.action.support === 'ground'
-        if (walking) grounded(scene, p.a, p.b, check)
+        let liquid:Range[] = [], onFoot = walking
+        if (walking) {
+          if (!continuousSupport(standingSpans(scene,p.a,p.b,check))) throw Error('Маршрут ходьбы пересекает участок без опоры. Согласуй другой маршрут или способ движения.')
+          if (scene.physics?.aquatics && liquidSpans(scene,p.a,p.b,0,t.height*.6,0,check).length) {
+            throw Error('На маршруте слишком глубоко для ходьбы. Выбери плавание.')
+          }
+        }
+        if (active?.swimHeightM!==undefined) {
+          liquid = mergeSpans(liquidSpans(scene,p.a,p.b,0,active.swimHeightM*SWIM_DRAFT,0,check))
+          if (!continuousSupport([...liquid,...standingSpans(scene,p.a,p.b,check,true)])) {
+            throw Error('Маршрут плавания пересекает участок без воды достаточной глубины или твёрдой опоры.')
+          }
+          onFoot = !continuousSupport(liquid)
+          const footSpeed = swimFootSpeeds?.get(t.token.actorId)
+          if (onFoot && footSpeed!==undefined) {
+            if (footSpeed<=0) throw Error('Герой может плыть, но для выхода на сушу ему нужна помощь.')
+            if (Math.hypot(p.b.x-p.a.x,p.b.y-p.a.y)>footSpeed*intervalSeconds*(p.end-p.start)+EPS) {
+              throw Error('На берегу скорость превышает возможности героя. Увеличь время выхода из воды.')
+            }
+          }
+        }
         if (active?.climb) checkClimbAnchor(scene,active.climb)
-        const traction = walking && onTraction && scene.physics?.traction
+        const traction = onFoot && onTraction && scene.physics?.traction
         const distance = traction ? Math.hypot(p.b.x-p.a.x,p.b.y-p.a.y) : 0
         for (const o of scene.objects) {
           check()
           if (traction && onTraction && distance > EPS) {
             const patch = surfaceContact(o,traction,p.a,p.b)
-            if (patch && distance*(patch.end-patch.start) > EPS) {
+            if (patch) {
               const {start,end,...contact} = patch
-              onTraction(t.token.actorId,{...contact,distanceM:distance*(end-start)},distance/(intervalSeconds*(p.end-p.start)))
+              const submerged = liquid.reduce((sum,[left,right])=>sum+Math.max(0,Math.min(end,right)-Math.max(start,left)),0)
+              const onFootM = distance*(end-start-submerged)
+              if (onFootM>EPS) onTraction(t.token.actorId,{...contact,distanceM:onFootM},distance/(intervalSeconds*(p.end-p.start)))
             }
           }
           if (wetContact && walking) {
@@ -230,7 +278,8 @@ export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: Mov
               wetContact(t.token.actorId, o, water ? 'water' : 'support')
             }
           }
-          const solidIce = active?.jump && o.kind==='water' && supportsSceneTokens(o)
+          const solidIce = (active?.jump && o.kind==='water' && supportsSceneTokens(o)) ||
+            (scene.physics?.aquatics && o.height>FLOOR_FILM_M && waterIceCover(o)==='ice')
           if ((!o.blocksMovement && !solidIce) || o.height <= 0 || o.kind === 'door' && o.open) continue
           const overlaps = arcSlabs(p.a.z-o.z,p.b.z-o.z,p.arcM ?? 0,-t.height+EPS,o.height-EPS)
           if (overlaps.some(([start,end])=>rectangleDistance(mix(p.a,p.b,start),mix(p.a,p.b,end),o.x,o.y,o.width,o.depth) < (t.token.diameter/2-EPS)**2)) {

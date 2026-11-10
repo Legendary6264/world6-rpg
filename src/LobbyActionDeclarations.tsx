@@ -117,6 +117,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       {pointsNeeded && <div className="gb-action-coordinates">{(['x', 'y', 'z'] as const).map(k => <label className="w6-field" key={k}><span>{k.toUpperCase()}, м</span><input aria-label={'Действие ' + k.toUpperCase()} inputMode="decimal" value={f[k]} onChange={e => field(k, e.currentTarget.value)}/></label>)}</div>}
       {f.kind === 'move' && <><label className="w6-field"><span>Способ движения</span><select aria-label="Способ движения" value={f.support} onChange={e => field('support', e.currentTarget.value)}>
         {Object.entries(movementLabels).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+        {f.support==='swim'&&<p className="gb-game-help">Z обозначает высоту ног. Добавь точку в воде и при необходимости точки всплытия или выхода на берег.</p>}
         {isTerrainMovement(f.support) ? <p className="gb-game-help">Укажи одну точку назначения на опоре. Для подъёма или спуска используй ту же грань объекта.</p>
           : <button className="w6-button" onClick={addPoint}>Добавить точку маршрута</button>}
         {f.route.map((p, i) => <p key={i}>{i + 1}: {p.x}; {p.y}; {p.z} м <button className="w6-button" onClick={() => remember({ ...draft, form: { ...f, route: f.route.filter((_, n) => n !== i) } })}>Убрать точку {i + 1}</button></p>)}</>}

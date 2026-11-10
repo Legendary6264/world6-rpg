@@ -10,6 +10,9 @@ import {isVariableWater,waterIceCover} from './waterPhysics'
 import {isSliding} from './mechanicalProfiles'
 import {sceneEye,sceneOptics,visibleLightLevel} from './sceneOptics'
 import type {LightLevel} from './opticalProfiles'
+import {airwaySubmerged,liquidBox} from './aquaticMotion'
+import {breathesUnderwater} from './characterBody'
+import type {BodyState} from './characterBody'
 // These built-in terrain paintings contain no campaign objects or private labels.
 const mapBackground = (value: unknown): value is string => isTiledArtwork(value) || value === 'pixel-ground-stone' || value === 'pixel-ground-yard'
 
@@ -24,11 +27,11 @@ export type HeroPerception = { actorId: string; activeSceneId: string | null; sc
 export type ScenePerceptions = { version: 1; heroes: HeroPerception[] }
 export type PerceptionDraft = { activeSceneId: string | null; scenes: (Omit<KnownScene, 'frame' | 'objects' | 'contacts'> & {
   objects: Pick<ObjectDisclosure, 'objectId' | 'visible'>[]; contacts: Omit<ContactDisclosure, 'id'>[] })[] }
-export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; falling?: true; support?: 'ground' | 'air' | 'object'; portrait?: string; radius?: number; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
-export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; smoke?:true; fog?:{visibilityM?:number}; slipperyIce?:true;
+export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; falling?: true; support?: 'ground' | 'air' | 'object' | 'water'; submerged?:true; breathRemainingSeconds?:number; portrait?: string; radius?: number; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
+export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; smoke?:true; fog?:{visibilityM?:number}; slipperyIce?:true; aquatics?:true;
   optics?: {dim:boolean; smoke?:true; unplaced?:true};
   title: string; description: string; frame: MapFrame; areas: KnownArea[];
-  objects: (ObservedObject & { visible: boolean; sliding?: true; light?:LightLevel })[]; contacts: VisibleContact[] }
+  objects: (ObservedObject & { visible: boolean; sliding?: true; light?:LightLevel; liquidSurfaceZ?:number })[]; contacts: VisibleContact[] }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const id = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(v)
 const text = (v: unknown, n: number): v is string => typeof v === 'string' && v.length <= n
@@ -125,7 +128,7 @@ export function prunePerceptions(value: ScenePerceptions, scenes: SceneState | u
     return { ...h, scenes: kept, activeSceneId: kept.some(s => s.sceneId === h.activeSceneId) ? h.activeSceneId : null }
   }); return next
 }
-export function perceivedMap(value: HeroPerception, scenes: SceneState | undefined, actors: VisualActor[], seconds=0): PerceivedMap | null {
+export function perceivedMap(value: HeroPerception, scenes: SceneState | undefined, actors: (VisualActor & {body?:BodyState})[], seconds=0): PerceivedMap | null {
   const knowledge = value.scenes.find(s => s.sceneId === value.activeSceneId), live = scenes?.scenes.find(s => s.id === value.activeSceneId)
   if (!knowledge || !live) return null
   const self = live.tokens.find(t => t.actorId === value.actorId), actor = actors.find(a => a.id === value.actorId)
@@ -150,9 +153,13 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
     const visible = publicObject(current)
     const sliding = liveObject && isSliding(liveObject.physics?.sliding)
     const light = optics && liveObject ? visibleLightLevel(liveObject) : undefined
+    const liquid = live.physics?.aquatics && liveObject ? liquidBox(liveObject) : undefined
     return visible.waterVolume && visible.height === 0 ? [] : [{ ...visible, visible: o.visible,
-      ...(sliding ? {sliding:true as const} : {}), ...(light ? {light} : {}) }]
+      ...(sliding ? {sliding:true as const} : {}), ...(light ? {light} : {}), ...(liquid ? {liquidSurfaceZ:liquid.top} : {}) }]
   })
+  const swimmingState = (token:Scene['tokens'][number]):Pick<VisibleContact,'support'|'submerged'> => token.support.kind==='water' ? {
+    support:'water' as const, ...(airwaySubmerged(live,token,token.support.heightM) ? {submerged:true as const} : {}),
+  } : {}
   const visibleActors = new Set<string>()
   const contacts: VisibleContact[] = knowledge.contacts.flatMap(c => {
     const token = live.tokens.find(t => t.actorId === c.actorId), actor = actors.find(a => a.id === c.actorId)
@@ -162,12 +169,18 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
     if (identity && c.showHeight) visibleActors.add(c.actorId)
     return [{ id: c.id, kind: c.kind, label: c.label || (identity ? actor.name : c.kind === 'sound' ? 'Источник звука' : 'Неизвестный силуэт'), signs: c.signs, x: point.x, y: point.y,
       ...(c.showHeight ? { z: point.z, ...(token && c.kind !== 'sound' ?
-        { flying: token.support.kind === 'air' && !token.fall, ...(token.fall ? {falling:true as const} : {}) } : {}) } : {}),
+        { flying: token.support.kind === 'air' && !token.fall, ...(token.fall ? {falling:true as const} : {}), ...swimmingState(token) } : {}) } : {}),
       ...(identity && c.showHeight && token ? {characterModel:characterModelFor(token.actorId,token.characterModel),facing:token.facing,characterAnimation:token.characterAnimation}:{}),
       ...(identity && actor.profile.portrait && isArtwork(actor.profile.portrait) ? { portrait: actor.profile.portrait } : {}), ...(c.kind === 'sound' ? { radius: c.radius } : {}) }]
   })
-  if (self && actor) contacts.push({ id: 'self', kind: 'self', characterModel:characterModelFor(self.actorId,self.characterModel),facing:self.facing,characterAnimation:self.characterAnimation,label: actor.name, signs: '', x: self.x, y: self.y, z: self.z,
-    flying: self.support.kind === 'air' && !self.fall, ...(self.fall ? {falling:true} : {}), support: self.support.kind, ...(actor.profile.portrait ? { portrait: actor.profile.portrait } : {}) })
+  if (self && actor) {
+    const swim = swimmingState(self), aquatic = live.physics?.aquatics
+    const breath = swim.submerged && aquatic && actor.body && !breathesUnderwater(actor.body) ?
+      Math.max(0,aquatic.breathSeconds-(actor.body.breathUsedSeconds ?? 0)) : undefined
+    contacts.push({ id: 'self', kind: 'self', characterModel:characterModelFor(self.actorId,self.characterModel),facing:self.facing,characterAnimation:self.characterAnimation,label: actor.name, signs: '', x: self.x, y: self.y, z: self.z,
+      flying: self.support.kind === 'air' && !self.fall, ...(self.fall ? {falling:true} : {}), support: self.support.kind, ...swim,
+      ...(breath!==undefined ? {breathRemainingSeconds:breath} : {}), ...(actor.profile.portrait ? { portrait: actor.profile.portrait } : {}) })
+  }
   const visuals:SceneAbilityVisual[]=[]
   // Only own casts or contacts explicitly revealed by the master can produce VFX.
   // No labels, internal cast/actor IDs, formulas or hidden target coordinates leave this projection.
@@ -193,6 +206,7 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
   }
   const range = visibility === undefined ? undefined : Number(visibility.toPrecision(2))
   return { title: knowledge.title, description: knowledge.description, frame: mapFrame(knowledge.frame), areas: knowledge.areas.map(copyArea), objects, contacts,
+    ...(live.physics?.aquatics ? {aquatics:true as const} : {}),
     ...(live.physics?.traction && live.physics.traction.iceFactor<1 && objects.some(object=>object.visible&&object.iceCover) ? {slipperyIce:true as const} : {}),
     ...(fog ? {fog:range === undefined ? {} : {visibilityM:range}} : range === undefined ? {} : {smokeVisibilityM:range}),
     ...(smoke ? {smoke:true as const} : {}),

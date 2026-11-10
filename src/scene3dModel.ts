@@ -38,7 +38,7 @@ export function masterRenderModel(scene: Scene, actors: SceneActor[], visuals: S
         interaction: { kind: 'object' as const, id: c.identity.data.id } }
     }),
     ...scene.tokens.map(t => ({ id: t.actorId,...(t.support.kind==='object'?{supportObjectId:t.support.objectId}:{}), transform: { position: { x: t.x, y: t.y, z: t.z } },
-      geometry: { kind: 'actor' as const, width: t.diameter, depth: t.diameter, height: 1.7, characterModel:t.characterModel, facing:t.facing, characterAnimation:t.characterAnimation },
+      geometry: { kind: 'actor' as const, width: t.diameter, depth: t.diameter, height: t.support.kind==='water' ? t.support.heightM : 1.7, characterModel:t.characterModel, facing:t.facing, characterAnimation:t.characterAnimation },
       appearance: { color: ['#78baa5','#9d92c9','#bd9567','#7d9fb7'][[...t.actorId].reduce((n,c)=>n+c.charCodeAt(0),0)%4], remembered: false, heightKnown: true },
       identity: { label: actors.find(a => a.id === t.actorId)?.name || 'Без имени' },
       interaction: { kind: 'token' as const, id: t.actorId } }))], visuals }
@@ -59,7 +59,7 @@ export function perceivedRenderModel(map: PerceivedMap): SceneRenderModel {
         depth: .8, height: c.z === undefined ? .12 : 1.7, characterModel:c.characterModel, facing:c.facing, characterAnimation:c.characterAnimation },
       appearance: { color: c.kind === 'self' ? '#81e6da' : c.kind === 'identified' ? '#b8b0f5' : '#d3a7ee',
         remembered: false, heightKnown: c.z !== undefined },
-      identity: { label: c.label + (c.z === undefined ? ' · высота не раскрыта' : c.falling ? ' · падает' : '') },
+      identity: { label: c.label + (c.z === undefined ? ' · высота не раскрыта' : c.falling ? ' · падает' : c.submerged ? ' · под водой' : c.support==='water' ? ' · в воде' : '') },
       interaction: { kind: 'contact' as const, id: c.id } }))], visuals: map.visuals ?? [] }
 }
 export function snapScenePoint(point: ScenePosition, enabled: boolean, step: number, frame: Pick<Scene, 'width' | 'depth'>): ScenePosition {
