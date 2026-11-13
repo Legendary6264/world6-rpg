@@ -2,6 +2,7 @@ import { DEFAULT_BACKGROUND_NOISE_DB } from './physicsState'
 import { segmentSlab } from './sceneGeometry'
 import type { Scene, SceneObject, ScenePosition } from './sceneTypes'
 import type { SpeechHearer, SpeechRow } from './roundSpeech'
+import type { SoundPortal, SoundSource } from './soundWaves'
 
 type Bands = { low: number; speech: number }
 type Barrier = { id: string; min: ScenePosition; max: ScenePosition; thicknessM: number; loss: Bands }
@@ -82,20 +83,24 @@ function thicknessOnPath(a: ScenePosition, b: ScenePosition, barrier: Barrier, d
   return Math.max(0, fraction * distanceM)
 }
 
-type Path = { lengthM: number; loss: Bands; barriers: number; apparentOrigin:ScenePosition; viaDoor?: string }
-function bestPath(scene: AcousticScene, a: ScenePosition, b: ScenePosition, sourceId?: string, check?:()=>void, impulse=false): Path {
-  const lengthM = distance(a, b), spreading = spreadLoss(lengthM)
-  const direct: Path = { lengthM, loss: { low: spreading, speech: spreading }, barriers: 0, apparentOrigin:a }
+type Path = { lengthM: number; loss: Bands; barriers: number; apparentOrigin:ScenePosition; viaDoor?: string; bends?:1|2 }
+function straightPath(scene:AcousticScene,a:ScenePosition,b:ScenePosition,sourceId?:string,check?:()=>void,prefixM=0,bends=0):Path {
+  const leg = distance(a,b), lengthM = prefixM+leg, spreading = spreadLoss(lengthM)
+  const direct:Path = {lengthM,loss:{low:spreading+3*bends,speech:spreading+6*bends},barriers:0,apparentOrigin:a}
   for (const barrier of scene.barriers) {
     check?.()
     if (barrier.id === sourceId) continue
-    const thickness = thicknessOnPath(a, b, barrier, lengthM)
+    const thickness = thicknessOnPath(a, b, barrier, leg)
     if (thickness <= EPS_M) continue
     const factor = Math.min(2, Math.sqrt(thickness / barrier.thicknessM))
     direct.barriers++
     direct.loss.low += barrier.loss.low * factor
     direct.loss.speech += barrier.loss.speech * factor
   }
+  return direct
+}
+function bestPath(scene: AcousticScene, a: ScenePosition, b: ScenePosition, sourceId?: string, check?:()=>void, impulse=false): Path {
+  const direct = straightPath(scene,a,b,sourceId,check), {lengthM} = direct
   if (!direct.barriers || !scene.openings.length) return direct
 
   // A turn at an opening weakens both bands. The last opening is the apparent
@@ -124,7 +129,7 @@ function bestPath(scene: AcousticScene, a: ScenePosition, b: ScenePosition, sour
   for (const {enter,leave,opening,point,lengthM} of legs) {
     const loss = lossAt(lengthM,1)
     if (score(loss) >= score(best.loss)) break
-    if (enter && leave) best = {lengthM,loss,barriers:0,apparentOrigin:point,viaDoor:opening.name}
+    if (enter && leave) best = {lengthM,loss,barriers:0,apparentOrigin:point,viaDoor:opening.name,bends:1}
   }
   if (score(lossAt(lengthM,2)) >= score(best.loss)) return best
   for (const entry of legs.filter(leg=>leg.enter)) {
@@ -132,7 +137,7 @@ function bestPath(scene: AcousticScene, a: ScenePosition, b: ScenePosition, sour
       const middle = distance(entry.point,exit.point), total = entry.first+middle+exit.second
       const loss = lossAt(total,2)
       if (score(loss) < score(best.loss) && clearLeg(entry.point,exit.point,middle)) {
-        best = {lengthM:total,loss,barriers:0,apparentOrigin:exit.point,viaDoor:entry.opening.name+' → '+exit.opening.name}
+        best = {lengthM:total,loss,barriers:0,apparentOrigin:exit.point,viaDoor:entry.opening.name+' → '+exit.opening.name,bends:2}
       }
     }
   }
@@ -151,8 +156,9 @@ function backgroundAt(scene:AcousticScene,listener:ScenePosition,check?:()=>void
   }
   return noise
 }
+export const airSoundSpeedMs = (scene:AcousticScene) => Math.sqrt(1.4 * 287.05 * scene.temperatureK)
 function arrivalMs(scene:AcousticScene,lengthM:number):number|null {
-  const airSpeedMs = Math.sqrt(1.4 * 287.05 * scene.temperatureK)
+  const airSpeedMs = airSoundSpeedMs(scene)
   return airSpeedMs > 0 ? 1000 * lengthM / airSpeedMs : null
 }
 export const audibleSound = (signalDb:number,noiseDb:number,attentionDb=0) =>
@@ -160,6 +166,23 @@ export const audibleSound = (signalDb:number,noiseDb:number,attentionDb=0) =>
 
 export function forecastImpulse(scene:AcousticScene,source:ScenePosition,listener:ScenePosition,levelDbAt1m:number,sourceBarrierId?:string,check?:()=>void):ImpulseForecast {
   const path = bestPath(scene,source,listener,sourceBarrierId,check,true)
+  return impulseOnPath(scene,listener,levelDbAt1m,path,check)
+}
+
+export function soundPortal(scene:AcousticScene,source:SoundSource,listener:ScenePosition,check:()=>void):SoundPortal|undefined {
+  if (!scene.openings.length || !scene.barriers.length) return undefined
+  const route = bestPath(scene,source.point,listener,source.objectId,check,true)
+  if (!route.bends || !route.viaDoor) return undefined
+  return {point:route.apparentOrigin,prefixM:Math.max(0,route.lengthM-distance(route.apparentOrigin,listener)),bends:route.bends,label:route.viaDoor}
+}
+
+export function forecastSoundRoute(scene:AcousticScene,source:SoundSource,listener:ScenePosition,portal:SoundPortal|undefined,check:()=>void):ImpulseForecast {
+  const path = straightPath(scene,portal?.point ?? source.point,listener,source.objectId,check,portal?.prefixM,portal?.bends)
+  if (portal) path.viaDoor=portal.label
+  return impulseOnPath(scene,listener,source.levelDbAt1m,path,check)
+}
+
+function impulseOnPath(scene:AcousticScene,listener:ScenePosition,levelDbAt1m:number,path:Path,check?:()=>void):ImpulseForecast {
   const band = levelDbAt1m-BAND_SPLIT_DB
   const signalDb = addDb(band-path.loss.low,band-path.loss.speech)
   const noise = backgroundAt(scene,listener,check)

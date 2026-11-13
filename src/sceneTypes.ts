@@ -1,6 +1,7 @@
 import type {PhysicsBody,PhysicsEnvironment} from './physicsState'
 import type { WaterComposition } from './waterPhysics'
 import type { FallMotion, LandingProfile } from './mechanicalProfiles'
+import type { SoundWave } from './soundWaves'
 export type SceneObjectKind = 'wall' | 'door' | 'tree' | 'rock' | 'crate' | 'platform' | 'lamp' | 'water'
 export type ScenePosition = { x: number; y: number; z: number }
 export type SceneObject = ScenePosition & {
@@ -24,6 +25,7 @@ export type Scene = {
   palette: 'forest' | 'stone' | 'neon'; background?: string; backgroundTileSizeM?: number
   environment?: 'surface' | 'underground'
   physics?: PhysicsEnvironment | null
+  soundWaves?: SoundWave[]
   objects: SceneObject[]; tokens: SceneToken[]
 }
 export type SceneState = { version: 1; activeSceneId: string | null; scenes: Scene[] }

@@ -281,6 +281,7 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
   const [simulateExposure, setSimulateExposure] = useState(!!value?.exposure)
   const [simulateTraction, setSimulateTraction] = useState(!!value?.traction)
   const [simulateContacts,setSimulateContacts] = useState(!!value?.contactHazards)
+  const [eventSounds,setEventSounds] = useState(!!value?.eventSounds)
   const [simulateAquatics,setSimulateAquatics] = useState(!!value?.aquatics)
   const aquatic = value?.aquatics ?? defaultAquaticProfile
   const exposure = value?.exposure ?? defaultExposureProfile
@@ -309,6 +310,8 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
       if (noise !== undefined) next.backgroundNoiseDb = noise
       if (data.has('eventSounds')) next.eventSounds = true
       else if (value?.eventSounds !== undefined) next.eventSounds = null
+      if (next.eventSounds && data.has('soundTravel')) next.soundTravel=true
+      else if (value?.soundTravel!==undefined) next.soundTravel=null
       if (data.has('simulateThermal')) {
         const reactionHeat = data.has('reactionHeat')
         const fogKg = useFog ? number(data, 'fogKg') : air?.fogKg === undefined ? undefined : null
@@ -377,7 +380,9 @@ export function EnvironmentPhysicsPanel({value,scene,disabled,onChange}:{value?:
       </details>
       <details className="gb-scene-details gb-wide"><summary>Акустика{value?.eventSounds ? ' · звуки включены' : ''}</summary>
         <label className="w6-field"><span>Фоновый шум, дБ</span><input name="backgroundNoiseDb" type="number" min="0" max={MAX_SOUND_LEVEL_DB} step="any" defaultValue={value?.backgroundNoiseDb??''} placeholder={String(DEFAULT_BACKGROUND_NOISE_DB)}/><small>Пустое поле использует {DEFAULT_BACKGROUND_NOISE_DB} дБ.</small></label>
-        <label className="w6-check"><input name="eventSounds" type="checkbox" defaultChecked={!!value?.eventSounds}/>Записывать услышанные звуки событий</label>
+        <label className="w6-check"><input name="eventSounds" type="checkbox" checked={eventSounds} onChange={e=>setEventSounds(e.currentTarget.checked)}/>Записывать услышанные звуки событий</label>
+        <label className="w6-check"><input name="soundTravel" type="checkbox" disabled={!eventSounds} defaultChecked={!!value?.soundTravel}/>Учитывать время распространения и шум шагов</label>
+        <p className="w6-copy">Слушатель замечает событие при приходе звука. Этот режим также открывает тихий шаг и позволяет волне перейти в следующий раунд.</p>
         <p className="w6-copy">Двери, удары, приземления и звуки способностей могут дать героям подсказку о направлении. Стены и постоянный шум ослабляют слышимость.</p>
       </details>
       <details className="gb-scene-details gb-wide"><summary>Тепло и воздух{air ? ' · включено' : ''}</summary>

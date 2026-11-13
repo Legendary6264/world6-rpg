@@ -23,7 +23,8 @@ export default function GameActionBar({ map, point, contactId, objectId, options
   const field=<K extends keyof QuickActionDraft>(key:K,value:QuickActionDraft[K])=>onChange({...draft,[key]:value})
   const object=map?.objects.find(o=>o.id===objectId),contact=map?.contacts.find(c=>c.id===contactId&&c.kind!=='self')
   const self = map?.contacts.find(c=>c.kind==='self'), falling = !!self?.falling
-  const movement = draft.movement==='swim' && map && !map.aquatics ? 'ground' : draft.movement
+  const modeAvailable = (id:string) => !map || (id!=='swim'||!!map.aquatics) && (id!=='sneak'||!!map.soundTravel)
+  const movement = modeAvailable(draft.movement) ? draft.movement : 'ground'
   const swimming = movement==='swim', terrain = isTerrainMovement(movement)
   const pool = swimming && object?.visible && object.liquidSurfaceZ!==undefined ? object : undefined
   const movePoint = point ?? (pool ? {x:pool.x,y:pool.y,z:pool.z} : null)
@@ -58,10 +59,10 @@ export default function GameActionBar({ map, point, contactId, objectId, options
           <select aria-label="Быстрый способ движения" disabled={falling} value={movement} onChange={e=>{
             const next=e.currentTarget.value
             if(isMovementMode(next))onChange({...draft,movement:next,movementZ:''})
-          }}>{Object.entries(movementLabels).filter(([id])=>id!=='swim'||!map||map.aquatics).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select>
+          }}>{Object.entries(movementLabels).filter(([id])=>modeAvailable(id)).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select>
           <button type="button" className="w6-button w6-primary" disabled={!destination||falling} onClick={()=>{
             if(destination&&!falling)onAdd({kind:'move',route:[destination],support:movement,note:''})
-          }}>{movement==='jump'?'Прыгнуть к отметке':movement==='climb'?'Добавить подъём или спуск':swimming?'Плыть к отметке':'Идти к отметке'}</button>
+          }}>{movement==='jump'?'Прыгнуть к отметке':movement==='climb'?'Добавить подъём или спуск':swimming?'Плыть к отметке':movement==='sneak'?'К отметке тихим шагом':'Идти к отметке'}</button>
         </div>{(terrain||swimming)&&!falling&&<>
           {movePoint&&<label className="w6-field"><span>{swimming?'Высота ног в точке назначения, м':'Высота точки назначения, м'}</span><input aria-label="Высота точки назначения, м" type="number" step="any"
             min={map?.frame.minZ} max={map?.frame.maxZ} placeholder={point ? String(point.z) : 'Укажи высоту'} value={draft.movementZ??''}
@@ -72,6 +73,7 @@ export default function GameActionBar({ map, point, contactId, objectId, options
             (movement==='jump'?'Укажи точку на земле или на поверхности, куда хочешь приземлиться.':
               'Укажи точку рядом с той же гранью опоры, сверху или снизу. Мастер должен разрешить подъём по этой грани.')+' Действие занимает часть одного раунда.'}</p>
         </>}</>}
+        {movement==='sneak'&&!environmentOnly&&!falling&&<p className="gb-game-help">Тихий шаг занимает больше времени. Скрытность и покрытие влияют на громкость.</p>}
         <div className="w6-buttons">
           <button type="button" className="w6-button" disabled={!knownObject&&!knownContact} onClick={()=>onAdd({kind:'interact',target:knownObject?{kind:'object',id:objectId}:{kind:'contact',id:contactId},operation:'inspect',note:''})}>Осмотреть выбранное</button>
           {object&&objectActions(object).map(action=><button type="button" className="w6-button" key={action.operation} disabled={!knownObject||action.disabled} onClick={()=>onAdd({kind:'interact',target:{kind:'object',id:object.id},operation:action.operation,note:''})}>{action.label}{object.kind==='door'&&(action.operation==='open'||action.operation==='close')?' дверь':''}</button>)}

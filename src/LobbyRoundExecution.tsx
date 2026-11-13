@@ -227,13 +227,22 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
       {!!visible.summary.rules?.length&&<div aria-label="Последствия предметов и способностей">{visible.summary.rules.map(r=><article key={r.key+':'+r.kind}><p>{r.text}</p><pre className="w6-copy">{r.details}</pre>{r.targets&&<div aria-label="Цели пространственного выпуска"><p>Получателей: {r.targets.length}</p>{r.targets.map(t=><details key={t.actorId}><summary>{t.name}</summary><pre className="w6-copy">{t.details}</pre></details>)}</div>}</article>)}</div>}
       {!!visible.summary.listeningWindows?.length&&<section aria-label="Время внимания слушателей"><h4>Заявленное внимание</h4>{visible.summary.listeningWindows.map(r=><p key={r.key}>{name(r.actorId)} · {listeningPlanLabel(r)} · {listeningFocusLabel(r,objects.filter(o=>o.sceneId===r.sceneId))} · с {Number(r.fromMs.numerator)/Number(r.fromMs.denominator)/1000} до {Number(r.toMs.numerator)/Number(r.toMs.denominator)/1000} с раунда · {r.completes?'ожидание завершится':'продолжится в следующем раунде'}</p>)}<p className="w6-copy">При включённых звуках событий прислушивание помогает заметить их в это время. Слышимость реплик подтверждает мастер.</p></section>}
       {!!visible.summary.speech?.length&&<div aria-label="Расчёт слышимости">{visible.summary.speech.map(s=><article key={s.key}><h4>{name(s.actorId)} · реплика</h4>{s.interruption ? <p>{s.interruption==='underwater'?'Реплика сорвалась под водой.':'Крик сорвался из-за нехватки дыхания.'}</p> : <><p className="w6-prose">{s.text}</p><p>Других слушателей: {s.heard.length}</p>{s.heard.map(h=><div key={h.actorId}><strong>{name(h.actorId)} · обозначение говорящего: {h.speaker}</strong><p className="w6-prose">{h.text}</p></div>)}</>}</article>)}</div>}
-      {!!visible.summary.sounds?.length&&<section aria-label="Звуки событий">
+      {(!!visible.summary.sounds?.length||!!visible.summary.earlierSoundArrivals?.length)&&<section aria-label="Звуки событий">
         <h4>Звуки событий</h4>
-        {visible.summary.sounds.map((sound,index)=><details className="gb-scene-details" key={index}>
-          <summary>{soundLabels[sound.kind]}{sound.objectId?' · '+objectName(collection.sceneId,sound.objectId):''} · {quantity(Number(sound.atMs.numerator)/Number(sound.atMs.denominator)/1000)} с · услышали {sound.heard.length}</summary>
+        {visible.summary.sounds?.map((sound,index)=><details className="gb-scene-details" key={index}>
+          <summary>{soundLabels[sound.kind]}{sound.actorId?' · '+name(sound.actorId):sound.objectId?' · '+objectName(collection.sceneId,sound.objectId):''}
+            {' · '}{quantity(Number(sound.atMs.numerator)/Number(sound.atMs.denominator)/1000)} с · услышали {sound.heard.length}{!!sound.pending&&' · ещё в пути к '+sound.pending}</summary>
           <p>{quantity(sound.levelDbAt1m)} дБ на 1 м · ({coords(sound.point)}) м</p>
-          {!!sound.heard.length&&<ul>{sound.heard.map(h=><li key={h.actorId}>{name(h.actorId)} · {h.direction} · {quantity(h.signalDb)} дБ при фоне {quantity(h.noiseDb)} дБ · задержка около {quantity(h.arrivalMs)} мс{h.focused?' · прислушивался':''}{h.viaDoor?' · через '+h.viaDoor:h.barriers?' · преград '+h.barriers:''}</li>)}</ul>}
+          {!!sound.heard.length&&<ul>{sound.heard.map(h=><li key={h.actorId}>{name(h.actorId)} · {h.direction} · {quantity(h.signalDb)} дБ при фоне {quantity(h.noiseDb)} дБ
+            {h.receivedAtMs===undefined?' · задержка около '+quantity(h.arrivalMs)+' мс':' · приход на '+quantity(h.receivedAtMs)+' мс раунда · задержка '+quantity(h.arrivalMs)+' мс'}
+            {h.focused?' · прислушивался':''}{h.viaDoor?' · через '+h.viaDoor:h.barriers?' · преград '+h.barriers:''}</li>)}</ul>}
         </details>)}
+        {!!visible.summary.earlierSoundArrivals?.length&&<div aria-label="Пришли из прежних раундов">
+          <p>Дошли из прежних раундов</p>
+          {visible.summary.earlierSoundArrivals.map(h=><p key={h.waveId+':'+h.actorId}>{soundLabels[h.kind]} · {name(h.actorId)} · {h.direction} · источник на {quantity(h.emittedSeconds)} с игровых часов · приход на {quantity(h.receivedAtMs)} мс раунда
+            {' · '}{quantity(h.signalDb)} дБ при фоне {quantity(h.noiseDb)} дБ
+            {h.focused?' · прислушивался':''}</p>)}
+        </div>}
       </section>}
       {!!visible.summary.movements?.length && <div aria-label="Позиции после движения">{visible.summary.movements.map(m=><p key={m.workId}>{name(m.actorId)}
         {m.terrain?.kind==='jump' ? ' · прыжок' : m.terrain?.kind==='climb' ? ' · '+(m.to.z>m.from.z?'подъём':'спуск')+' по объекту '+objectName(collection.sceneId,m.terrain.objectId) : m.terrain?.kind==='swim' ? ' · плавание' : ''}

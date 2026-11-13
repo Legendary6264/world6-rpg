@@ -13,7 +13,7 @@ for(const file of await readdir('src'))if(file.endsWith('.ts')){
 }
 const module=name=>import(pathToFileURL(join(directory,name+'.mjs')))
 const {calculateRound,compatibleRoundExecutor}=await module('roundExecution'),{createDefaultCharacter}=await module('characterModel'),{emptyCampaign}=await module('rpgSchema')
-const {createScene,emptyScenes}=await module('scenes'),{listeningRows,listeningFocusLabel}=await module('roundListening')
+const {createScene,emptyScenes,sceneObject,copySceneState,isSceneState}=await module('scenes'),{listeningRows,listeningFocusLabel}=await module('roundListening')
 const {isDeclaredAction,copyDeclaredAction,actionKinds,actionSummary,actionTarget}=await module('actionDeclarations'),{isRoundWork}=await module('roundWork')
 const plain=seconds=>({kind:'wait',seconds,note:''}),listen=(seconds=2,mode='eavesdrop',target={kind:'none'})=>({...plain(seconds),listening:{mode,target}})
 function world(){const scenes=createScene(emptyScenes(),'hall','Hall','top');scenes.scenes[0].tokens=['listener','speaker'].map((actorId,i)=>({id:'token-'+actorId,actorId,x:2+i,y:5,z:0,diameter:1,support:{kind:'ground'}}));return {characters:['listener','speaker'].map(id=>({...createDefaultCharacter(),id,name:id})),campaign:{...emptyCampaign(),scenes}}}
@@ -66,4 +66,137 @@ test('R08 listening: мастер видит только выбранные н�
  const entries=[entry('listener',[plain(1),listen(2,'listen',{kind:'object',id:'door'})])],c=collection(entries),r=calculateRound(world(),c,input(entries),'plans'),rows=listeningRows(c,{version:1,entries:[]},[])
  assert.equal(rows.length,1);assert.equal(rows[0].key,'new:listener:1');assert.equal(listeningFocusLabel(rows[0],[{id:'door',name:'Дверь'}]),'Дверь');assert.deepEqual(r.summary.listeningWindows[0].fromMs,amount(1000));assert.deepEqual(r.summary.listeningWindows[0].toMs,amount(3000))
  const old=calculateRound(world(),collection([entry('listener',[plain(1)])]),input([entry('listener',[plain(1)])]),'old-wait');assert.equal(old.summary.listeningWindows,undefined);assert.equal(old.summary.events[0].listening,undefined);assert(compatibleRoundExecutor('r08-round-speech-v1'))
+})
+
+const point=(x,y=5,z=0)=>({x,y,z})
+const open={kind:'interact',operation:'open',target:{kind:'object',id:'door'},note:''}
+const stampedAt='2026-11-10T00:00:00.000Z'
+const doorEntry=()=>({...entry('speaker',[open]),resolved:[{index:0,objectId:'door'}]})
+const move=(x,support='ground')=>({kind:'move',support,route:[point(x)],note:''})
+const actualInput=entries=>({...input(entries),interactionsConfirmed:true,soundRecordedAt:stampedAt})
+const moveBodies={confirmed:true,bodies:['listener','speaker'].map(actorId=>({actorId,heightM:1.8}))}
+const airSpeed=Math.sqrt(1.4*287.05*293.15)
+const closeTo=(actual,expected)=>assert(Math.abs(actual-expected)<.0001,`${actual} ≈ ${expected}`)
+function travelWorld(backgroundNoiseDb=34){
+  const w=world(), scene=w.campaign.scenes.scenes[0]
+  scene.width=80;scene.physics={version:1,gravityMs2:9.81,ambientTemperatureK:293.15,backgroundNoiseDb,eventSounds:true,soundTravel:true}
+  scene.objects=[{...sceneObject('door','door',point(4)),width:.2,depth:1.2,height:3}]
+  scene.tokens[0].x=34;scene.tokens[1].x=2
+  return {w,scene}
+}
+const doorReport=r=>r.summary.sounds.find(s=>s.kind==='door')
+
+test('Слышимость проверяет окно внимания по времени прихода волны',()=>{
+  const {w}=travelWorld()
+  const entries=[doorEntry(),entry('listener',[plain(1.04),listen(.12,'listen',{kind:'point',point:point(4)})])]
+  const before=structuredClone(w)
+  const heard=calculateRound(w,collection(entries),actualInput(entries),'wave-focus-after')
+  const cue=doorReport(heard).heard.find(h=>h.actorId==='listener')
+  assert.equal(cue.focused,true)
+  closeTo(cue.arrivalMs,30/airSpeed*1000);closeTo(cue.receivedAtMs,1000+30/airSpeed*1000)
+  closeTo(Number.parseFloat(heard.world.characters[0].journal[0].gameTime),1+30/airSpeed)
+  assert.deepEqual(w,before)
+  entries[1].actions=[listen(1.04,'listen')]
+  const missed=calculateRound(w,collection(entries),actualInput(entries),'wave-focus-before')
+  assert(!doorReport(missed).heard.some(h=>h.actorId==='listener'))
+  assert.equal(missed.world.characters[0].journal.length,0)
+})
+
+test('Волна встречает идущего слушателя по пути, с поправкой к задержке',()=>{
+  const {w}=travelWorld(25)
+  const entries=[doorEntry(),entry('listener',[plain(.95),move(20)])]
+  const r=calculateRound(w,collection(entries),{...actualInput(entries),movement:moveBodies},'wave-moving-ear')
+  const cue=doorReport(r).heard.find(h=>h.actorId==='listener')
+  closeTo(cue.arrivalMs,29.3/(airSpeed+14)*1000)
+  assert.equal(cue.direction,'с запада')
+  assert(r.summary.sounds.some(s=>s.kind==='footstep'&&s.actorId==='listener'))
+  assert(r.summary.sounds.filter(s=>s.kind==='footstep').every(s=>!s.heard.some(h=>h.actorId==='listener')))
+})
+
+test('Пересечение волны находится внутри отрезка при быстром пролёте и на точной границе раунда',async()=>{
+  const {waveCrossing}=await module('soundArrival')
+  const origin=point(0), track=[{start:0,end:1,a:point(10),b:point(-20)}]
+  closeTo(waveCrossing(track,origin,0,1000,0,0,10,()=>{}),2.5)
+  const still=[{start:0,end:1,a:origin,b:origin}]
+  assert.equal(waveCrossing(still,origin,0,1000,5000,5000,5000,()=>{}),5000)
+})
+
+test('Стена ослабляет прямой звук, а слышимый сигнал приходит через проём позже',async()=>{
+  const {w,scene}=travelWorld(32)
+  const {roundWaveSound}=await module('roundWaveSound')
+  scene.tokens[0].x=11;scene.tokens[0].y=3
+  scene.objects=[
+    {...sceneObject('wall','wall',point(8,2.2)),width:.2,depth:4.4,height:3,blocksSight:true},
+    {...sceneObject('door','passage',point(8)),name:'Проём',width:.2,depth:1.2,height:3,blocksSight:true,open:true},
+  ]
+  const waves=roundWaveSound('portal-wave',stampedAt,[],0)
+  waves.emit(scene,amount(1000),{kind:'ability',point:point(5,3,1.5),levelDbAt1m:53})
+  waves.advance(w,scene,0,1100,new Map(),new Set(['speaker','listener']),[])
+  const cue=waves.sounds[0].heard.find(h=>h.actorId==='listener')
+  assert.equal(cue.viaDoor,'Проём')
+  closeTo(cue.arrivalMs,2*Math.hypot(3,2)/airSpeed*1000)
+  assert.equal(waves.finish().length,0)
+})
+
+test('Волна у границы сохраняется до следующего раунда и расходуется один раз',async()=>{
+  const {w}=travelWorld(), entries=[doorEntry()], late=actualInput(entries)
+  late.timings[0].costs[0].personalMs=5000
+  const sent=calculateRound(w,collection(entries,'late-door'),late,'wave-late')
+  assert.equal(doorReport(sent).heard.length,0);assert.equal(doorReport(sent).pending,2)
+  assert(sent.world.characters.every(a=>a.journal.length===0))
+  const {projectWorldEntities,restoreWorldEntities}=await module('worldEntities')
+  const saved=restoreWorldEntities(projectWorldEntities(sent.world,1))
+  assert.deepEqual(copySceneState(saved.campaign.scenes),copySceneState(sent.world.campaign.scenes));assert(isSceneState(saved.campaign.scenes))
+  const invalid=structuredClone(saved.campaign.scenes)
+  invalid.scenes[0].soundWaves[0].speedMs=0
+  assert.equal(isSceneState(invalid),false)
+  const next=[entry('listener',[listen(.2,'listen')])]
+  const r=calculateRound(saved,collection(next,'hear-door'),actualInput(next),'wave-hear')
+  const cue=r.summary.earlierSoundArrivals.find(h=>h.actorId==='listener')
+  assert.equal(cue.focused,true);closeTo(cue.receivedAtMs,30/airSpeed*1000)
+  assert.equal(r.world.campaign.scenes.scenes[0].soundWaves,undefined)
+  assert.equal(r.world.characters[0].journal.length,1)
+  const again=calculateRound(r.world,collection(next,'no-repeat'),actualInput(next),'wave-no-repeat')
+  assert.equal(again.world.characters[0].journal.length,1)
+  saved.campaign.seconds=20
+  const elapsed=calculateRound(saved,collection(next,'time-elsewhere'),actualInput(next),'wave-expired')
+  assert.equal(elapsed.world.characters[0].journal.length,0)
+})
+
+test('Тихий шаг учитывает навык, скорость и мокрое покрытие',()=>{
+  const {w,scene}=travelWorld(35)
+  scene.tokens[0].x=5;scene.objects=[]
+  const actor=w.characters[1]
+  actor.statistics.movement='1.5';actor.rpg.formulas=actor.rpg.formulas.filter(f=>f.parameter!=='movement')
+  const run=(mode,ms,seed)=>{
+    const entries=[entry('speaker',[move(3.5,mode)])], p={...actualInput(entries),movement:moveBodies}
+    p.timings[0].costs[0].personalMs=ms
+    return calculateRound(w,collection(entries,seed),p,seed)
+  }
+  const ordinary=run('ground',2000,'ordinary-step'), quiet=run('sneak',2000,'quiet-step')
+  assert.equal(ordinary.summary.sounds.length,2)
+  assert(ordinary.world.characters[0].journal.length>0)
+  assert.equal(quiet.world.characters[0].journal.length,0)
+  assert.throws(()=>run('sneak',1000,'fast-sneak'),/больше времени/)
+  actor.creation.skills.stealth=60
+  const skilled=run('sneak',2000,'skilled-sneak')
+  assert(skilled.summary.sounds[0].levelDbAt1m<quiet.summary.sounds[0].levelDbAt1m)
+  scene.objects=[{...sceneObject('water','puddle',point(3)),width:2,depth:1,height:.02,
+    water:{version:1,base:'pure',saltKg:0,sedimentKg:0}}]
+  const wet=run('sneak',2000,'wet-sneak')
+  assert.equal(wet.summary.sounds[0].levelDbAt1m-skilled.summary.sounds[0].levelDbAt1m,6)
+})
+
+test('Шаги незавершённого маршрута не повторяются при продолжении',()=>{
+  const {w,scene}=travelWorld(20);scene.objects=[]
+  const entries=[entry('speaker',[move(3.5,'sneak')])],p={...actualInput(entries),movement:moveBodies}
+  p.timings[0].costs[0].personalMs=9000
+  const first=calculateRound(w,collection(entries,'long-quiet'),p,'quiet-first')
+  assert.equal(first.summary.sounds.length,1)
+  closeTo(Number(first.summary.sounds[0].atMs.numerator)/Number(first.summary.sounds[0].atMs.denominator),2250)
+  const next={...collection([],'continue-quiet'),participantIds:['speaker']}
+  const resumed=calculateRound(first.world,next,{...actualInput([]),movement:moveBodies,
+    continuations:[{actorId:'speaker',mode:'continue',budgetMs:5000}]},'quiet-second')
+  assert.equal(resumed.summary.sounds.length,1)
+  closeTo(Number(resumed.summary.sounds[0].atMs.numerator)/Number(resumed.summary.sounds[0].atMs.denominator),1750)
 })

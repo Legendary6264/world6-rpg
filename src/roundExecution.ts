@@ -46,11 +46,14 @@ import { surfaceContact, tractionLabels } from './surfaceTraction'
 import type { TractionTravel } from './surfaceTraction'
 import { doorSound, impactSoundDb, landingSoundDb, roundAcoustics } from './roundSound'
 import type { RoundSound, SoundSource } from './roundSound'
+import { roundWaveSound } from './roundWaveSound'
+import type { EarlierSoundArrival } from './roundWaveSound'
+import { footsteps } from './footstepPhysics'
 import { contactChecker, surfaceDoses } from './bodyContactPhysics'
 import type { ContactDose, ContactOutcome } from './bodyContactPhysics'
 import { isTrappedByIce, waterSupportAt } from './aquaticMotion'
-export const ROUND_EXECUTOR_VERSION = 'r25-aquatic-movement-v1'
-export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r24-terrain-movement-v1', 'r23-body-contact-v1', 'r22-event-acoustics-v1', 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
+export const ROUND_EXECUTOR_VERSION = 'r26-sound-travel-v1'
+export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r25-aquatic-movement-v1', 'r24-terrain-movement-v1', 'r23-body-contact-v1', 'r22-event-acoustics-v1', 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
 export type ContinuationChoice = { actorId: string; mode: 'continue' | 'hold'; budgetMs: number }
 export type RoundExecutionInput = { timings: ActorTiming[]; continuations: ContinuationChoice[];
@@ -71,7 +74,7 @@ export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speec
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
   movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls;
   slides?: { stops:SlideStop[]; moving:SlideStatus[] }; exposure?: ExposureChange[];
-  traction?: {walks:WalkTraction[]; slides:SlideTraction[]}; sounds?:RoundSound[]; contacts?:ContactOutcome[];
+  traction?: {walks:WalkTraction[]; slides:SlideTraction[]}; sounds?:RoundSound[]; earlierSoundArrivals?:EarlierSoundArrival[]; contacts?:ContactOutcome[];
   breathing?: {actorId:string; underwaterSeconds:number; breathUsedSeconds:number}[] }
 export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
@@ -259,7 +262,13 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         if (consequence.movementFactor <= 0 || speed !== '' && Number(speed) <= 0) throw Error(plan.work.action.support==='ground'
           ? 'Состояние тела или скорость не позволяют ходьбу. Мастер должен пересмотреть движение.'
           : 'Состояние тела или скорость не позволяют выполнить выбранное движение. Мастер должен пересмотреть раунд.')
-        const drySpeed = (speed === '' ? 1.5 : Number(speed))*consequence.movementFactor
+        const drySpeed = (speed === '' ? 1.5 : Number(speed))*consequence.movementFactor*(plan.work.action.support==='sneak' ? .55 : 1)
+        if (plan.work.action.support==='sneak' && starting) {
+          const distance=plan.distance*numberOf(plan.work.amount.remaining)/numberOf(plan.work.amount.total)
+          if (distance/(numberOf(subtractAmounts(plan.endMs,plan.startMs))/1000)>drySpeed+1e-6) {
+            throw Error('Для тихого шага нужно больше времени. Допустимая скорость '+drySpeed.toLocaleString('ru-RU',{maximumSignificantDigits:3})+' м/с.')
+          }
+        }
         drySpeeds?.set(actor.id,drySpeed)
         const current = activeScene()!
         if ((plan.jump || plan.climb) && starting && compareAmounts(plan.startMs,cursor)===0) {
@@ -314,7 +323,9 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   const landings: RoundFallLanding[] = []
   const slideStops: SlideStop[] = []
   const walkTraction = new Map<string,WalkTraction>(), slideTraction = new Map<string,SlideTraction>()
-  const acoustics = scene?.physics?.eventSounds ? roundAcoustics(seed,input.soundRecordedAt,listeningWindows) : undefined
+  const waves = scene?.physics?.soundTravel ? roundWaveSound(seed,input.soundRecordedAt,listeningWindows,world.campaign.seconds,scene.soundWaves) : undefined
+  const immediateSound = scene?.physics?.eventSounds && !waves ? roundAcoustics(seed,input.soundRecordedAt,listeningWindows) : undefined
+  const acoustics = waves ?? immediateSound
   const contactOutcomes = new Map<string,ContactOutcome>(), checkContact = contactChecker()
   let contactIndex = 0
   function applyDose(dose:ContactDose) {
@@ -327,7 +338,9 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   let flowReactionHeatJ = 0
   const activeScene = () => candidate.campaign.scenes?.scenes.find(s => s.id === collection.sceneId)
   function emitSound(at:ExactAmount,sound:SoundSource|undefined) {
-    if (acoustics && sound) acoustics.emit(candidate,activeScene()!,at,sound)
+    if (!sound) return
+    if (waves) waves.emit(activeScene()!,at,sound)
+    else immediateSound?.emit(candidate,activeScene()!,at,sound)
   }
   function recordLanding(token:SceneToken,landing:Landing,at:ExactAmount) {
     const profile = token.landing
@@ -405,7 +418,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
   }
   const routesDuring = (at: ExactAmount) => movements.filter(p => compareAmounts(p.startMs, at) < 0 && compareAmounts(p.endMs, cursor) > 0)
   const advanceSegment = (at: ExactAmount, slide?: ReturnType<typeof planSlide>) => {
-    const traces = exposureProfile || contactProfile || aquatics ? new Map<string,MovementPiece[]>() : undefined
+    const traces = exposureProfile || contactProfile || aquatics || waves ? new Map<string,MovementPiece[]>() : undefined
     const drySpeeds = tractionEnabled && movements.length ? new Map<string,number>() : undefined
     const swimFootSpeeds = aquatics ? new Map<string,number>() : undefined
     const move = (step?: SlideStep) => {
@@ -449,6 +462,11 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       throw Error('Интервал слишком мал для текущих игровых часов. Требуется решение мастера; время не округлено для исполнения.')
     }
     const step = slide && slideStep(slide, seconds)
+    const audibleScene = waves && activeScene()
+    const soundFrame = audibleScene && {...audibleScene,tokens:audibleScene.tokens.map(token=>({...token}))}
+    const soundFrom=waves ? numberOf(cursor) : 0, soundTo=waves ? numberOf(at) : 0
+    const stepSounds = soundFrame ? footsteps(soundFrame,activeMovements,candidate.characters,previous,soundFrom,soundTo) : []
+    const startAwake = soundFrame ? new Set(candidate.characters.filter(a=>!a.rpg.dead&&a.body.consciousness==='awake').map(a=>a.id)) : undefined
     const contactScene = contactProfile ? activeScene() : undefined
     const falls = exposureProfile || aquatics ? new Map<string,ExposureFallStart>(activeScene()?.tokens.flatMap(t=>t.fall ?
       [[t.actorId,{z:t.z,speedMs:t.fall.speedMs}]] : [])) : undefined
@@ -457,6 +475,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     for (const p of activeMovements) if (p.swimHeightM!==undefined) swimmerHeights?.set(p.work.actorId,p.swimHeightM)
     move(step)
     candidate = advanceWorld(candidate, seconds, 'round-' + seed + '-' + (++segment), exposureProfile || aquatics ? collection.sceneId : undefined)
+    if (waves && soundFrame && traces && startAwake) waves.advance(candidate,soundFrame,soundFrom,soundTo,traces,startAwake,stepSounds)
     if (contactProfile && contactScene && traces) {
       const airborne = new Set(activeMovements.flatMap(({work,jump})=>jump || work.action.kind==='move' && work.action.support==='air' ? [work.actorId] : []))
       const climbs = new Map(activeMovements.flatMap(({work,climb})=>climb ? [[work.actorId,climb.id] as const] : []))
@@ -589,6 +608,13 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     }
   }
   advance(duration)
+  if (waves) {
+    const current=activeScene()!, end=numberOf(duration)
+    waves.advance(candidate,current,end,end,new Map(),new Set(),[])
+    const pending=waves.finish()
+    if (pending.length) current.soundWaves=pending
+    else delete current.soundWaves
+  }
   if (carried.some(work => queues.has(work.actorId) && (()=>{const a=candidate.characters.find(c=>c.id===work.actorId)!;return a.rpg.dead||a.body.consciousness!=='awake'})())) {
     throw Error('В раунде герой потерял возможность действовать. Мастер должен пересмотреть действия и перенос работы.')
   }
@@ -626,6 +652,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       breathUsedSeconds:candidate.characters.find(a=>a.id===actorId)?.body.breathUsedSeconds ?? 0}))} : {}),
     ...(contactOutcomes.size ? { contacts:[...contactOutcomes.values()] } : {}),
     ...(acoustics?.sounds.length ? {sounds:acoustics.sounds} : {}),
+    ...(waves?.earlier.length ? {earlierSoundArrivals:waves.earlier} : {}),
     ...(walkTraction.size || slideTraction.size ? {traction:{walks:[...walkTraction.values()],slides:[...slideTraction.values()]}} : {}),
     ...(landings.length || falling.length ? { falls:{landings,falling} } : {}),
     ...(slideStops.length || moving.length ? { slides:{stops:slideStops,moving} } : {}),

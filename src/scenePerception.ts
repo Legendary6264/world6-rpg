@@ -28,7 +28,7 @@ export type ScenePerceptions = { version: 1; heroes: HeroPerception[] }
 export type PerceptionDraft = { activeSceneId: string | null; scenes: (Omit<KnownScene, 'frame' | 'objects' | 'contacts'> & {
   objects: Pick<ObjectDisclosure, 'objectId' | 'visible'>[]; contacts: Omit<ContactDisclosure, 'id'>[] })[] }
 export type VisibleContact = { id: string; kind: ContactDisclosure['kind'] | 'self'; label: string; signs: string; x: number; y: number; z?: number; flying?: boolean; falling?: true; support?: 'ground' | 'air' | 'object' | 'water'; submerged?:true; breathRemainingSeconds?:number; portrait?: string; radius?: number; characterModel?: import('./characterAppearance').CharacterModelId; facing?: number; characterAnimation?: import('./characterAppearance').CharacterAnimation }
-export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; smoke?:true; fog?:{visibilityM?:number}; slipperyIce?:true; aquatics?:true;
+export type PerceivedMap = { visuals?:SceneAbilityVisual[]; smokeVisibilityM?:number; smoke?:true; fog?:{visibilityM?:number}; slipperyIce?:true; aquatics?:true; soundTravel?:true;
   optics?: {dim:boolean; smoke?:true; unplaced?:true};
   title: string; description: string; frame: MapFrame; areas: KnownArea[];
   objects: (ObservedObject & { visible: boolean; sliding?: true; light?:LightLevel; liquidSurfaceZ?:number })[]; contacts: VisibleContact[] }
@@ -207,6 +207,7 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
   const range = visibility === undefined ? undefined : Number(visibility.toPrecision(2))
   return { title: knowledge.title, description: knowledge.description, frame: mapFrame(knowledge.frame), areas: knowledge.areas.map(copyArea), objects, contacts,
     ...(live.physics?.aquatics ? {aquatics:true as const} : {}),
+    ...(live.physics?.soundTravel ? {soundTravel:true as const} : {}),
     ...(live.physics?.traction && live.physics.traction.iceFactor<1 && objects.some(object=>object.visible&&object.iceCover) ? {slipperyIce:true as const} : {}),
     ...(fog ? {fog:range === undefined ? {} : {visibilityM:range}} : range === undefined ? {} : {smokeVisibilityM:range}),
     ...(smoke ? {smoke:true as const} : {}),

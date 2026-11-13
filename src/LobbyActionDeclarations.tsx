@@ -116,8 +116,9 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
         {(f.targetKind === 'contact' || f.targetKind === 'object') && <label className="w6-field"><span>Доступная цель</span><select aria-label="Доступная цель" value={f.targetId} onChange={e => field('targetId', e.currentTarget.value)}><option value="">Выбери раскрытую отметку</option>{value?.options?.targets.filter(t => t.kind === f.targetKind).map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</select></label>}</>}
       {pointsNeeded && <div className="gb-action-coordinates">{(['x', 'y', 'z'] as const).map(k => <label className="w6-field" key={k}><span>{k.toUpperCase()}, м</span><input aria-label={'Действие ' + k.toUpperCase()} inputMode="decimal" value={f[k]} onChange={e => field(k, e.currentTarget.value)}/></label>)}</div>}
       {f.kind === 'move' && <><label className="w6-field"><span>Способ движения</span><select aria-label="Способ движения" value={f.support} onChange={e => field('support', e.currentTarget.value)}>
-        {Object.entries(movementLabels).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+        {Object.entries(movementLabels).map(([id,label])=><option key={id} value={id} disabled={id==='sneak'&&!!map&&!map.soundTravel}>{label}</option>)}</select></label>
         {f.support==='swim'&&<p className="gb-game-help">Z обозначает высоту ног. Добавь точку в воде и при необходимости точки всплытия или выхода на берег.</p>}
+        {f.support==='sneak'&&<p className="gb-game-help">Тихий шаг требует больше времени и доступен в сценах с расчётом распространения звука.</p>}
         {isTerrainMovement(f.support) ? <p className="gb-game-help">Укажи одну точку назначения на опоре. Для подъёма или спуска используй ту же грань объекта.</p>
           : <button className="w6-button" onClick={addPoint}>Добавить точку маршрута</button>}
         {f.route.map((p, i) => <p key={i}>{i + 1}: {p.x}; {p.y}; {p.z} м <button className="w6-button" onClick={() => remember({ ...draft, form: { ...f, route: f.route.filter((_, n) => n !== i) } })}>Убрать точку {i + 1}</button></p>)}</>}

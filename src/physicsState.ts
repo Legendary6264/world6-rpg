@@ -27,7 +27,7 @@ export type RoomAtmosphere = AirContents & {
 }
 export type Combustion = {fuelKg:number;burnRateKgS:number;ignitionTemperatureK:number}
 export type PhysicsEnvironment = {version:1;gravityMs2:number;ambientTemperatureK:number;backgroundNoiseDb?:number|null;
-  eventSounds?:true|null;atmosphere?:RoomAtmosphere|null;vision?:VisionProfile|null;airRooms?:AirRoom[]|null;
+  eventSounds?:true|null;soundTravel?:true|null;atmosphere?:RoomAtmosphere|null;vision?:VisionProfile|null;airRooms?:AirRoom[]|null;
   exposure?:ExposureProfile|null;traction?:TractionProfile|null;contactHazards?:ContactHazardProfile|null;aquatics?:AquaticProfile|null}
 export type PhysicsBody = {version:1;material:PhysicsMaterial;massKg:number;temperatureK:number;wetnessFraction:number;
   noiseLevelDbAt1m?:number|null;combustion?:Combustion|null;structure?:StructureProfile|null;sliding?:SlidingProfile|null;lightIntensityCd?:number|null;
@@ -65,11 +65,12 @@ const isSoundLevel = (v: unknown) => physicsNumber(v, 0, MAX_SOUND_LEVEL_DB)
 
 export function isPhysicsEnvironment(value: unknown): value is PhysicsEnvironment {
   if (!physicsRecord(value) || !withOptionalProfiles(value, ['version','gravityMs2','ambientTemperatureK'], {
-    backgroundNoiseDb:isSoundLevel, eventSounds:v=>v===true, atmosphere:isRoomAtmosphere, vision:isVisionProfile, airRooms:isAirRoomList,
+    backgroundNoiseDb:isSoundLevel, eventSounds:v=>v===true, soundTravel:v=>v===true, atmosphere:isRoomAtmosphere, vision:isVisionProfile, airRooms:isAirRoomList,
     exposure:isExposureProfile, traction:isTractionProfile, contactHazards:isContactHazardProfile, aquatics:isAquaticProfile,
   }) || value.version !== 1 || !physicsNumber(value.gravityMs2, 0, 1e6) ||
     !physicsNumber(value.ambientTemperatureK, 0, MAX_TEMPERATURE_K)) return false
-  const {airRooms,atmosphere,exposure} = value as PhysicsEnvironment
+  const {airRooms,atmosphere,exposure,eventSounds,soundTravel} = value as PhysicsEnvironment
+  if (soundTravel && !eventSounds) return false
   if (exposure && !atmosphere) return false
   return !airRooms || !!atmosphere && atmosphere.fogKg != null &&
     airRooms.reduce((total,room) => total + room.air.smokeKg, atmosphere.smokeKg) <= MAX_AEROSOL_KG &&
@@ -104,11 +105,14 @@ export function copyPhysicsBody(value: PhysicsBody | null): PhysicsBody | null {
 export function preserveScenePhysics(current: SceneState | undefined, next: SceneState | undefined): void {
   for (const scene of next?.scenes ?? []) {
     const previous = current?.scenes.find(value => value.id === scene.id)
-    if (!previous) continue
+    if (!previous) { delete scene.soundWaves; continue }
     if (scene.physics === undefined && previous.physics !== undefined) scene.physics = copyPhysicsEnvironment(previous.physics)
     else if (scene.physics && previous.physics) {
       if (scene.physics.backgroundNoiseDb === undefined && previous.physics.backgroundNoiseDb !== undefined) scene.physics.backgroundNoiseDb = previous.physics.backgroundNoiseDb
       if (scene.physics.eventSounds === undefined && previous.physics.eventSounds !== undefined) scene.physics.eventSounds = previous.physics.eventSounds
+      if (scene.physics.eventSounds && scene.physics.soundTravel===undefined && previous.physics.soundTravel!==undefined) {
+        scene.physics.soundTravel=previous.physics.soundTravel
+      }
       if (scene.physics.atmosphere === undefined && previous.physics.atmosphere !== undefined) {
         scene.physics.atmosphere = previous.physics.atmosphere && {...previous.physics.atmosphere}
       }
@@ -134,6 +138,9 @@ export function preserveScenePhysics(current: SceneState | undefined, next: Scen
         scene.physics.aquatics = previous.physics.aquatics && {...previous.physics.aquatics}
       }
     }
+    // Published geometry must not overwrite or resurrect the live queue.
+    if (scene.physics?.soundTravel && previous.soundWaves) scene.soundWaves=structuredClone(previous.soundWaves)
+    else delete scene.soundWaves
     const objects = new Map(previous.objects.map(object => [object.id,object]))
     for (const object of scene.objects) {
       const before = objects.get(object.id)

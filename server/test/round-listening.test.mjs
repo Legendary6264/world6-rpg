@@ -191,10 +191,74 @@ for(const dialect of ['sqlite','postgres'])test('Звуки событий: дв
  delete edit.scenes.scenes[0].physics.eventSounds
  edit.scenes.scenes[0].physics.backgroundNoiseDb=42
  await api(root+'/scenes',gm.token,'PUT',{scenes:edit.scenes,revision:edit.revision})
- const final=await world()
- assert.equal(room(final).physics.eventSounds,true)
+ assert.equal(room(await world()).physics.eventSounds,true)
+ await t.test('Волна переживает границу раунда, запись старым редактором и перезапуск',async()=>{
+  const settings=await api(root+'/scenes',gm.token)
+  settings.scenes.scenes[0].physics.soundTravel=true
+  await api(root+'/scenes',gm.token,'PUT',{scenes:settings.scenes,revision:settings.revision})
+  async function declare(actorId,user,actions) {
+   await api(decl,gm.token,'POST',{revision:(await world()).revision,sceneId:scene.id,participantIds:[actorId],durationSeconds:12,allowReplace:true},201)
+   const path=route(actorId)+'/declarations', current=await api(path,user.token)
+   await api(path,user.token,'PUT',{collectionId:current.collection.id,epoch:current.collection.epoch,baseVersion:0,controlStamp:current.controlStamp,actions})
+   assert.deepEqual((await api(path,user.token)).entry.actions,actions)
+   await api(decl,gm.token,'PATCH',{collectionId:current.collection.id,epoch:current.collection.epoch,operation:'close'})
+   return (await world()).campaign.declarations.active
+  }
+  const late=await declare(casterId,caster,[operate('open')])
+  const atEnd=await api(calculation,gm.token,'POST',{revision:(await world()).revision,collectionId:late.id,epoch:late.epoch,input:{
+   timings:[{actorId:casterId,entryRevision:1,budgetMs:12000,costs:[{index:0,personalMs:12000}]}],
+   continuations:[],missingDecisions:[],interactionsConfirmed:true,
+  }})
+  assert.equal(atEnd.summary.sounds[0].kind,'door');assert.equal(atEnd.summary.sounds[0].pending,2)
+  assert.deepEqual(atEnd.summary.sounds[0].heard,[])
+  await apply(command(atEnd))
+  const pending=room(await world()).soundWaves
+  assert.equal(pending.length,1)
+  assert.deepEqual((await personal()).knowledge.journal,view.knowledge.journal)
+  const stale=await api(root+'/scenes',gm.token)
+  assert.equal(stale.scenes.scenes[0].soundWaves,undefined)
+  delete stale.scenes.scenes[0].physics.soundTravel
+  await api(root+'/scenes',gm.token,'PUT',{scenes:stale.scenes,revision:stale.revision})
+  assert.deepEqual(room(await world()).soundWaves,pending)
+  assert.equal(room(await world()).physics.soundTravel,true)
+  const snapshot=await api(root+'/archive',gm.token)
+  assert.deepEqual(room((await unpackArchive(Buffer.from(snapshot.data,'base64'))).world).soundWaves,pending)
+  await f.restart()
+  const playerPending=await personal()
+  assert.equal(playerPending.map.soundTravel,true)
+  assert.doesNotMatch(JSON.stringify(playerPending),/soundWaves|emittedSeconds|PRIVATE-PASSAGE|PRIVATE-FAN/)
+  await api(decl,gm.token,'PATCH',{collectionId:late.id,epoch:late.epoch,operation:'archive'})
+  const next=await declare(listenerId,listener,[wait(1,{mode:'listen',target:{kind:'none'}}),{
+   kind:'move',route:[point(10.4,3)],support:'sneak',note:'',
+  }])
+  const beforeArrival=await world()
+  const received=await api(calculation,gm.token,'POST',{revision:beforeArrival.revision,collectionId:next.id,epoch:next.epoch,input:{
+   timings:[{actorId:listenerId,entryRevision:1,budgetMs:12000,costs:[{index:1,personalMs:1000}]}],
+   continuations:[],missingDecisions:[],interactionsConfirmed:false,movement:{confirmed:true,bodies:scene.tokens.map(({actorId})=>({actorId,heightM:1.8}))},
+  }})
+  assert.deepEqual(await world(),beforeArrival)
+  const arrival=received.summary.earlierSoundArrivals.find(h=>h.actorId===listenerId)
+  assert(arrival.receivedAtMs>0&&arrival.receivedAtMs<100);assert.equal(arrival.focused,true)
+  assert.equal(received.summary.sounds[0].kind,'footstep')
+  const applied=await apply(command(received)), after=await world()
+  assert.equal(room(after).soundWaves,undefined)
+  const heard=(await personal()).knowledge.journal
+  assert.equal(heard.length,view.knowledge.journal.length+1)
+  assert(Number.parseFloat(heard.at(-1).gameTime)>beforeArrival.campaign.seconds)
+  assert.doesNotMatch(heard.at(-1).text,/PRIVATE-PASSAGE|PRIVATE-FAN/)
+  const change=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:after.revision,receiptId:applied.receipt.id,reason:'Восстановить волну в пути'})
+  await api(root+'/rounds/change/apply',gm.token,'POST',command(change))
+  assert.deepEqual(room(await world()).soundWaves,pending)
+  assert.equal((await personal()).knowledge.journal.length,view.knowledge.journal.length)
+  const again=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:(await world()).revision,receiptId:applied.receipt.id})
+  assert.deepEqual(again.summary.earlierSoundArrivals,received.summary.earlierSoundArrivals)
+  await apply(command(again));assert.deepEqual((await personal()).knowledge.journal,heard)
+  const active=(await world()).campaign.declarations.active
+  await api(decl,gm.token,'PATCH',{collectionId:active.id,epoch:active.epoch,operation:'archive'})
+ })
+ const final=await world(), finalJournal=(await personal()).knowledge.journal
  await api(session+'/finish',gm.token,'POST',{revision:final.revision,title:'Дозор окончен',summary:'Сигналы записаны.',
   keepPending:false,commandKey:crypto.randomUUID()})
  for(const player of [caster,listener])assert.equal((await api(session,player.token)).phase,'finished')
- assert.deepEqual((await personal()).knowledge.journal,view.knowledge.journal)
+ assert.deepEqual((await personal()).knowledge.journal,finalJournal)
 })

@@ -10,6 +10,7 @@ import { objectBounds, overlapLength } from './sceneGeometry'
 import { isFallMotion, isLandingProfile, isSliding, onSlideFloor, restingObject, slidePlacementChanged } from './mechanicalProfiles'
 import { airRoomsFit } from './airProfiles'
 import { isTrappedByIce, validSwimHeight, waterSupportAt } from './aquaticMotion'
+import { isSoundWaves } from './soundWaves'
 export {sceneObject,sceneObjectLabels} from './sceneObjectDefaults'
 
 // Storage/rendering limits, not game rules. Coordinates and dimensions are metres.
@@ -33,6 +34,7 @@ function validScene(v: unknown): v is Scene {
       typeof v.palette !== 'string' || !['forest', 'stone', 'neon'].includes(v.palette) ||
       (v.environment !== undefined && !validSceneEnvironment(v.environment)) ||
       (v.physics !== undefined && v.physics !== null && !isPhysicsEnvironment(v.physics)) ||
+      (v.soundWaves!==undefined && !isSoundWaves(v.soundWaves)) ||
       !size(v.width) || !size(v.depth) || !finite(v.groundZ) || !finite(v.minZ) || !finite(v.maxZ) ||
       v.minZ > v.groundZ || v.groundZ >= v.maxZ ||
       !airRoomsFit(v.physics?.airRooms,{width:v.width,depth:v.depth,minZ:v.minZ,maxZ:v.maxZ}) ||
@@ -98,6 +100,7 @@ export function copySceneState(state: SceneState): SceneState {
     groundZ: s.groundZ, minZ: s.minZ, maxZ: s.maxZ, palette: s.palette,
     ...(s.environment !== undefined ? {environment:s.environment} : {}),
     ...(s.physics !== undefined ? {physics:copyPhysicsEnvironment(s.physics)} : {}),
+    ...(s.soundWaves?.length && s.physics?.soundTravel ? {soundWaves:structuredClone(s.soundWaves)} : {}),
     ...(s.roundDurationSeconds!==undefined?{roundDurationSeconds:s.roundDurationSeconds}:{}),
     ...(s.background !== undefined ? { background: s.background } : {}), ...(s.backgroundTileSizeM!==undefined?{backgroundTileSizeM:s.backgroundTileSizeM}:{}),
     objects: s.objects.map(o => ({ id: o.id, name: o.name, kind: o.kind, x: o.x, y: o.y, z: o.z,

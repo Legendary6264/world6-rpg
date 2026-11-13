@@ -344,6 +344,20 @@ test('Игровой экран: по видимому водоёму можно
   } finally { await f.close() }
 })
 
+test('Игровой экран добавляет тихий шаг в ход при включённом распространении звука',async()=>{
+  const f=await fixture()
+  try {
+    f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+    f.perceptions.a={title:'Двор',description:'',soundTravel:true,frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[],objects:[],
+      contacts:[{id:'self-a',kind:'self',label:'Hero a',x:3,y:3,z:0}]}
+    await f.open('a');await click('Открыть экран героя')
+    await flush(()=>document.querySelector('.gb-player-map>svg').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true})))
+    await selectValue('[aria-label="Быстрый способ движения"]','sneak')
+    await click('К отметке тихим шагом');await click('Отправить заявление')
+    assert.deepEqual(f.writes[0].actions,[{kind:'move',support:'sneak',route:[{x:4,y:3,z:0}],note:''}])
+  } finally { await f.close() }
+})
+
 test('Доработка игры: развёрнутая игра удерживает фокус и освобождает прокрутку при переходе',async()=>{
   const f=await fixture()
   try{

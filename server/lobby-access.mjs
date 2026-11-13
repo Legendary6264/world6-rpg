@@ -67,7 +67,9 @@ export function lobbyAccessRoutes(app, { db, auth, updated, lockedMembership, re
     const result = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireLobbyPermission(member, 'scenes')
       const state = JSON.parse(lobby.world_json)
-      return { revision: lobby.revision, scenes: state.campaign.scenes ?? emptyScenes(),
+      const scenes=state.campaign.scenes ?? emptyScenes()
+      // Propagating events belong to the campaign snapshot, not editable geometry.
+      return { revision: lobby.revision, scenes:{...scenes,scenes:scenes.scenes.map(({soundWaves:_soundWaves,...scene})=>scene)},
         visuals: Object.fromEntries((state.campaign.scenes?.scenes??[]).map(scene=>[scene.id,sceneAbilityVisuals(scene,state.characters,state.campaign.seconds)])),
         actors: state.characters.map(c => ({ id: c.id, name: c.name, profile: { portrait: c.profile.portrait } })) }
     }); res.json(result)

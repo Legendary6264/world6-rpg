@@ -3,7 +3,7 @@ import type { ExactAmount } from './exactWork'
 import type { RoundWorkEntry } from './roundWork'
 import type { Scene, SceneObject, ScenePosition, SceneSupport, SceneToken } from './sceneTypes'
 import { arcHeight, arcSlabs, segmentSlab as slab } from './sceneGeometry'
-import { isTerrainMovement } from './actionDeclarations'
+import { isGroundMovement, isTerrainMovement } from './actionDeclarations'
 import { liquidWaterHeight, supportsSceneTokens, waterIceCover } from './waterPhysics'
 import { FLOOR_FILM_M, surfaceContact } from './surfaceTraction'
 import type { SurfaceContact, TractionTravel } from './surfaceTraction'
@@ -70,7 +70,8 @@ export function prepareMovement(work: RoundWorkEntry, token: SceneToken | undefi
     return {work,startMs,endMs,...geometry,swimHeightM:heightM}
   }
   if (token.support.kind==='water' && work.action.support!=='air') throw Error('Сначала выйди из воды маршрутом плавания.')
-  if (work.action.support === 'ground' && !geometry.points.every(p => Math.abs(p.z - initial.z) <= EPS)) throw Error('Ходьба требует непрерывной опоры на одной высоте. Для смены высоты выбери подходящий способ движения.')
+  if (work.action.support==='sneak' && !scene.physics?.soundTravel) throw Error('Мастер должен включить распространение звука для тихого шага.')
+  if (isGroundMovement(work.action.support) && !geometry.points.every(p => Math.abs(p.z - initial.z) <= EPS)) throw Error('Ходьба требует непрерывной опоры на одной высоте. Для смены высоты выбери подходящий способ движения.')
   if (isTerrainMovement(work.action.support)) {
     if (work.movement || compareAmounts(endMs,roundEnd)>0) throw Error('Прыжок, подъём или спуск должны целиком помещаться в один раунд. Измени порядок, бюджет или длительность раунда.')
     if (token.support.kind==='air') throw Error('Прыжок, подъём или спуск начинаются на опоре.')
@@ -188,7 +189,7 @@ function portion(p:MovementPiece,t:number) {
 }
 const portionArc = (p:MovementPiece,start:number,end:number) => (p.arcM ?? 0)*((end-start)/(p.end-p.start))**2
 
-function fallingPieces(scene:Scene,token:SceneToken,seconds:number):MovementPiece[]|undefined {
+export function fallingPieces(scene:Scene,token:SceneToken,seconds:number):MovementPiece[]|undefined {
   const sweep = fallSweep(scene,token,seconds)
   if (!sweep) return undefined
   const a = point(token), b = {...a,z:sweep.z}, end = sweep.elapsed/seconds
@@ -234,7 +235,7 @@ export function advanceMovement(scene: Scene, plans: MovementPlan[], bodies: Mov
       for (const p of t.pieces) {
         const middle = addAmounts(from, scaleAmount(subtractAmounts(to, from), amountFromNumber((p.start + p.end) / 2)))
         const active = activePlans.find(m=>m.work.actorId===t.token.actorId && compareAmounts(m.startMs,middle)<=0 && compareAmounts(m.endMs,middle)>=0)
-        const walking = active?.work.action.kind === 'move' && active.work.action.support === 'ground'
+        const walking = active?.work.action.kind==='move' && isGroundMovement(active.work.action.support)
         let liquid:Range[] = [], onFoot = walking
         if (walking) {
           if (!continuousSupport(standingSpans(scene,p.a,p.b,check))) throw Error('Маршрут ходьбы пересекает участок без опоры. Согласуй другой маршрут или способ движения.')

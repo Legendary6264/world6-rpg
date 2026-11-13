@@ -44,6 +44,17 @@ test('Акустика UI: источник, фон и звуки событий
   await flush(()=>events().click());await submit();assert.equal(environment.value.eventSounds,null)
 })
 
+test('Акустика UI включает распространение только вместе со звуками событий',async()=>{
+  const env=await fixture(EnvironmentPhysicsPanel),travel=()=>document.querySelector('[name="soundTravel"]')
+  const events=()=>document.querySelector('[name="eventSounds"]')
+  assert(travel().disabled)
+  await flush(()=>events().click());assert(!travel().disabled)
+  await flush(()=>travel().click());await submit()
+  assert.equal(env.value.eventSounds,true);assert.equal(env.value.soundTravel,true)
+  await flush(()=>events().click());await submit()
+  assert.equal(env.value.eventSounds,null);assert.equal(env.value.soundTravel,null)
+})
+
 test('Оптика UI: мастер включает и отключает видимость и отдельно задаёт свет фонаря',async()=>{
   const env=await fixture(EnvironmentPhysicsPanel),named=name=>document.querySelector('[name="'+name+'"]')
   assert(!named('ambientLux'))
