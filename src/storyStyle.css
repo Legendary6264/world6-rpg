@@ -1,0 +1,73 @@
+.gb-story-panel {
+  margin: 1rem 0;
+  padding: 1rem;
+  color: #cbd8bc;
+  background: #1a2d23;
+  border: 1px solid #53684d;
+  border-radius: 10px;
+}
+.gb-story-heading,
+.gb-story-feed article > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.gb-story-heading h4 { margin: .25rem 0; }
+.gb-story-heading small,
+.gb-story-feed small,
+.gb-story-beats small { color: #afc29f; }
+.gb-story-party,
+.gb-story-audience {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  margin: .75rem 0;
+}
+.gb-story-party > span {
+  padding: .35rem .6rem;
+  background: #304330;
+  border-radius: 5px;
+  font-size: .85rem;
+}
+.gb-story-panel fieldset { min-width: 0; }
+.gb-story-panel form > fieldset,
+.gb-story-editor { padding: .5rem 0; border: 0; }
+.gb-story-panel .w6-field { margin: .75rem 0; }
+.gb-story-panel textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.gb-story-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.gb-story-feed {
+  max-height: 26rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: .8rem 0;
+}
+.gb-story-feed article,
+.gb-story-question {
+  border-left: 3px solid #a2b78a;
+  padding: .7rem 1rem;
+  margin: .6rem 0;
+  background: #243b2b;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+.gb-story-feed article[data-kind=request] { border-color: #bea77b; }
+.gb-story-feed p { margin: .45rem 0; }
+.gb-story-question { border-color: #bea77b; }
+.gb-story-layout { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(0, 3fr); gap: 1.25rem; }
+.gb-story-beats { display: grid; align-content: start; gap: .5rem; margin-top: .75rem; }
+.gb-story-beats button { text-align: left; overflow-wrap: anywhere; }
+.gb-story-beats small { display: block; margin-top: .3rem; }
+.gb-story-beats [aria-pressed=true] { background: #304330; border-color: #a2b78a; }
+.gb-story-history { margin-top: 1rem; }
+.gb-story-panel :focus-visible { outline: 2px solid #d2de9b; outline-offset: 3px; }
+@media (max-width: 650px) {
+  .gb-story-panel { padding: .7rem; }
+  .gb-story-fields,
+  .gb-story-layout { grid-template-columns: 1fr; gap: .5rem; }
+  .gb-story-beats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gb-story-panel input,
+  .gb-story-panel textarea,
+  .gb-story-panel select { font-size: 1rem; }
+}

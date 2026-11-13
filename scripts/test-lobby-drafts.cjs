@@ -135,6 +135,8 @@ async function fixture() {
     if (options?.method === 'POST' && url.endsWith('/restore')) { const body = JSON.parse(options.body); writes.push({ url, ...body }); return { world: body.world, revision: body.revision + 1 } }
     if (url === '/lobbies/mine') return ['a', 'b'].map(id => ({ id, title: 'Room ' + id, role }))
     if (url === '/characters') return cloud
+    if (/^\/lobbies\/[ab]\/play\/story$/.test(url)) return {revision:7,closed:false,paused:false,planVersion:0,beats:[],messages:[],pending:[],activeSceneId:'',scenes:[],npcs:[],heroes:[]}
+    if (/^\/lobbies\/[ab]\/characters\/hero-[ab]\/story$/.test(url)) return {closed:false,paused:false,sceneId:'',canAsk:true,contacts:[],messages:[]}
     if (url === '/lobbies/a' || url === '/lobbies/b') {
       if (failLobby) throw Error('Temporary lobby failure')
       return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, myPermissions: permissions, revision: worlds[url.at(-1)].revision, rank:'mortal',energy:'any', creationConditions:load('heroReview').defaultCreationConditions(), status: 'open', visibility: 'public', members, slots: 4 }
@@ -3375,5 +3377,96 @@ test('Способности UI: последствия окружения со�
   await flush(()=>document.querySelector('[aria-label="Пространство подтверждено Hero a · 1"]').click());await flush(()=>document.querySelector('[aria-label="Правила подтверждены Hero a · 1"]').click())
   await click('Рассчитать последствия раунда');assert(document.querySelector('[aria-label="Последствия предметов и способностей"]').textContent.includes('Фонарь эффекта · Погасить'));assert.equal(scene.objects[0].active,true)
   await click('Применить рассчитанный раунд');assert.equal(f.worlds.a.campaign.scenes.scenes[0].objects[0].active,false);assert.equal(f.worlds.a.characters[1].rpg.effects.length,1);assert.equal(f.worlds.a.characters[0].resources.mana.current,'43')
+ }finally{await f.close()}
+})
+
+function storyView(){
+ return {revision:7,closed:false,paused:false,planVersion:1,
+  beats:[{...load('campaignStory').newStoryBeat('beat-1'),title:'У ворот',sceneId:'scene-a',opening:'Ворота закрыты.',notes:'PRIVATE-MASTER-NOTE',npcId:'npc-a',alias:'Страж',reply:'Предъявите знак.'}],
+  messages:[],pending:[{id:'question-a',kind:'request',sceneId:'scene-a',actorId:'hero-a',targetId:'npc-a',targetLabel:'Страж',speaker:'Hero a',body:'Можно пройти?',audience:['hero-a'],replyTo:'',resolved:false,seconds:0,createdAt:'2026-11-13T10:00:00.000Z'}],
+  activeSceneId:'scene-a',scenes:[{id:'scene-a',name:'Двор'}],npcs:[{id:'npc-a',name:'PRIVATE-NPC-NAME',sceneId:'scene-a'}],
+  heroes:[{id:'hero-a',name:'Hero a',sceneId:'scene-a',submitted:false},{id:'friend-a',name:'Другой герой',sceneId:'scene-a',submitted:true}]}
+}
+function storyAck(operation,body,duplicate=false){
+ return {receipt:{operation,commandKey:body.commandKey,id:operation==='story-plan'?'':'message-a',revision:8,planVersion:operation==='story-plan'?2:1,appliedAt:'2026-11-13T10:00:00.000Z'},duplicate}
+}
+test('Живая игра: подготовка и выпуск добавляются одной правкой, лимит очереди проверяет оба действия',async()=>{
+ const f=await fixture()
+ try{
+  await ownActions(f,'a');f.declarations.a.options.abilities=[{id:'ward',name:'Щит',canPrepare:true}];await flush(()=>f.notify())
+  await quickMode('Способности');await selectValue('[aria-label="Быстрая способность"]','ward');await click('Подготовить и применить')
+  await click('Отменить правку очереди');assert(!enabledButton('Отправить заявление'))
+  for(let i=0;i<19;i++)await waitAction('1')
+  await click('Подготовить и применить');assert(document.body.textContent.includes('Освободи место для всей последовательности'))
+  const key=load('lobbyFormDrafts').lobbyFormKey('action-sequence',f.accountId,'a','hero-a')
+  assert.equal(JSON.parse(localStorage.getItem(key)).actions.length,19)
+  await click('Убрать действие 19');await click('Подготовить и применить');await click('Отменить правку очереди')
+  assert.equal(JSON.parse(localStorage.getItem(key)).actions.length,18)
+  await click('Подготовить и применить');await click('Отправить заявление');assert.equal(f.writes.at(-1).actions.length,20)
+  assert.deepEqual(f.writes.at(-1).actions.slice(-2).map(a=>[a.kind,a.stage,a.target.kind]),[['ability','prepare','none'],['ability','release','self']])
+ }finally{await f.close()}
+})
+test('Живая игра: меню собеседника открывает диалог, потерянное и неполное подтверждение повторяются тем же ключом',async()=>{
+ const f=await fixture(),commands=[]
+ let closed=false
+ try{
+  f.perceptions.a={title:'Двор',description:'',frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[],objects:[],contacts:[{id:'self-a',kind:'self',label:'Hero a',x:3,y:3,z:0},{id:'known-guard',kind:'identified',label:'Страж у ворот',x:4,y:3,z:0}]}
+  f.intercept((url,options)=>{
+   if(url!=='/lobbies/a/characters/hero-a/story')return
+   if(options?.method!=='POST')return {closed,paused:closed,sceneId:'scene-a',canAsk:!closed,contacts:[{id:'known-guard',label:'Страж у ворот'}],messages:[]}
+   const body=JSON.parse(options.body);commands.push(body)
+   if(commands.length===1)throw Error('Ответ потерян после записи')
+   if(commands.length===2)return {receipt:{operation:'story-question'},duplicate:true}
+   return storyAck('story-question',body,true)
+  })
+  await ownActions(f,'a');f.declarations.a.collection=null;f.declarations.a.options=null;f.declarations.a.canSubmit=false;await flush(()=>f.notify())
+  await flush(()=>document.querySelector('[aria-label="Страж у ворот"]').dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true})))
+  await click('Поговорить с Страж у ворот');assert.equal(document.querySelector('[aria-label="Собеседник на сцене"]').value,'known-guard')
+  assert(!document.querySelector('[aria-label="Диалог на сцене"]').closest('[hidden]'))
+  await input('[aria-label="Вопрос на сцене"]','Нам нужен проход.');await click('Передать вопрос мастеру');assert.equal(f.writes.length,0)
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');await click('Разговоры')
+  assert.equal(document.querySelector('[aria-label="Вопрос на сцене"]').value,'Нам нужен проход.')
+  await click('Проверить отправку вопроса');assert(document.body.textContent.includes('Не получено подтверждение вопроса'))
+  closed=true;await flush(()=>f.notify())
+  await click('Проверить отправку вопроса');assert.equal(commands.length,3);assert.deepEqual(commands[0],commands[1]);assert.deepEqual(commands[1],commands[2])
+  assert.equal(document.querySelector('[aria-label="Вопрос на сцене"]').value,'');assert.equal(commands[0].contactId,'known-guard')
+ }finally{await f.close()}
+})
+test('Живая игра: мастер отвечает выбранному герою от НПС и сохраняет отдельный план после событий мира',async()=>{
+ const f=await fixture(),view=storyView(),commands=[]
+ try{
+  f.intercept((url,options)=>{
+   if(url==='/lobbies/a/play/story')return structuredClone(view)
+   if(['/lobbies/a/play/story/plan','/lobbies/a/play/story/publish'].includes(url)){
+    const body=JSON.parse(options.body),operation=url.endsWith('/plan')?'story-plan':'story-publish';commands.push({operation,body})
+    if(operation==='story-plan'){view.beats=body.beats;view.planVersion++}
+    return storyAck(operation,body)
+   }
+  })
+  await f.open('a');await flush();await click('Ответить Hero a')
+  assert.equal(document.querySelector('[aria-label="Говорящий НПС"]').value,'npc-a');assert.equal(document.querySelector('[aria-label="Имя говорящего для игроков"]').value,'Страж')
+  await input('[aria-label="Текст реплики мастера"]','Покажите знак.');await click('Опубликовать выбранным героям')
+  assert.deepEqual(commands[0].body.audience,['hero-a']);assert.equal(commands[0].body.replyTo,'question-a');assert.equal(commands[0].body.kind,'npc')
+  await click('План и заготовки');await input('[aria-label="Заметки эпизода"]','Новая тайная улика')
+  view.revision++;await flush(()=>f.notify());await click('Сохранить план приключения')
+  assert.equal(commands[1].body.baseVersion,1);assert.equal(commands[1].body.beats[0].notes,'Новая тайная улика')
+  await click('Подготовить вступление');assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Ворота закрыты.')
+  assert(!document.querySelector('[aria-label="Реплика мастера"]').closest('[hidden]'));assert.equal(commands.length,2)
+  assert([...document.querySelectorAll('button')].find(b=>b.textContent==='Опубликовать выбранным героям').disabled)
+ }finally{await f.close()}
+})
+test('Живая игра: конфликт плана сохраняет черновик, пауза блокирует публикацию и оставляет подготовку',async()=>{
+ const f=await fixture(),view=storyView()
+ try{
+  f.intercept(url=>url==='/lobbies/a/play/story'?structuredClone(view):undefined)
+  await f.open('a');await flush();await click('План и заготовки');await input('[aria-label="Заметки эпизода"]','Мой локальный замысел')
+  view.planVersion++;view.paused=true;await flush(()=>f.notify())
+  assert(document.body.textContent.includes('План изменился у другого ведущего'))
+  assert.equal(document.querySelector('[aria-label="Заметки эпизода"]').value,'Мой локальный замысел')
+  assert([...document.querySelectorAll('button')].find(b=>b.textContent==='Сохранить план приключения').disabled)
+  await click('Загрузить текущий план');assert.equal(document.querySelector('[aria-label="Заметки эпизода"]').value,'PRIVATE-MASTER-NOTE')
+  await click('Подготовить вступление');await click('Всем героям этой сцены')
+  assert([...document.querySelectorAll('button')].find(b=>b.textContent==='Опубликовать выбранным героям').disabled)
+  assert(document.body.textContent.includes('Игра на паузе'))
  }finally{await f.close()}
 })

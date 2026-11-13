@@ -32,6 +32,7 @@ export function retainCharacterExposure(previous,next){
  if(equipment||exposure!==next.body.exposure||exposureProtection!==next.body.exposureProtection||contactDoses!==next.body.contactDoses||breathUsedSeconds!==next.body.breathUsedSeconds)characterSize(next)
 }
 export function retainCampaignContactProtection(previous,next){retainContactProtection(previous.items,next.items)}
+export function retainPublishedStory(previous,next){if(previous.story)next.story=structuredClone(previous.story)}
 export const emptyWorld=()=>({characters:[],campaign:emptyCampaign()})
 export function preservePublishedSceneFields(current,next){
  for(const scene of next?.scenes??[]){const old=current?.scenes.find(s=>s.id===scene.id)

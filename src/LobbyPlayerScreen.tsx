@@ -12,6 +12,7 @@ import { journalCategories, certaintyOptions } from './characterKnowledge'
 import PerceivedScene from './PerceivedScene'
 import LobbyWorkbench from './LobbyWorkbench'
 import LobbyConversations from './LobbyConversations'
+import LobbyDialogue from './LobbyDialogue'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
 import {NetworkError} from './onlineClient'
 import {isKnowledgeCommand,isKnowledgeAck,hasKnowledgeEntry} from './knowledgeCommands'
@@ -27,6 +28,7 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
   const [opened, setOpened] = useState(false), [note, setNote] = useState<Note>(() => readLobbyForm(key, valid) ?? { title: '', text: '' }), [selected, setSelected] = useState('')
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [warning, setWarning] = useState(''), [query, setQuery] = useState(''), [pointChoice, setPointChoice] = useState<{sceneId:string;point:ScenePosition} | null>(null), [selectedObject,setSelectedObject]=useState(''), [queue,setQueue]=useState<DeclaredAction[]>([])
   const [abilityAim,setAbilityAim]=useState<SceneAbilityAim|null>(null)
+  const [playerSection,setPlayerSection]=useState('actions'),[conversationTarget,setConversationTarget]=useState('')
   const appendSceneAction=useRef<((action:DeclaredAction)=>boolean)|null>(null)
   const active = useRef(false), pending = useRef<AbortController | null>(null)
   useEffect(() => { active.current = true; return () => { active.current = false; pending.current?.abort() } }, [])
@@ -65,11 +67,12 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
   return <section className="w6-fieldset gb-player-screen"><h4>Экран героя</h4><button className="w6-button" disabled={checkingAccess || busy} onClick={() => setOpened(!opened)}>{opened ? 'Свернуть экран героя' : 'Открыть экран героя'}</button>
     {opened && <><p role="status">{remote.loading ? 'Загружаем доступные герою сведения…' : remote.error}</p>{value && <>
       <GameHeroHud hero={value.hero} map={value.map} seconds={value.seconds} work={value.work}/><p className="w6-copy">Сведения героя индивидуальны. Мастер управляет раскрытием; выбор отметки не перемещает героя и не тратит время.</p>
-      <LobbyWorkbench label={'Разделы героя '+character.name} sections={[
+      <LobbyWorkbench label={'Разделы героя '+character.name} selectedId={playerSection} onSelectSection={setPlayerSection} sections={[
         {id:'actions',label:'Сцена и действия',content:<>
       {value.map ? <PerceivedScene abilityAim={abilityAim} onObjectMove={value.closed?undefined:(id,point)=>{if(checkingAccess||remote.loading)return false;const accepted=appendSceneAction.current?.({kind:'interact',target:{kind:'object',id},operation:'relocate',destination:point,note:''})??false;setMessage(accepted?'Перемещение добавлено в ход. Положение изменится после исполнения раунда.':'Не удалось добавить перемещение. Проверь очередь действий.');return accepted}} map={value.map} selected={selected} onSelect={id=>{setSelected(id);setSelectedObject('')}} onObject={id=>{setSelectedObject(id);setSelected('')}} selectedObject={selectedObject} pickedPoint={pickedPoint} plannedRoute={queue.flatMap(a=>a.kind==='move'?a.route:[])} onPoint={p=>{setPointChoice({sceneId:value.map!.frame.id,point:p})}}/> : <p className="gb-scene-empty">Мастер ещё не открыл этому герою сцену.</p>}
       {!!observations.length&&<section className="gb-game-feed" aria-label="Последние наблюдения героя">{observations.map(e=><article key={e.id}><strong>{e.title} · {e.gameTime}</strong><p className="w6-prose">{e.text}</p></article>)}</section>}
-      <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading||!!value.closed} selectedContact={selected} pickedPoint={pickedPoint} members={members} map={value.map} selectedObject={selectedObject} onAimChange={setAbilityAim} onQueue={setQueue} sceneActionRef={appendSceneAction}/></Suspense>
+      <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading||!!value.closed} selectedContact={selected} pickedPoint={pickedPoint} members={members} map={value.map} selectedObject={selectedObject} onAimChange={setAbilityAim} onQueue={setQueue} sceneActionRef={appendSceneAction}
+        onTalk={()=>{setConversationTarget(selected);setPlayerSection('conversations')}}/></Suspense>
         </>},
         {id:'state',label:'Состояние',content:<div className="gb-player-tabs">
 <details open><summary>Состояние и возможности</summary>
@@ -79,7 +82,11 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
       </details><details><summary>Инвентарь</summary>{value.inventory.length ? value.inventory.map(i => <p key={i.id}>{i.name} × {i.quantity} · {i.description}</p>) : <p>Инвентарь пуст.</p>}</details>
       <div aria-label="Мои заряды">{value.hero.charges?.map(c=><p key={c.id}>{c.name}: {c.status==='ready'?'готов к отдельному выпуску':'подготовка'}.{c.holding&&<> {c.status==='ready'&&c.holding.remainingSeconds!==null?'Осталось удержания: '+c.holding.remainingSeconds+' с.':''} Расход удержания за мировую секунду: Мана {c.holding.holdCost.mana}, Тень {c.holding.holdCost.shadow}, Выносливость {c.holding.holdCost.stamina}.</>}</p>)}</div><details><summary>Известные способности</summary>{value.hero.abilities?.length ? value.hero.abilities.map(a => <p key={a.id}><strong>{a.name}</strong> · {a.description}</p>) : <p>Нет утверждённых способностей.</p>}</details>
         </div>},
-        {id:'conversations',label:'Разговоры',content:<LobbyConversations journal={value.knowledge.journal}/>},
+        {id:'conversations',label:'Разговоры',content:<>
+          <LobbyDialogue key={character.id+':'+conversationTarget} accountId={accountId} lobbyId={lobbyId} characterId={character.id} contactId={conversationTarget}
+            checkingAccess={checkingAccess||remote.loading} />
+          <details><summary>Реплики исполненных раундов</summary><LobbyConversations journal={value.knowledge.journal}/></details>
+        </>},
         {id:'journal',label:'Журнал',content:<div className="gb-player-tabs">
       <details open><summary>Знания и журнал</summary><label className="w6-field"><span>Поиск в журнале героя</span><input aria-label="Поиск в журнале героя" value={query} onChange={e => setQuery(e.currentTarget.value)}/></label>
         <p className="w6-copy">Показаны последние {Math.min(20, entries.length)} из {entries.length} подходящих записей.</p>

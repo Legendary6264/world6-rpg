@@ -13,7 +13,8 @@ import type { DeclaredAction, DeclarationOptions, DeclarationTarget } from './ac
 import type { PerceivedMap } from './scenePerception'
 import type { ScenePosition } from './sceneTypes'
 
-export default function GameActionBar({ map, point, contactId, objectId, options, disabled, onAdd, draft, onChange,onAimChange,resolveAim,environmentOnly=false }: {
+export default function GameActionBar({ map, point, contactId, objectId, options, disabled, onAdd, draft, onChange,onAimChange,resolveAim,environmentOnly=false,onTalk,onAddMany }: {
+  onTalk?:()=>void;onAddMany?:(actions:DeclaredAction[])=>boolean;
   onAimChange?:(aim:SceneAbilityAim|null)=>void;resolveAim?:(aim:SceneAbilityAim)=>SceneAbilityAim;environmentOnly?:boolean;
   map: PerceivedMap | null; point: ScenePosition | null; contactId: string; objectId: string;
   options: DeclarationOptions | null; disabled: boolean; onAdd: (action: DeclaredAction) => boolean; draft: QuickActionDraft; onChange: (draft: QuickActionDraft) => void;
@@ -50,6 +51,7 @@ export default function GameActionBar({ map, point, contactId, objectId, options
   return <section className="gb-game-actionbar" aria-label="Быстрые игровые действия">
     <div className="gb-game-modes">{([['world','Мир'],['speak','Речь'],['item','Предметы'],['ability','Способности']] as const).filter(([id])=>!environmentOnly||id==='world'||id==='ability').map(([id,label])=><button key={id} className="w6-button" type="button" aria-pressed={mode===id} onClick={()=>field('mode',id)}>{label}</button>)}</div>
     <p className="ui-action-context"><strong>{modeHelp[0]}</strong>{modeHelp[1]}</p>
+    {mode==='world'&&onTalk&&contact?.kind==='identified'&&<button type="button" className="w6-button" onClick={onTalk}>Поговорить с {contact.label}</button>}
     <fieldset disabled={disabled}>
       {mode==='world'&&<><p className="gb-game-context">{object?<><strong>{object.name}</strong> · {object.visible?'объект перед тобой':'последнее известное состояние'}{object.kind==='door'&&(object.open?' · открыта':' · закрыта')}</>:contact?<><strong>{contact.label}</strong>{contact.signs&&' · '+contact.signs}</>:shownPoint?<>Отметка ({shownPoint.x}, {shownPoint.y}, {shownPoint.z}) м</>:'Нажми на землю, предмет или существо на карте.'}</p>
         {falling && !environmentOnly && <p className="gb-game-help">Герой падает. Новый маршрут можно задать после приземления.</p>}
@@ -93,6 +95,12 @@ export default function GameActionBar({ map, point, contactId, objectId, options
         {aim==='selected'&&selectedLabel&&<p className="gb-game-help">{selectedLabel}{object&&!object.visible?' · последняя известная отметка':''}{selectedAbility?.spatial?' · наведение по центру':''}</p>}
         {aimPreview&&<SceneAbilityAimSummary aim={aimPreview} targets={contents}/>}
         <div className="w6-buttons"><button className="w6-button" disabled={!!draft.castId||!template||template.canPrepare===false} onClick={()=>onAdd({kind:'ability',abilityId:ability,stage:'prepare',target:{kind:'none'},note:''})}>Подготовить способность</button><button className="w6-button" disabled={!selectedAbility||!releaseTarget||aimPreview?.valid===false} onClick={()=>{if(releaseTarget)onAdd({kind:'ability',abilityId:ability,stage:'release',target:releaseTarget,note:'',...(draft.castId?{castId:draft.castId}:{})})}}>Применить способность</button></div></>}
+      {mode==='ability'&&!draft.castId&&onAddMany&&!environmentOnly&&<button type="button" className="w6-button"
+        disabled={!template||template.canPrepare===false||!releaseTarget||aimPreview?.valid===false}
+        onClick={()=>{if(releaseTarget)onAddMany([
+          {kind:'ability',abilityId:ability,stage:'prepare',target:{kind:'none'},note:''},
+          {kind:'ability',abilityId:ability,stage:'release',target:releaseTarget,note:''},
+        ])}}>Подготовить и применить</button>}
     </fieldset>
     <p className="gb-game-help">Кнопки добавляют действия в твой ход. Когда план готов — отправь его мастеру.</p>
   </section>

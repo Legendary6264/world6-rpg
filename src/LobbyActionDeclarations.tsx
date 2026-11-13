@@ -30,8 +30,8 @@ const valid = (v: unknown): v is Draft => !!v && typeof v === 'object' && (() =>
     (!d.submission||validBase(d.submission)&&typeof d.submission.commandKey==='string'&&/^declaration:[a-zA-Z0-9_-]{8,140}$/.test(d.submission.commandKey)&&Array.isArray(d.submission.actions)&&d.submission.actions.length>0&&d.submission.actions.length<=20&&d.submission.actions.every(isDeclaredAction)) })()
 const hasDraftContent=(d:Draft)=>d.actions.length>0||d.form.route.length>0||!!d.quick?.text.trim()||Object.keys(emptyForm()).some(k=>k!=='route'&&(d.form[k as keyof Form]??emptyForm()[k as keyof Form])!==emptyForm()[k as keyof Form])
 const coordinate = (s: string) => s.trim() ? Number(s.replace(',', '.')) : NaN
-export default function LobbyActionDeclarations({ accountId, lobbyId, characterId, checkingAccess, selectedContact, pickedPoint, members, map = null, selectedObject = '', onQueue,sceneActionRef,onAimChange }: {
-  onAimChange?:(aim:SceneAbilityAim|null)=>void;accountId: string; lobbyId: string; characterId: string; checkingAccess: boolean; selectedContact: string; pickedPoint: ScenePosition | null; members: {id:string;displayName:string}[]; map?: PerceivedMap | null; selectedObject?: string; onQueue?: (actions: DeclaredAction[]) => void;sceneActionRef?:{current:((action:DeclaredAction)=>boolean)|null} }) {
+export default function LobbyActionDeclarations({ accountId, lobbyId, characterId, checkingAccess, selectedContact, pickedPoint, members, map = null, selectedObject = '', onQueue,sceneActionRef,onAimChange,onTalk }: {
+  onTalk?:()=>void;onAimChange?:(aim:SceneAbilityAim|null)=>void;accountId: string; lobbyId: string; characterId: string; checkingAccess: boolean; selectedContact: string; pickedPoint: ScenePosition | null; members: {id:string;displayName:string}[]; map?: PerceivedMap | null; selectedObject?: string; onQueue?: (actions: DeclaredAction[]) => void;sceneActionRef?:{current:((action:DeclaredAction)=>boolean)|null} }) {
   const { request, refresh } = useOnline(), path = '/lobbies/' + lobbyId + '/characters/' + characterId + '/declarations'
   const remote = useRemote<HeroDeclarations>(path), key = lobbyFormKey('action-sequence', accountId, lobbyId, characterId)
   const [draft, setDraft] = useState(() => readLobbyForm(key, valid) ?? { form: emptyForm(), actions: [] }), [busy, setBusy] = useState(false)
@@ -60,16 +60,26 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
   }
   function editQueue(actions:DeclaredAction[]) { const next=remember({...draft,actions});setUndo({actions:draft.actions,base:JSON.stringify(next.base)}) }
   const repeatedCharge=(action:DeclaredAction)=>action.kind==='ability'&&action.stage==='release'&&!!action.castId&&draft.actions.some(a=>a.kind==='ability'&&a.stage==='release'&&a.castId===action.castId)
-  function appendAction(action:DeclaredAction):boolean {
-    if(!isDeclaredAction(action)||draft.actions.length>=20)return false
-    if(repeatedCharge(action)){setMessage('Этот заряд уже запланирован к выпуску в очереди. Каждый заряд выпускается один раз.');return false}
-    if(action.kind==='item'&&action.operation==='consume'){
-      const available=value?.options?.items.find(i=>i.id===action.itemId)?.quantity
-      const planned=draft.actions.reduce((n,a)=>n+(a.kind==='item'&&a.itemId===action.itemId&&a.operation==='consume'?a.quantity:0),0)
-      if(available!==undefined&&planned+action.quantity>available){setMessage('В очереди уже использованы все доступные дозы этого предмета.');return false}
+  function appendActions(actions:DeclaredAction[]):boolean {
+    if(!actions.length||!actions.every(isDeclaredAction)||draft.actions.length+actions.length>20){
+      setMessage('В ходе допускается до 20 действий. Освободи место для всей последовательности.');return false
     }
-    const next=remember({...draft,actions:[...draft.actions,action],...(action.kind==='speak'?{quick:{...(draft.quick??emptyQuickAction()),text:''}}:{})});setUndo({actions:draft.actions,base:JSON.stringify(next.base)});setMessage('Действие добавлено в ход.');return true
+    const combined=[...draft.actions,...actions],charges=new Set<string>()
+    for(const action of combined){
+      if(action.kind==='ability'&&action.stage==='release'&&action.castId){
+        if(charges.has(action.castId)){setMessage('Этот заряд уже запланирован к выпуску в очереди. Каждый заряд выпускается один раз.');return false}
+        charges.add(action.castId)
+      }
+      if(action.kind==='item'&&action.operation==='consume'){
+        const available=value?.options?.items.find(i=>i.id===action.itemId)?.quantity
+        const planned=combined.reduce((n,a)=>n+(a.kind==='item'&&a.itemId===action.itemId&&a.operation==='consume'?a.quantity:0),0)
+        if(available!==undefined&&planned>available){setMessage('В очереди уже использованы все доступные дозы этого предмета.');return false}
+      }
+    }
+    const next=remember({...draft,actions:combined,...(actions.some(action=>action.kind==='speak')?{quick:{...(draft.quick??emptyQuickAction()),text:''}}:{})})
+    setUndo({actions:draft.actions,base:JSON.stringify(next.base)});setMessage(actions.length===1?'Действие добавлено в ход.':'Подготовка и применение добавлены в ход.');return true
   }
+  const appendAction=(action:DeclaredAction)=>appendActions([action])
   async function submit() {
     if(!available||!value||!draft.submission&&!canSend||inFlight.current)return
     const source = draft, b = source.base ?? source.submission ?? base(); if (!b) return
@@ -108,7 +118,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
         <p>Автор плана: {members.find(m => m.id === value.entry!.submittedBy)?.displayName ?? 'Участник кампании'}</p>{value.entry.actions.map((a, i) => <p key={i}>{i + 1}. {gameActionLabel(a,value?.options)} · {targetLabel(a)}{a.note && ' · ' + a.note}</p>)}{value.entry.note && <p>Замечание мастера: {value.entry.note}</p>}
         <button className="w6-button" disabled={!editable} onClick={loadSent}>Загрузить отправленное в черновик</button></details>}
     </>}
-    <GameActionBar onAimChange={onAimChange} map={map} point={pickedPoint} contactId={selectedContact} objectId={selectedObject} options={value?.options??null} disabled={!editable||draft.actions.length>=20} draft={draft.quick??emptyQuickAction()} onChange={quick=>remember({...draft,quick})} onAdd={appendAction}/>
+    <GameActionBar onAimChange={onAimChange} onTalk={onTalk} map={map} point={pickedPoint} contactId={selectedContact} objectId={selectedObject} options={value?.options??null} disabled={!editable||draft.actions.length>=20} draft={draft.quick??emptyQuickAction()} onChange={quick=>remember({...draft,quick})} onAdd={appendAction} onAddMany={appendActions}/>
     <details className="gb-game-advanced"><summary>Точные параметры и сложная последовательность</summary><fieldset disabled={!editable}><legend>Черновик последовательности</legend>
       {pickedPoint && <button className="w6-button" onClick={() => remember({ ...draft, form: { ...f, targetKind: ['area','direction'].includes(f.targetKind)?f.targetKind:'point', x: String(pickedPoint.x), y: String(pickedPoint.y), z: String(pickedPoint.z) } })}>Использовать выбранные координаты ({pickedPoint.x}; {pickedPoint.y}; {pickedPoint.z})</button>}
       {value?.options?.targets.some(t => t.kind === 'contact' && t.id === selectedContact) && <button className="w6-button" onClick={() => remember({ ...draft, form: { ...f, targetKind: 'contact', targetId: selectedContact } })}>Использовать отмеченный контакт</button>}<label className="w6-field"><span>Категория действия</span><select aria-label="Категория действия" value={f.kind} onChange={e => field('kind', e.currentTarget.value)}>{actionKinds.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}</select></label>
