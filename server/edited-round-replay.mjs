@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto'
 import {fail,integer,validId} from './validation.mjs'
 import {requireLobbyPermission} from './permissions.mjs'
 import {roundGeneration,createRoundCalculation} from './rounds.mjs'
+import {requireRoundContext} from './round-context.mjs'
 import {compatibleRoundExecutor} from './generated/roundExecution.mjs'
 import {isRoundReplay,releaseSignature} from './generated/roundReplay.mjs'
 
@@ -66,11 +67,11 @@ export function editedReplayRoutes(app,{db,auth,lockedMembership}){
  })
  app.post('/api/lobbies/:id/rounds/replay/edited/calculate',auth.middleware,async(req,res)=>{
   const b=req.body
-  if(!record(b)||Object.keys(b).length!==6||!record(b.input)||b.input.replay!==undefined||!Array.isArray(b.choices)||b.choices.length>200)fail(400,'Передай текущие решения и явный выбор бросков.')
+  if(!record(b)||Object.keys(b).length!==(Object.hasOwn(b,'rulesStamp')?7:6)||!record(b.input)||b.input.replay!==undefined||!Array.isArray(b.choices)||b.choices.length>200)fail(400,'Передай текущие решения и явный выбор бросков.')
   const result=await db.transaction(async tx=>{
    const {lobby,member}=await lockedMembership(tx,req);master(member)
    if(lobby.status==='closed')fail(409,'Лобби закрыто.')
-   if(lobby.revision!==integer(b.revision))fail(409,'Кампания изменилась. Сверь сопоставление заново.')
+   await requireRoundContext(tx,lobby,b,'Условия раунда изменились. Сверь сопоставление заново.')
    const c=JSON.parse(lobby.world_json).campaign.declarations?.active
    if(!c||c.id!==validId(b.collectionId)||c.epoch!==integer(b.epoch))fail(409,'Сбор изменился. Сверь заявления заново.')
    const s=await source(tx,lobby)

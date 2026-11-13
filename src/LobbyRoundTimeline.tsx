@@ -10,13 +10,16 @@ import './roundTimeline.css'
 import LobbyRoundExecution from './LobbyRoundExecution'
 import type { RoundWork } from './roundWork'
 import type { AcousticScene } from './acoustics'
+import {isRoundRulesStamp,sameRoundContext} from './roundPreviewContext'
 
-type Source = { revision: number; collectionId: string; epoch: number }
+type Source = { revision: number; rulesStamp?:string; collectionId: string; epoch: number }
+const sourceStamp=(source:Source)=>JSON.stringify([source.rulesStamp??source.revision,source.collectionId,source.epoch])
 type Draft = { source: Source; actors: { actorId: string; budget: string; costs: string[] }[] }
 type Preview = { source: string; timeline: RoundTimeline }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const shortText = (v: unknown): v is string => typeof v === 'string' && v.length <= 40
 const valid = (v: unknown): v is Draft => record(v) && record(v.source) && Number.isSafeInteger(v.source.revision) &&
+  (v.source.rulesStamp===undefined||isRoundRulesStamp(v.source.rulesStamp))&&
   typeof v.source.collectionId === 'string' && Number.isSafeInteger(v.source.epoch) && Array.isArray(v.actors) && v.actors.length <= 200 &&
   v.actors.every(a => record(a) && typeof a.actorId === 'string' && a.actorId.length <= 160 && shortText(a.budget) &&
     Array.isArray(a.costs) && a.costs.length <= 20 && a.costs.every(shortText)) && new Set(v.actors.map(a => a.actorId)).size === v.actors.length
@@ -26,12 +29,12 @@ const milliseconds = (text: string) => {
 }
 const format = (value: number) => value > 0 && value < 0.001 ? '<0,001' : value.toLocaleString('ru-RU', { maximumFractionDigits: 3 })
 
-export default function LobbyRoundTimeline({ accountId, lobbyId, collection, revision, checkingAccess, roundWork, executed, actors, objects, movementBodies, acoustics }: {
-  accountId: string; lobbyId: string; collection: DeclarationCollection; revision: number; checkingAccess: boolean;
+export default function LobbyRoundTimeline({ accountId, lobbyId, collection, revision, rulesStamp, checkingAccess, roundWork, executed, actors, objects, movementBodies, acoustics }: {
+  accountId: string; lobbyId: string; collection: DeclarationCollection; revision: number; rulesStamp?:string; checkingAccess: boolean;
   roundWork: RoundWork; executed: boolean; actors: RuleActor[]; objects: (RuleSceneObject & {sceneId:string})[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]; acoustics?: AcousticScene
 }) {
   const { request } = useOnline(), key = lobbyFormKey('round-timeline', accountId, lobbyId, collection.id)
-  const source: Source = { revision, collectionId: collection.id, epoch: collection.epoch }, sourceKey = JSON.stringify(source)
+  const source: Source = { revision,...(rulesStamp?{rulesStamp}:{}), collectionId: collection.id, epoch: collection.epoch }, sourceKey = sourceStamp(source)
   const [draft, setDraft] = useState<Draft>(() => readLobbyForm(key, valid) ?? { source, actors: [] })
   const [preview, setPreview] = useState<Preview | null>(null), [busy, setBusy] = useState<{ source: string; request: typeof request } | null>(null)
   const [message, setMessage] = useState(''), [warning, setWarning] = useState('')
@@ -42,7 +45,7 @@ export default function LobbyRoundTimeline({ accountId, lobbyId, collection, rev
     sequence.current += 1; pending.current?.abort()
     return () => { sequence.current += 1; pending.current?.abort() }
   }, [sourceKey, request])
-  const entries = collection.entries.filter(e => e.status === 'submitted'), stale = JSON.stringify(draft.source) !== sourceKey
+  const entries = collection.entries.filter(e => e.status === 'submitted'), stale = sourceStamp(draft.source) !== sourceKey
   const row = (id: string) => draft.actors.find(a => a.actorId === id) ?? { actorId: id, budget: '', costs: [] }
   function remember(next: Draft) {
     sequence.current += 1; pending.current?.abort(); setBusy(null); setPreview(null); setMessage('')
@@ -59,11 +62,11 @@ export default function LobbyRoundTimeline({ accountId, lobbyId, collection, rev
     const abort = new AbortController(), attempt = ++sequence.current, origin = sourceKey
     pending.current?.abort(); pending.current = abort; setBusy({ source: origin, request }); setPreview(null); setMessage('')
     try {
-      const result = await request<{ revision: number; timeline: RoundTimeline }>('/lobbies/' + lobbyId + '/declarations/preview', {
+      const result = await request<{ revision: number; rulesStamp?:string; timeline: RoundTimeline }>('/lobbies/' + lobbyId + '/declarations/preview', {
         method: 'POST', signal: abort.signal, body: JSON.stringify({ ...source, timings }),
       })
       if (!active.current || abort.signal.aborted || attempt !== sequence.current || origin !== currentSource.current) return
-      if (result.revision !== revision || result.timeline.collectionId !== collection.id || result.timeline.epoch !== collection.epoch) {
+      if (!sameRoundContext(result,revision,rulesStamp) || result.timeline.collectionId !== collection.id || result.timeline.epoch !== collection.epoch) {
         setMessage('Предпросмотр относится к другой версии. Обнови заявления.'); return
       }
       setPreview({ source: origin, timeline: result.timeline }); setMessage('Временная шкала рассчитана. Игровое состояние не изменено.')
@@ -106,7 +109,7 @@ export default function LobbyRoundTimeline({ accountId, lobbyId, collection, rev
         {action.status === 'continues' && <p>Прогноз прогресса: {format(action.progressPercent)}%. Исполнение ниже рассчитает и сохранит фактический остаток с учётом прежней работы.</p>}
       </article>))}
     </div>}
-    <LobbyRoundExecution accountId={accountId} lobbyId={lobbyId} collection={collection} revision={revision} checkingAccess={checkingAccess}
+    <LobbyRoundExecution accountId={accountId} lobbyId={lobbyId} collection={collection} revision={revision} rulesStamp={rulesStamp} checkingAccess={checkingAccess}
       timings={timings} timingReady={!incomplete && !stale} roundWork={roundWork} executed={executed} actors={actors} objects={objects} movementBodies={movementBodies} acoustics={acoustics}/>
   </section>
 }

@@ -76,7 +76,7 @@ export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speec
   slides?: { stops:SlideStop[]; moving:SlideStatus[] }; exposure?: ExposureChange[];
   traction?: {walks:WalkTraction[]; slides:SlideTraction[]}; sounds?:RoundSound[]; earlierSoundArrivals?:EarlierSoundArrival[]; contacts?:ContactOutcome[];
   breathing?: {actorId:string; underwaterSeconds:number; breathUsedSeconds:number}[] }
-export type RoundExecutionPreview = { id: string; revision: number; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
+export type RoundExecutionPreview = { id: string; revision: number; rulesStamp?:string; generation: number; collectionId: string; epoch: number; summary: RoundExecutionSummary }
 export type RoundReceipt = { id: string; previewId: string; collectionId: string; revision: number; generation: number; appliedAt: string; summary: RoundExecutionSummary }
 const zero = exactAmount(0n), thousand = exactAmount(1000n)
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)

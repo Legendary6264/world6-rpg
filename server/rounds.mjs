@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { fail, id, integer, now, world as validateWorld } from './validation.mjs'
 import { requireLobbyPermission } from './permissions.mjs'
 import { calculateRound, ROUND_EXECUTOR_VERSION } from './generated/roundExecution.mjs'
+import {requireRoundContext,roundRulesToken} from './round-context.mjs'
 const requireMaster = member => { requireLobbyPermission(member, 'rounds'); requireLobbyPermission(member, 'viewSecrets') }
 export const MAX_HISTORY_BYTES = 64 * 1024 * 1024, MAX_PREVIEW_BYTES = 32 * 1024 * 1024
 export async function roundGeneration(tx, lobbyId) { return (await tx.get('SELECT generation FROM round_generations WHERE lobby_id=?', [lobbyId]))?.generation ?? 1 }
@@ -23,7 +24,7 @@ export function roundRoutes(app, { db, auth, updated, lockedMembership, record }
       const { lobby, member } = await lockedMembership(tx, req); requireMaster(member)
       if (lobby.status === 'closed') fail(409, 'Лобби закрыто.')
       await requireCampaignRunning(tx,lobby.id)
-      if (lobby.revision !== integer(req.body.revision)) fail(409, 'Кампания изменилась. Проверь расчёт с новой версией.')
+      await requireRoundContext(tx,lobby,req.body,'Условия раунда изменились. Проверь расчёт с новой версией.')
       const state = JSON.parse(lobby.world_json), c = state.campaign.declarations?.active, generation = await roundGeneration(tx, lobby.id)
       if (!c || c.phase !== 'closed' || c.id !== req.body.collectionId || c.epoch !== integer(req.body.epoch)) fail(409, 'Сначала закрой текущий сбор и проверь его версию.')
       if (await collectionExecuted(tx,lobby.id,generation,c.id)) fail(409, 'Этот сбор уже исполнен. Сохрани его в истории и открой следующий.')
@@ -110,5 +111,5 @@ export async function createRoundCalculation(tx,lobby,authorId,input,executionSe
   await checkPreviewSpace(tx,lobby,authorId,bytes)
   await tx.run('INSERT INTO round_previews(id,lobby_id,author_id,generation,base_revision,collection_id,epoch,controls_stamp,executor_version,world_json,summary_json,payload_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',[previewId,lobby.id,authorId,generation,lobby.revision,c.id,c.epoch,await controlsStamp(tx,lobby.id),ROUND_EXECUTOR_VERSION,worldJson,summaryJson,bytes])
   await tx.run('INSERT INTO round_calculation_data(preview_id,input_json,execution_seed) VALUES(?,?,?)',[previewId,inputJson,seed])
-  return {id:previewId,revision:lobby.revision,generation,collectionId:c.id,epoch:c.epoch,summary:result.summary}
+  return {id:previewId,revision:lobby.revision,rulesStamp:await roundRulesToken(tx,lobby),generation,collectionId:c.id,epoch:c.epoch,summary:result.summary}
 }

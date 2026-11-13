@@ -97,7 +97,7 @@ async function fixture() {
     characters: [{ ...createDefaultCharacter(), id: 'hero-' + id, name: 'Hero ' + id }], campaign: emptyCampaign(), revision: 7,
   }]))
   let mounted = true, role = 'GM', permissions = [...lobbyPermissions], failLobby = false, intercept = null
-  const context = { user: { id: accountId }, events: 0, socket: null, refresh: () => {} }
+  const context = { user: { id: accountId }, events: 0, socket: null, refresh: () => {} },rulesStamps={}
   const request = async (url, options) => {
     if (intercept) {
       const intercepted = intercept(url, options)
@@ -112,7 +112,7 @@ async function fixture() {
       const input=eventSounds?{...body.input,soundRecordedAt:'2026-11-09T09:00:00.000Z'}:body.input
       const result=load('roundExecution').calculateRound(w,collection,input,id)
       roundPreviews.set(id,{world:result.world,summary:result.summary,source:w.revision})
-      return {id,revision:w.revision,generation:1,collectionId:body.collectionId,epoch:body.epoch,summary:result.summary}
+      return {id,revision:w.revision,rulesStamp:body.rulesStamp,generation:1,collectionId:body.collectionId,epoch:body.epoch,summary:result.summary}
     }
     if (options?.method === 'POST' && url.endsWith('/rounds/apply')) {
       const body=JSON.parse(options.body), lobby=url.split('/')[2], w=worlds[lobby]
@@ -127,7 +127,7 @@ async function fixture() {
     if (options?.method === 'POST' && url.endsWith('/declarations/preview')) {
       const body=JSON.parse(options.body), w=worlds[url.split('/')[2]]
       previews.push({url,...body})
-      return {revision:w.revision,timeline:load('roundTimeline').previewRoundTimeline(w.campaign.declarations.active,body.timings)}
+      return {revision:w.revision,rulesStamp:body.rulesStamp,timeline:load('roundTimeline').previewRoundTimeline(w.campaign.declarations.active,body.timings)}
     }
     if (options?.method === 'PUT' && url.endsWith('/declarations')) { const body=JSON.parse(options.body); writes.push({url,...body}); return {entryVersion:body.baseVersion+1} }
     if (['POST','PATCH'].includes(options?.method) && /declarations(?:\/return)?$/.test(url)) { writes.push({url,...JSON.parse(options.body)}); return {ok:true} }
@@ -146,7 +146,7 @@ async function fixture() {
     const declarationMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/declarations$/)
     if(declarationMatch) return structuredClone(declarations[declarationMatch[1]])
     const masterMatch=url.match(/^\/lobbies\/([ab])\/declarations$/)
-    if(masterMatch) { const w=worlds[masterMatch[1]]; return {revision:w.revision,executed:!!w.executed,roundWork:structuredClone(w.campaign.roundWork??{version:1,entries:[]}),movementBodies:(w.campaign.scenes?.scenes??[]).flatMap(s=>s.tokens.map(t=>({sceneId:s.id,actorId:t.actorId,diameter:t.diameter}))),declarations:structuredClone(w.campaign.declarations??{version:1,active:null,archive:[]}),scenes:(w.campaign.scenes?.scenes??[]).map(s=>({id:s.id,name:s.name,objects:s.objects.map(o=>({id:o.id,name:o.name,operations:load('tabletopInteractions').objectOperations.filter(operation=>load('tabletopInteractions').supportsObjectOperation(o,operation))}))})),actors:w.characters.map(c=>({id:c.id,name:c.name,approved:true,regions:load('characterBody').bodyRegionDefs(c.body).map(r=>({key:r.key,label:r.label})),casts:c.rpg.casts.filter(x=>['preparing','ready'].includes(x.status)).map(x=>({id:x.id,abilityId:x.ability.id,name:x.ability.name,status:x.status,binding:x.roundPreparation?.binding??'bound',roundPreparation:!!x.roundPreparation,chargePolicy:x.ability.chargePolicy,spatial:x.ability.spatial})),items:c.rpg.inventory.map(i=>({id:i.id,name:i.name,quantity:i.quantity,consumable:i.consumable})),abilities:c.rpg.abilities.map(b=>({id:b.id,name:b.name,spatial:b.spatial}))}))} }
+    if(masterMatch) { const w=worlds[masterMatch[1]]; return {revision:w.revision,rulesStamp:rulesStamps[masterMatch[1]],executed:!!w.executed,roundWork:structuredClone(w.campaign.roundWork??{version:1,entries:[]}),movementBodies:(w.campaign.scenes?.scenes??[]).flatMap(s=>s.tokens.map(t=>({sceneId:s.id,actorId:t.actorId,diameter:t.diameter}))),declarations:structuredClone(w.campaign.declarations??{version:1,active:null,archive:[]}),scenes:(w.campaign.scenes?.scenes??[]).map(s=>({id:s.id,name:s.name,objects:s.objects.map(o=>({id:o.id,name:o.name,operations:load('tabletopInteractions').objectOperations.filter(operation=>load('tabletopInteractions').supportsObjectOperation(o,operation))}))})),actors:w.characters.map(c=>({id:c.id,name:c.name,approved:true,regions:load('characterBody').bodyRegionDefs(c.body).map(r=>({key:r.key,label:r.label})),casts:c.rpg.casts.filter(x=>['preparing','ready'].includes(x.status)).map(x=>({id:x.id,abilityId:x.ability.id,name:x.ability.name,status:x.status,binding:x.roundPreparation?.binding??'bound',roundPreparation:!!x.roundPreparation,chargePolicy:x.ability.chargePolicy,spatial:x.ability.spatial})),items:c.rpg.inventory.map(i=>({id:i.id,name:i.name,quantity:i.quantity,consumable:i.consumable})),abilities:c.rpg.abilities.map(b=>({id:b.id,name:b.name,spatial:b.spatial}))}))} }
     const perceptionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/perception$/)
     if(perceptionMatch){const room=perceptionMatch[1],world=worlds[room];return {revision:world.revision,hero:world.characters[0],map:perceptions[room]??null,knowledge:{journal:structuredClone(knowledge[room]),knownEffects:[]},inventory:[],canWriteNotes:world.characters[0].ownerId===context.user.id}}
     const disclosureMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/disclosure$/)
@@ -161,7 +161,7 @@ async function fixture() {
   const render = () => tree.render(React.createElement(OnlineContext.Provider, { value: { ...context } },
     mounted ? React.createElement(Panel, { onAccount: () => {} }) : null))
   await flush(render)
-  return { accountId, context, writes, previews, executions, applications, worlds, request, members, cloud, perceptions, declarations, knowledge,
+  return { accountId, context, writes, previews, executions, applications, worlds, request, members, cloud, perceptions, declarations, knowledge,rulesStamps,
     render: () => flush(render), notify:()=>{context.events++;render()},
     role: async value => { role = value; context.events++; await flush(render) },
     permissions: async value => { permissions = value; context.events++; await flush(render) },
@@ -3571,5 +3571,73 @@ test('Очередь диалогов: ведущий загружает ран�
   await click('Реплики и вопросы');await flush(()=>document.querySelector('.gb-story-history summary').click());await click('Загрузить раннюю историю')
   assert(reads.some(url=>url.endsWith('?limit=200')));assert.equal(document.querySelector('[aria-label="История мастера"]').querySelectorAll('article').length,200)
   await click('План и заготовки');assert.equal(document.querySelector('[aria-label="Заметки эпизода"]').value,'Сохранить эту мысль')
+ }finally{await f.close()}
+})
+
+const liveStamp=letter=>'r1:'+letter.repeat(64)
+function livePreview(f,body,stamp,revision=f.worlds.a.revision){
+ const w=f.worlds.a,c=w.campaign.declarations.active,result=load('roundExecution').calculateRound(w,c,body.input,'live-preview-seed')
+ return {id:'live-preview',revision,rulesStamp:stamp,generation:1,collectionId:c.id,epoch:c.epoch,summary:result.summary}
+}
+test('Живой раунд UI: диалог сохраняет личное время, подтверждения и уже рассчитанные последствия',async()=>{
+ const f=await fixture(),applications=[]
+ try{
+  executableRound(f,'a');f.rulesStamps.a=liveStamp('a');await executionFields(f,'a')
+  await click('Рассчитать временную шкалу');await click('Рассчитать последствия раунда')
+  assert(document.querySelector('[aria-label="Расчёт последствий"]'));const calculations=f.executions.length
+  f.worlds.a.revision++;await flush(()=>f.notify())
+  assert.equal(document.querySelector('[aria-label="Бюджет Hero a, мс"]').value,'5000')
+  assert(document.querySelector('[aria-label="Расчёт последствий"]'));assert(enabledButton('Применить рассчитанный раунд'))
+  f.intercept((url,options)=>{
+   if(!url.endsWith('/rounds/apply'))return
+   const b=JSON.parse(options.body);applications.push(b)
+   return {duplicate:false,receipt:{id:'live-receipt',previewId:b.previewId,generation:b.generation,collectionId:'collection-a',revision:f.worlds.a.revision+1,appliedAt:'2026-11-13T20:00:00.000Z',summary:{durationSeconds:5,events:[],carried:[],missingDecisions:[],warnings:[]}}}
+  })
+  await click('Применить рассчитанный раунд');assert.equal(applications.length,1);assert.equal(f.executions.length,calculations)
+ }finally{await f.close()}
+})
+test('Живой раунд UI: ответ расчёта с новой версией принимается при прежних условиях, пока идут диалоги',async()=>{
+ const f=await fixture(),gate=deferred();let body
+ try{
+  executableRound(f,'a');f.rulesStamps.a=liveStamp('b');await executionFields(f,'a')
+  f.intercept((url,options)=>{if(url.endsWith('/rounds/calculate')){body=JSON.parse(options.body);return gate.promise}})
+  await click('Рассчитать последствия раунда');assert.equal(body.rulesStamp,f.rulesStamps.a)
+  f.worlds.a.revision++;await flush(()=>f.notify())
+  await flush(()=>gate.resolve(livePreview(f,body,f.rulesStamps.a)))
+  assert(document.querySelector('[aria-label="Расчёт последствий"]'));assert(enabledButton('Применить рассчитанный раунд'))
+ }finally{await f.close()}
+})
+test('Живой раунд UI: перезагрузка после диалога сохраняет проверенные решения и отправляет текущую версию',async()=>{
+ const f=await fixture()
+ try{
+  executableRound(f,'a');f.rulesStamps.a=liveStamp('a');await executionFields(f,'a')
+  f.worlds.a.revision++;await flush(()=>f.notify());await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть инструменты заявлений')
+  assert.equal(document.querySelector('[aria-label="Бюджет Hero a, мс"]').value,'5000')
+  assert(enabledButton('Рассчитать последствия раунда'));await click('Рассчитать последствия раунда')
+  assert.equal(f.executions.at(-1).revision,f.worlds.a.revision);assert.equal(f.executions.at(-1).rulesStamp,f.rulesStamps.a)
+  assert(document.querySelector('[aria-label="Расчёт последствий"]'))
+ }finally{await f.close()}
+})
+test('Живой раунд UI: подтверждение времени переживает диалог, но изменение условий сбрасывает готовый расчёт',async()=>{
+ const f=await fixture(),gate=deferred();let body
+ try{
+  executableRound(f,'a');f.rulesStamps.a=liveStamp('c');await executionFields(f,'a')
+  f.intercept((url,options)=>{if(url.endsWith('/declarations/preview')){body=JSON.parse(options.body);return gate.promise}})
+  await click('Рассчитать временную шкалу');f.worlds.a.revision++;await flush(()=>f.notify())
+  await flush(()=>gate.resolve({revision:f.worlds.a.revision,rulesStamp:f.rulesStamps.a,timeline:load('roundTimeline').previewRoundTimeline(f.worlds.a.campaign.declarations.active,body.timings)}))
+  assert(document.body.textContent.includes('Временная шкала рассчитана'))
+  await click('Рассчитать последствия раунда');assert(enabledButton('Применить рассчитанный раунд'))
+  f.rulesStamps.a=liveStamp('d');f.worlds.a.revision++;await flush(()=>f.notify())
+  assert(!document.querySelector('[aria-label="Расчёт последствий"]'));assert(!enabledButton('Применить рассчитанный раунд'))
+  assert.equal(document.querySelector('[aria-label="Бюджет Hero a, мс"]').value,'5000')
+ }finally{await f.close()}
+})
+for(const fault of ['missing','different'])test('Живой раунд UI: неподтверждённые условия не принимаются · '+fault,async()=>{
+ const f=await fixture()
+ try{
+  executableRound(f,'a');f.rulesStamps.a=liveStamp('e');await executionFields(f,'a')
+  f.intercept((url,options)=>{if(url.endsWith('/rounds/calculate'))return livePreview(f,JSON.parse(options.body),fault==='missing'?undefined:liveStamp('f'))})
+  await click('Рассчитать последствия раунда')
+  assert(!document.querySelector('[aria-label="Расчёт последствий"]'));assert(!enabledButton('Применить рассчитанный раунд'));assert(document.body.textContent.includes('Расчёт относится к другой версии'))
  }finally{await f.close()}
 })

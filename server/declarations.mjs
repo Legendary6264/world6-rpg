@@ -14,6 +14,7 @@ import { copyConsumableEffect, copyAbility } from './generated/rpgSchema.mjs'
 import { collectionExecuted, requireCampaignRunning, campaignSession } from './round-branch.mjs'
 import { roundGeneration } from './rounds.mjs'
 import { sceneAcoustics } from './generated/acoustics.mjs'
+import {requireRoundContext,roundRulesToken} from './round-context.mjs'
 const requireMaster = member => { requireLobbyPermission(member, 'rounds'); requireLobbyPermission(member, 'viewSecrets') }
 const publicCollection = c => c ? { id: c.id, epoch: c.epoch, phase: c.phase, durationSeconds: c.durationSeconds, allowReplace: c.allowReplace } : null
 const publicEntry = e => e ? { revision: e.revision, status: e.status, actions: e.actions.map(copyDeclaredAction), submittedAt: e.submittedAt, submittedBy: e.submittedBy, note: e.note } : null
@@ -88,7 +89,7 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
   app.post('/api/lobbies/:id/declarations/preview', auth.middleware, async (req, res) => {
     const value = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireMaster(member); assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
-      if (lobby.revision !== integer(req.body.revision)) fail(409, 'Кампания изменилась. Проверь параметры времени с новой версией.')
+      const rulesStamp=await requireRoundContext(tx,lobby,req.body,'Условия раунда изменились. Проверь параметры времени с новой версией.')
       const state = JSON.parse(lobby.world_json), c = state.campaign.declarations?.active; checkEpoch(c, req.body)
       if (c.phase !== 'closed') fail(409, 'Для предпросмотра сначала закрой приём заявлений.')
       const bindings = await bindingsFor(tx, lobby)
@@ -96,7 +97,7 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
       let timeline
       try { timeline = previewRoundTimeline(c, req.body.timings) } catch (error) { fail(400, error.message) }
       // Read-only calculation: no world write, audit event, clock advance or socket broadcast.
-      return { revision: lobby.revision, timeline }
+      return { revision: lobby.revision, rulesStamp, timeline }
     }); res.json(value)
   })
   app.get('/api/lobbies/:id/declarations', auth.middleware, async (req, res) => {
@@ -105,7 +106,7 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
       const state = JSON.parse(lobby.world_json),bindings=await bindingsFor(tx,lobby)
       const collection = state.campaign.declarations?.active
       const scene = collection?.phase === 'closed' ? state.campaign.scenes?.scenes.find(s => s.id === collection.sceneId) : undefined
-      return { revision: lobby.revision, paused:(await campaignSession(tx,lobby.id)).paused, declarations: state.campaign.declarations ?? emptyDeclarations(),
+      return { revision: lobby.revision, rulesStamp:await roundRulesToken(tx,lobby), paused:(await campaignSession(tx,lobby.id)).paused, declarations: state.campaign.declarations ?? emptyDeclarations(),
         ...(scene ? { acoustics:sceneAcoustics(scene) } : {}),
         scenes: (state.campaign.scenes?.scenes ?? []).map(s => ({ id: s.id, name: s.name, objects: s.objects.map(o => ({ id: o.id, name: o.name, operations:objectOperations.filter(operation=>supportsObjectOperation(o,operation)) })) })),
         roundWork: state.campaign.roundWork ?? { version: 1, entries: [] },

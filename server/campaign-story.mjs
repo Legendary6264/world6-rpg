@@ -5,6 +5,8 @@ import {requireLobbyPermission} from './permissions.mjs'
 import {campaignSession,requireCampaignRunning} from './round-branch.mjs'
 import {emptyStory,isStoryBeats,MAX_STORY_MESSAGES,publicStory,recentStoryMessages} from './generated/campaignStory.mjs'
 import {emptyPerception,perceivedMap} from './generated/scenePerception.mjs'
+import {rebaseRoundStory} from './round-context.mjs'
+import {MAX_PREVIEW_BYTES} from './rounds.mjs'
 
 const exact=(value,keys)=>!!value&&typeof value==='object'&&!Array.isArray(value)&&
  Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key))
@@ -128,7 +130,9 @@ export function campaignStoryRoutes(app,{db,auth,updated,lockedMembership,store,
     messageId=id()
     story.messages.push({...message,id:messageId,body,seconds:state.campaign.seconds,createdAt:at})
    }
-   return store(tx,lobby,req.user,b.commandKey,hash,state,{operation,commandKey:b.commandKey,id:messageId,revision:lobby.revision+1,planVersion:story.planVersion,appliedAt:at},req)
+   const saved=await store(tx,lobby,req.user,b.commandKey,hash,state,{operation,commandKey:b.commandKey,id:messageId,revision:lobby.revision+1,planVersion:story.planVersion,appliedAt:at},req)
+   await rebaseRoundStory(tx,lobby,MAX_PREVIEW_BYTES)
+   return saved
   });if(!result.duplicate)updated(req.params.id);res.json(result)
  })
  write('/api/lobbies/:id/play/story/plan','story-plan',['baseVersion','beats'])

@@ -1,4 +1,5 @@
 import { inspectionRows, isInspectionDecision } from './roundInspection'
+import {sameRoundContext} from './roundPreviewContext'
 import type { InspectionDecision } from './roundInspection'
 import LobbyListeningPlans from './LobbyListeningPlans'
 import { listeningRows, listeningPlanLabel, listeningFocusLabel } from './roundListening'
@@ -57,14 +58,14 @@ const height = (v: string) => { const n = Number(v.trim().replace(',', '.')); re
 const coords = (p: {x:number;y:number;z:number}) => [p.x, p.y, p.z].map(n => n.toLocaleString('ru-RU', {maximumFractionDigits:6})).join('; ')
 const quantity = (n: number) => n.toLocaleString('ru-RU', { maximumSignificantDigits: 5 })
 
-export default function LobbyRoundExecution({ accountId, lobbyId, collection, revision, checkingAccess, timings, timingReady, roundWork, executed, actors, objects, movementBodies, acoustics }: {
-  accountId: string; lobbyId: string; collection: DeclarationCollection; revision: number; checkingAccess: boolean;
+export default function LobbyRoundExecution({ accountId, lobbyId, collection, revision, rulesStamp, checkingAccess, timings, timingReady, roundWork, executed, actors, objects, movementBodies, acoustics }: {
+  accountId: string; lobbyId: string; collection: DeclarationCollection; revision: number; rulesStamp?:string; checkingAccess: boolean;
   timings: ActorTiming[]; timingReady: boolean; roundWork: RoundWork; executed: boolean; actors: RuleActor[];
   objects: (RuleSceneObject & {sceneId:string})[]; movementBodies: {sceneId:string;actorId:string;diameter:number;x?:number;y?:number;z?:number}[]; acoustics?: AcousticScene
 }) {
   const { request, refresh } = useOnline(), key = lobbyFormKey('round-execution', accountId, lobbyId, collection.id)
   const heightsKey = lobbyFormKey('movement-bodies', accountId, lobbyId, collection.sceneId)
-  const source = JSON.stringify([revision, collection.id, collection.epoch, timings]), current = useRef(source)
+  const source = JSON.stringify([rulesStamp??revision, collection.id, collection.epoch, timings]), current = useRef(source)
   const [draft, setDraft] = useState<Draft>(() => {
     const saved = readLobbyForm(key, valid) ?? { source, interactionsConfirmed: false, missing: {}, continuations: [], command: null }
     return { ...saved, movementConfirmed: saved.movementConfirmed ?? false, bodyHeights: saved.bodyHeights ?? readLobbyForm(heightsKey, heightsValid) ?? {} }
@@ -138,14 +139,14 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
     pending.current = abort; inFlight.current = true; setBusy({ source, request }); setPreview(null); setMessage('')
     try {
       const value = await request<RoundExecutionPreview>('/lobbies/' + lobbyId + (draft.replayEnabled?'/rounds/replay/edited/calculate':'/rounds/calculate'), { method: 'POST', signal: abort.signal,
-        body: JSON.stringify({ revision, collectionId: collection.id, epoch: collection.epoch,
+        body: JSON.stringify({ revision,...(rulesStamp?{rulesStamp}:{}), collectionId: collection.id, epoch: collection.epoch,
           ...(draft.replayEnabled?{receiptId:replayValue!.receiptId,choices:releases.map(r=>replayChoice(r.key)==='new'?{key:r.key,mode:'new'}:{key:r.key,mode:'preserve',sourceKey:replayChoice(r.key).slice(9)})}:{}), input: { timings, interactionsConfirmed: draft.interactionsConfirmed,
           continuations: workActors.map(id => ({ actorId: id, mode: row(id).mode, budgetMs: ms(row(id).budget) })),
           missingDecisions: missing.map(id => ({ actorId: id, reason: reason(id) })),
           ...(inspections.length?{inspections:inspections.map(r=>r.decision)}:{}),...(ruleRows.length?{rules}:{}),...(speechEntries.length?{speech}:{}),...(charges.length?{charges}:{}),
           ...(hasMovement ? {movement:{confirmed:!!draft.movementConfirmed,bodies:bodyRows.map(b=>({actorId:b.actorId,heightM:height(bodyHeight(b.actorId)),...(flightReason(b.actorId).trim()?{flightReason:flightReason(b.actorId).trim()}:{})}))}} : {}) } }) })
       if (!active.current || abort.signal.aborted || attempt !== sequence.current || origin !== current.current) return
-      if (value.revision !== revision || value.collectionId !== collection.id || value.epoch !== collection.epoch) { setMessage('Расчёт относится к другой версии. Обнови кампанию.'); return }
+      if (!sameRoundContext(value,revision,rulesStamp) || value.collectionId !== collection.id || value.epoch !== collection.epoch) { setMessage('Расчёт относится к другой версии. Обнови кампанию.'); return }
       if (value.summary.rules?.some(outcome => outcome.kind === 'release' && !outcome.physics &&
           rules.some(rule => rule?.key === outcome.key && rule.kind === 'ability' && rule.physics))) {
         throw Error('В результате выпуска отсутствует расчёт воды или разряда. Обнови сервер игры и рассчитай раунд заново.')
