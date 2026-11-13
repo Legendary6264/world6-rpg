@@ -19,6 +19,7 @@ import {isKnowledgeCommand,isKnowledgeAck,hasKnowledgeEntry} from './knowledgeCo
 import type {KnowledgeCommand} from './knowledgeCommands'
 import { isSoundJournalEntry } from './roundSound'
 const LobbyActionDeclarations = lazy(() => import('./LobbyActionDeclarations'))
+const LobbyRoundResults = lazy(() => import('./LobbyRoundResults'))
 type PlayerView = { closed?:boolean; work?: import('./roundWork').PersonalRoundWork[]; seconds?: number; revision: number; hero: PlayerCharacter; map: PerceivedMap | null; canWriteNotes: boolean;
   knowledge: { journal: Omit<JournalEntry, 'artwork' | 'eventKey'>[]; knownEffects: Omit<KnownEffect, 'createdAt' | 'updatedAt' | 'artwork'>[] }; inventory: { id: string; name: string; description: string; quantity: number }[] }
 type Note = { title: string; text: string; revision?: number;command?:KnowledgeCommand }
@@ -72,6 +73,7 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
         {id:'actions',label:'Сцена и действия',content:<>
       {value.map ? <PerceivedScene abilityAim={abilityAim} onObjectMove={value.closed?undefined:(id,point)=>{if(checkingAccess||remote.loading)return false;const accepted=appendSceneAction.current?.({kind:'interact',target:{kind:'object',id},operation:'relocate',destination:point,note:''})??false;setMessage(accepted?'Перемещение добавлено в ход. Положение изменится после исполнения раунда.':'Не удалось добавить перемещение. Проверь очередь действий.');return accepted}} map={value.map} selected={selected} onSelect={id=>{setSelected(id);setSelectedObject('')}} onObject={id=>{setSelectedObject(id);setSelected('')}} selectedObject={selectedObject} pickedPoint={pickedPoint} plannedRoute={queue.flatMap(a=>a.kind==='move'?a.route:[])} onPoint={p=>{setPointChoice({sceneId:value.map!.frame.id,point:p})}}/> : <p className="gb-scene-empty">Мастер ещё не открыл этому герою сцену.</p>}
       {!!observations.length&&<section className="gb-game-feed" aria-label="Последние наблюдения героя">{observations.map(e=><article key={e.id}><strong>{e.title} · {e.gameTime}</strong><p className="w6-prose">{e.text}</p></article>)}</section>}
+      <Suspense fallback={<p>Загружаем итоги…</p>}><LobbyRoundResults lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading} active={tableActive&&playerSection==='actions'}/></Suspense>
       <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading||!!value.closed} selectedContact={selected} pickedPoint={pickedPoint} members={members} map={value.map} selectedObject={selectedObject} onAimChange={setAbilityAim} onQueue={setQueue} sceneActionRef={appendSceneAction}
         onTalk={()=>{setConversationTarget(selected);setPlayerSection('conversations')}}/></Suspense>
         </>},

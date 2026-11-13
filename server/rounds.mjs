@@ -7,6 +7,7 @@ import { fail, id, integer, now, world as validateWorld } from './validation.mjs
 import { requireLobbyPermission } from './permissions.mjs'
 import { calculateRound, ROUND_EXECUTOR_VERSION } from './generated/roundExecution.mjs'
 import {requireRoundContext,roundRulesToken} from './round-context.mjs'
+import {buildRoundFeedback,isResultNotes,resultNotes} from './generated/roundFeedback.mjs'
 const requireMaster = member => { requireLobbyPermission(member, 'rounds'); requireLobbyPermission(member, 'viewSecrets') }
 export const MAX_HISTORY_BYTES = 64 * 1024 * 1024, MAX_PREVIEW_BYTES = 32 * 1024 * 1024
 export async function roundGeneration(tx, lobbyId) { return (await tx.get('SELECT generation FROM round_generations WHERE lobby_id=?', [lobbyId]))?.generation ?? 1 }
@@ -34,9 +35,10 @@ export function roundRoutes(app, { db, auth, updated, lockedMembership, record }
   })
   app.post('/api/lobbies/:id/rounds/apply', auth.middleware, async (req, res) => {
     const body = req.body
-    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 3 || typeof body.previewId !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(body.previewId) ||
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== (Object.hasOwn(body,'resultNotes')?4:3) ||
+        body.resultNotes!==undefined&&!isResultNotes(body.resultNotes) || typeof body.previewId !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(body.previewId) ||
         typeof body.commandKey !== 'string' || !/^[a-zA-Z0-9_-]{8,160}$/.test(body.commandKey)) fail(400, 'Проверь идентификаторы команды и расчёта.')
-    const generation = integer(body.generation), hash = createHash('sha256').update(JSON.stringify([body.previewId, generation])).digest('hex')
+    const generation = integer(body.generation), hash = createHash('sha256').update(JSON.stringify([body.previewId,generation,...(body.resultNotes===undefined?[]:['resultNotes-v1',body.resultNotes])])).digest('hex')
     const result = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireMaster(member)
       await rejectRetiredCommand(tx,lobby.id,body.commandKey)
@@ -55,18 +57,26 @@ export function roundRoutes(app, { db, auth, updated, lockedMembership, record }
       if (!preview || preview.generation !== generation) fail(409, 'Расчёт недоступен. Проверь текущую кампанию.')
       if (preview.executor_version !== ROUND_EXECUTOR_VERSION) fail(409, 'Исполнитель обновлён. Повтори расчёт по текущей версии.')
       if (preview.base_revision !== lobby.revision || preview.controls_stamp !== await controlsStamp(tx, lobby.id)) fail(409, 'Кампания или управление изменились. Повтори расчёт.')
-      const c = JSON.parse(lobby.world_json).campaign.declarations?.active
+      const state=JSON.parse(lobby.world_json),c = state.campaign.declarations?.active
       if (!c || c.phase !== 'closed' || c.id !== preview.collection_id || c.epoch !== preview.epoch) fail(409, 'Сбор заявлений изменился. Повтори расчёт.')
       if (await collectionExecuted(tx,lobby.id,generation,c.id)) fail(409, 'Этот сбор уже исполнен.')
       const branch=await roundBranch(tx,lobby.id,generation)
-      const receipt = { id: id(), previewId: preview.id, collectionId: c.id, revision: lobby.revision + 1, generation, appliedAt: now(), summary: JSON.parse(preview.summary_json) }
+      const summary=JSON.parse(preview.summary_json)
       const data=await tx.get('SELECT * FROM round_calculation_data WHERE preview_id=?',[preview.id])
       if(!data)fail(409,'У расчёта нет данных переигровки. Рассчитай заново.')
-      const receiptJson = JSON.stringify(receipt), bytes = Buffer.byteLength(lobby.world_json + receiptJson + data.input_json + data.execution_seed)
+      let inputJson=data.input_json
+      if(body.resultNotes!==undefined){
+        let notes;try{notes=resultNotes(body.resultNotes,[...c.participantIds,...(state.campaign.roundWork?.entries.map(w=>w.actorId)??[])])}catch(error){fail(400,error.message)}
+        summary.personal=buildRoundFeedback(state,JSON.parse(preview.world_json),c,summary,notes)
+        const input=JSON.parse(data.input_json);delete input.resultNotes
+        inputJson=JSON.stringify(Object.keys(notes).length?{...input,resultNotes:notes}:input)
+      }
+      const receipt = { id: id(), previewId: preview.id, collectionId: c.id, revision: lobby.revision + 1, generation, appliedAt: now(), summary }
+      const receiptJson = JSON.stringify(receipt), bytes = Buffer.byteLength(lobby.world_json + receiptJson + inputJson + data.execution_seed)
       await checkHistorySpace(tx,lobby.id,bytes)
       await tx.run('INSERT INTO round_receipts(id,lobby_id,author_id,command_key,request_hash,generation,collection_id,preview_id,before_json,receipt_json,payload_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
         [receipt.id, lobby.id, req.user.id, body.commandKey, hash, generation, c.id, preview.id, lobby.world_json, receiptJson, bytes])
-      await tx.run('INSERT INTO round_history_data(receipt_id,lobby_id,generation,applied_revision,applied_at,input_json,execution_seed,executor_version) VALUES(?,?,?,?,?,?,?,?)',[receipt.id,lobby.id,generation,receipt.revision,receipt.appliedAt,data.input_json,data.execution_seed,ROUND_EXECUTOR_VERSION])
+      await tx.run('INSERT INTO round_history_data(receipt_id,lobby_id,generation,applied_revision,applied_at,input_json,execution_seed,executor_version) VALUES(?,?,?,?,?,?,?,?)',[receipt.id,lobby.id,generation,receipt.revision,receipt.appliedAt,inputJson,data.execution_seed,ROUND_EXECUTOR_VERSION])
       await setRoundBranch(tx,lobby.id,generation,[...branch,receipt.id])
       await tx.run('DELETE FROM round_replay_contexts WHERE lobby_id=?',[lobby.id])
       await commitWorld(tx,lobby,preview.world_json,{at:receipt.appliedAt})
@@ -106,7 +116,13 @@ export async function createRoundCalculation(tx,lobby,authorId,input,executionSe
     input={...input,soundRecordedAt:now()}
   }
   const previewId=id(),seed=executionSeed??previewId;let result
-  try{result=calculateRound(state,c,input,seed);validateWorld(result.world)}catch(error){fail(400,error.message)}
+  try{
+    const notes=resultNotes(input?.resultNotes,[...c.participantIds,...(state.campaign.roundWork?.entries.map(w=>w.actorId)??[])])
+    const {resultNotes:_notes,...simulation}=input??{}
+    input=Object.keys(notes).length?{...simulation,resultNotes:notes}:simulation
+    result=calculateRound(state,c,simulation,seed);validateWorld(result.world)
+    result.summary.personal=buildRoundFeedback(state,result.world,c,result.summary,notes)
+  }catch(error){fail(400,error.message)}
   const worldJson=JSON.stringify(result.world),summaryJson=JSON.stringify(result.summary),inputJson=JSON.stringify(input),bytes=Buffer.byteLength(worldJson+summaryJson+inputJson+seed)
   await checkPreviewSpace(tx,lobby,authorId,bytes)
   await tx.run('INSERT INTO round_previews(id,lobby_id,author_id,generation,base_revision,collection_id,epoch,controls_stamp,executor_version,world_json,summary_json,payload_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',[previewId,lobby.id,authorId,generation,lobby.revision,c.id,c.epoch,await controlsStamp(tx,lobby.id),ROUND_EXECUTOR_VERSION,worldJson,summaryJson,bytes])

@@ -1,5 +1,7 @@
 import { inspectionRows, isInspectionDecision } from './roundInspection'
 import {sameRoundContext} from './roundPreviewContext'
+import {isResultNotes,isFeedbackApplyAck} from './roundFeedback'
+import RoundFeedbackDetails from './RoundFeedbackDetails'
 import type { InspectionDecision } from './roundInspection'
 import LobbyListeningPlans from './LobbyListeningPlans'
 import { listeningRows, listeningPlanLabel, listeningFocusLabel } from './roundListening'
@@ -16,7 +18,6 @@ import LobbyRoundCharges from './LobbyRoundCharges'
 import type { ChargeForm } from './roundCharges'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useOnline } from './onlineContext'
-import { isRoundApplyAck } from './commandAcknowledgements'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
 import { MAX_TIMING_MS } from './roundTimeline'
 import { NetworkError } from './onlineClient'
@@ -32,11 +33,11 @@ import type { RoundExecutionPreview, RoundReceipt } from './roundExecution'
 import type { EditedReplayOptions } from './roundReplay'
 import { releaseSignature } from './roundReplay'
 
-type Command = { previewId: string; generation: number; commandKey: string }
+type Command = { previewId: string; generation: number; commandKey: string; resultNotes?:Record<string,string> }
 type Draft = { source: string; interactionsConfirmed: boolean; missing: Record<string, string>;
   continuations: { actorId: string; mode: '' | 'continue' | 'hold'; budget: string }[]; command: Command | null;
   movementConfirmed?: boolean; bodyHeights?: Record<string, string>; flightReasons?:Record<string,string>; rules?:RuleForm[]; charges?:ChargeForm[];
-  speech?:SpeechDecision[]; inspections?:InspectionDecision[]; replayEnabled?:boolean; replayReceiptId?:string; replayChoices?:{key:string;value:string}[] }
+  speech?:SpeechDecision[]; inspections?:InspectionDecision[]; resultNotes?:Record<string,string>; replayEnabled?:boolean; replayReceiptId?:string; replayChoices?:{key:string;value:string}[] }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const heightsValid = (v: unknown): v is Record<string, string> => record(v) && Object.keys(v).length <= 200 && Object.keys(v).every(k => /^[a-zA-Z0-9:_-]{1,160}$/.test(k)) && Object.values(v).every(x => typeof x === 'string' && x.length <= 40)
 const valid = (v: unknown): v is Draft => record(v) && typeof v.source === 'string' && v.source.length <= 500000 && typeof v.interactionsConfirmed === 'boolean' &&
@@ -49,10 +50,12 @@ const valid = (v: unknown): v is Draft => record(v) && typeof v.source === 'stri
   (v.inspections===undefined||Array.isArray(v.inspections)&&v.inspections.length<=200&&v.inspections.every(isInspectionDecision)) &&
   (v.speech===undefined||Array.isArray(v.speech)&&v.speech.length<=200&&v.speech.every(isSpeechDecision)) &&
   (v.rules===undefined||Array.isArray(v.rules)&&v.rules.length<=200&&v.rules.every(isRuleForm)) &&
+  (v.resultNotes===undefined||isResultNotes(v.resultNotes))&&
   (v.replayEnabled===undefined||typeof v.replayEnabled==='boolean') && (v.replayReceiptId===undefined||typeof v.replayReceiptId==='string'&&/^[a-zA-Z0-9_-]{1,160}$/.test(v.replayReceiptId)) &&
   (v.replayChoices===undefined||Array.isArray(v.replayChoices)&&v.replayChoices.length<=200&&v.replayChoices.every(c=>record(c)&&typeof c.key==='string'&&c.key.length<=400&&typeof c.value==='string'&&c.value.length<=420)) &&
   (v.command === null || record(v.command) && typeof v.command.previewId === 'string' && /^[a-zA-Z0-9_-]{1,160}$/.test(v.command.previewId) &&
-    Number.isInteger(v.command.generation) && Number(v.command.generation) >= 1 && typeof v.command.commandKey === 'string' && /^[a-zA-Z0-9_-]{8,160}$/.test(v.command.commandKey))
+    Number.isInteger(v.command.generation) && Number(v.command.generation) >= 1 && typeof v.command.commandKey === 'string' && /^[a-zA-Z0-9_-]{8,160}$/.test(v.command.commandKey) &&
+    (v.command.resultNotes===undefined||isResultNotes(v.command.resultNotes)))
 const ms = (v: string) => { const n = Number(v.trim()); return v.trim() && Number.isSafeInteger(n) && n > 0 && n <= MAX_TIMING_MS ? n : 0 }
 const height = (v: string) => { const n = Number(v.trim().replace(',', '.')); return Number.isFinite(n) && n > 1e-6 && n <= 1e6 ? n : 0 }
 const coords = (p: {x:number;y:number;z:number}) => [p.x, p.y, p.z].map(n => n.toLocaleString('ru-RU', {maximumFractionDigits:6})).join('; ')
@@ -144,6 +147,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
           continuations: workActors.map(id => ({ actorId: id, mode: row(id).mode, budgetMs: ms(row(id).budget) })),
           missingDecisions: missing.map(id => ({ actorId: id, reason: reason(id) })),
           ...(inspections.length?{inspections:inspections.map(r=>r.decision)}:{}),...(ruleRows.length?{rules}:{}),...(speechEntries.length?{speech}:{}),...(charges.length?{charges}:{}),
+          ...(draft.resultNotes&&Object.values(draft.resultNotes).some(note=>note.trim())?{resultNotes:draft.resultNotes}:{}),
           ...(hasMovement ? {movement:{confirmed:!!draft.movementConfirmed,bodies:bodyRows.map(b=>({actorId:b.actorId,heightM:height(bodyHeight(b.actorId)),...(flightReason(b.actorId).trim()?{flightReason:flightReason(b.actorId).trim()}:{})}))}} : {}) } }) })
       if (!active.current || abort.signal.aborted || attempt !== sequence.current || origin !== current.current) return
       if (!sameRoundContext(value,revision,rulesStamp) || value.collectionId !== collection.id || value.epoch !== collection.epoch) { setMessage('Расчёт относится к другой версии. Обнови кампанию.'); return }
@@ -157,7 +161,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
   }
   async function apply() {
     if (disabled || inFlight.current || (!draft.command && (!preview || preview.source !== source || stale))) return
-    const command = draft.command ?? { previewId: preview!.value.id, generation: preview!.value.generation, commandKey: crypto.randomUUID() }
+    const command = draft.command ?? { previewId: preview!.value.id, generation: preview!.value.generation, commandKey: crypto.randomUUID(),...(draft.resultNotes===undefined?{}:{resultNotes:draft.resultNotes}) }
     // Persist BEFORE sending. A lost response/remount must retry the same command.
     if (!remember({ ...draft, command })) { setMessage('Не удалось сохранить команду повтора. Освободи место в хранилище браузера перед применением.'); return }
     const abort = new AbortController(), attempt = ++sequence.current
@@ -165,7 +169,7 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
     try {
       const result = await request<{ receipt: RoundReceipt; duplicate: boolean }>('/lobbies/' + lobbyId + '/rounds/apply', { method: 'POST', signal: abort.signal, body: JSON.stringify(command) })
       if (!active.current || abort.signal.aborted || attempt !== sequence.current) return
-      if(!isRoundApplyAck(result,command))throw Error('Сервер не подтвердил применение этого раунда. Повтори сохранённую команду для проверки результата.')
+      if(!isFeedbackApplyAck(result,command))throw Error('Сервер не подтвердил применение этого раунда и пояснений. Повтори сохранённую команду для проверки результата.')
       remember({ ...draft, command: null }); setReceipt(result.receipt); setPreview(null)
       setMessage(result.duplicate ? 'Получено подтверждение прежней команды. Повторных последствий нет.' : 'Раунд применён. Исходное состояние сохранено для отката.'); refresh()
     } catch (e) { if (active.current && !abort.signal.aborted && attempt === sequence.current) {
@@ -176,6 +180,11 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
     finally { if (active.current && pending.current === abort) { setBusy(null); inFlight.current = false } }
   }
   const visible = !checkingAccess && !stale && preview?.source === source ? preview.value : null
+  const noteFor=(id:string)=>draft.resultNotes&&Object.hasOwn(draft.resultNotes,id)?draft.resultNotes[id]:visible?.summary.personal?.actors.find(a=>a.actorId===id)?.note??''
+  function changeNote(id:string,note:string){
+    const savedNotes=Object.fromEntries((visible?.summary.personal?.actors??[]).filter(a=>a.note).map(a=>[a.actorId,a.note]))
+    remember({...draft,resultNotes:{...savedNotes,...draft.resultNotes,[id]:note}})
+  }
   return <section className="w6-fieldset" aria-label="Исполнение раунда"><h3>Исполнение раунда</h3>
     <p className="w6-copy">Доступны движение по X/Y/Z, ожидание, открытие/закрытие объектов, снаряжение, артефакты и подготовка/выпуск способностей на себя или существо. Расчёт проверяет весь раунд до изменения кампании.</p>
     {executed && !checkingAccess && <p role="status">Этот сбор уже исполнен. Сохрани его в истории для следующего раунда.</p>}
@@ -219,9 +228,16 @@ export default function LobbyRoundExecution({ accountId, lobbyId, collection, re
         </>}
       </fieldset>}
       {stale && <><p role="alert">Время или кампания изменились. Сверь решения с текущим сбором.</p><button className="w6-button" onClick={() => change({ ...draft, source, replayChoices:[], interactionsConfirmed: false, movementConfirmed: false,charges:draft.charges?.map(f=>({...f,confirmed:false})),speech:draft.speech?.map(d=>({...d,confirmed:false})),rules:draft.rules?.map(f=>({...f,confirmed:false,spatialConfirmed:false})) })}>Решения мастера проверены</button></>}
+      <details><summary>Пояснения результатов для игроков</summary><p className="gb-game-help">Каждую строку получит только указанный герой после применения раунда.</p>
+        {[...new Set([...collection.participantIds,...roundWork.entries.map(w=>w.actorId)])].map(id=><label className="w6-field" key={id}><span>Итог для {name(id)}</span><textarea rows={2} maxLength={2000} aria-label={'Итог для '+name(id)}
+          value={noteFor(id)} onChange={event=>changeNote(id,event.currentTarget.value)}/></label>)}
+      </details>
       <button className="w6-button" disabled={stale || !timingReady || !movementReady || !rulesReady || !inspectionsReady || !speechReady || !chargesReady || !replayReady || !replayLoaded || workActors.some(id => !row(id).mode || !ms(row(id).budget)) || missing.some(id => !reason(id).trim())} onClick={() => void calculate()}>{replayValue&&!draft.replayEnabled?'Рассчитать с новыми бросками':'Рассчитать последствия раунда'}</button>
     </fieldset>
-    {visible && <div aria-label="Расчёт последствий"><p>Мировое время: +{visible.summary.durationSeconds} с. Завершатся {visible.summary.events.length} действий; в очереди останется {visible.summary.carried.length}.</p>
+    {visible && <div aria-label="Расчёт последствий"><p>Мировое время: +{visible.summary.durationSeconds} с. Событий исполнения: {visible.summary.events.length}; в очереди останется действий: {visible.summary.carried.length}.</p>
+      {visible.summary.personal&&<details><summary>Итоги для игроков после применения</summary>{visible.summary.personal.actors.map(report=><article className="gb-round-result" key={report.actorId}>
+        <h4>{name(report.actorId)}</h4><RoundFeedbackDetails report={{...report,note:noteFor(report.actorId).trim()}}/>
+      </article>)}</details>}
       {visible.summary.replay&&<div aria-label="Выбранные броски переигровки">{visible.summary.replay.selections.map(s=><p key={s.key}>{releaseLabel(s.key)}: {s.mode==='new'?'новые броски':'прежние броски · '+(replayValue?.actions.find(a=>a.key===s.sourceKey)?.label??'выбранный прежний выпуск')}</p>)}</div>}
       {visible.summary.charges?.map(c=><p key={c.actorId+':'+c.castId}>{name(c.actorId)} · {c.name}: {c.mode==='interrupt'?'прерван перед раундом':'сохранён'}. {c.reason} Возврат: Мана {c.refunded.mana}, Тень {c.refunded.shadow}, Выносливость {c.refunded.stamina}. Снято действий: {c.removedWorkIds.length}.</p>)}
       {visible.summary.events.map(e => <p key={e.workId+':'+e.kind}>{name(e.actorId)} · {{inspect:'осмотр',speak:'реплика',wait:'ожидание',move:'перемещение',open:'открытие объекта',close:'закрытие объекта',lock:'запирание',unlock:'отпирание',ignite:'зажигание',extinguish:'тушение',activate:'активация',deactivate:'отключение',relocate:'перенос предмета',item:'предмет',prepare:'начало подготовки',ready:'готовый заряд',release:'выпуск'}[e.kind]}{e.listening?' · '+({listen:'прислушивание',eavesdrop:'подслушивание'}[e.listening]):''}{e.objectId ? ' · ' + objectName(collection.sceneId, e.objectId) : ''} · {e.atMs.numerator}/{e.atMs.denominator} мс</p>)}

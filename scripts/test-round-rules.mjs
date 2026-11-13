@@ -16,6 +16,7 @@ const module = name => import(pathToFileURL(join(directory, name + '.mjs')))
 const {calculateRound}=await module('roundExecution'),{createDefaultCharacter}=await module('characterModel')
 const {emptyCampaign,emptyAbility,emptyItem,emptyConsumableEffect,copyItem,copyRpg,isRpg,isItem}=await module('rpgSchema'),{createScene,emptyScenes}=await module('scenes')
 const {copyRoundWork,personalRoundWork,isRoundWork}=await module('roundWork'),{advanceWorld,interruptCast,consumeItemPlan,activeEffects}=await module('rpgEngine')
+const {buildRoundFeedback,legacyRoundFeedback,publicFeedback,isRoundFeedback,resultNotes,isFeedbackApplyAck}=await module('roundFeedback')
 const inputFields={region:'torso',distanceM:999,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:'PRIVATE-RULE'}
 const action=(stage,target={kind:'self'})=>({kind:'ability',abilityId:'spell',stage,target,note:'PRIVATE-ACTION'})
 const item=(operation)=>({kind:'item',itemId:'artifact',quantity:1,target:{kind:'self'},note:'',operation})
@@ -36,6 +37,61 @@ function prepare(cost=8000,binding='unbound',target={kind:'self'}){
  const w=world(),c=collection([entry('a',[action('prepare',target)])]),p=params([timing('a',[cost])],[rule('new:a:0','prepare',binding)])
  return calculateRound(w,c,p,'initial')
 }
+
+test('Личные итоги: незавершённая подготовка, очередь выпуска и однократный расход',()=>{
+ const w=world(),c=collection([entry('a',[action('prepare'),action('release')])]),p=params([timing('a',[8000,1000])],[rule('new:a:0'),rule('new:a:1','release','unbound','prepare:new:a:0')])
+ const r=calculateRound(w,c,p,'feedback-long'),feedback=buildRoundFeedback(w,r.world,c,r.summary,{a:'Поток ещё собирается.'}),own=feedback.actors.find(a=>a.actorId==='a')
+ assert(isRoundFeedback(feedback));assert.deepEqual(own.actions.map(a=>a.status),['continuing','queued']);assert.equal(own.actions[0].progress,62.5)
+ assert.deepEqual(own.resources,[{id:'mana',before:'50',after:'43',beforeMaximum:'50',afterMaximum:'50'}]);assert.equal(own.note,'Поток ещё собирается.')
+ const held=params([],[],['a','b']);held.continuations=[{actorId:'a',mode:'hold',budgetMs:5000}]
+ const next=collection([],'held'),after=calculateRound(r.world,next,held,'feedback-hold'),waiting=buildRoundFeedback(r.world,after.world,next,after.summary).actors.find(a=>a.actorId==='a')
+ assert(waiting.actions.every(a=>a.status==='waiting'));assert.equal(waiting.actions[0].progress,62.5);assert.deepEqual(waiting.resources,[])
+})
+
+test('Личные итоги: выпуск в NPC не выдаёт его имя, урон, скрытую формулу и заметки',()=>{
+ const w=world();w.characters[1].name='PRIVATE-NPC';w.characters[1].profile.biography='PRIVATE-BIOGRAPHY'
+ const c=collection([entry('a',[action('prepare',{kind:'contact',id:'known-b'}),action('release',{kind:'contact',id:'known-b'})])])
+ const p=params([timing('a',[1000,1000])],[rule('new:a:0'),rule('new:a:1','release','unbound','prepare:new:a:0')]),r=calculateRound(w,c,p,'feedback-npc')
+ const own=buildRoundFeedback(w,r.world,c,r.summary,{a:'Вы видите вспышку.',b:'PRIVATE-OTHER-NOTE'}).actors.find(a=>a.actorId==='a'),view=publicFeedback(own),json=JSON.stringify(view)
+ assert.deepEqual(view.actions.map(a=>a.status),['completed','completed']);assert(view.actions.every(a=>a.label.includes('Spell')))
+ for(const secret of ['PRIVATE-NPC','PRIVATE-BIOGRAPHY','PRIVATE-OTHER-NOTE','PRIVATE-RULE','PRIVATE-ACTION','known-b','actorId','targets','rollGroups','health'])assert(!json.includes(secret),secret)
+ view.actions[0].label='changed';assert.notEqual(own.actions[0].label,'changed');assert.equal(view.note,'Вы видите вспышку.')
+})
+
+test('Личные итоги: прерывание заряда снимает всю очередь без раскрытия скрытой причины',()=>{
+ const w=world(),c=collection([entry('a',[action('prepare'),action('release')])]),p=params([timing('a',[8000,1000])],[rule('new:a:0'),rule('new:a:1','release','unbound','prepare:new:a:0')])
+ const r=calculateRound(w,c,p,'long-interrupt'),next=collection([],'interrupt'),input=params([],[],['a','b'])
+ input.charges=[{actorId:'a',castId:r.world.characters[0].rpg.casts[0].id,mode:'interrupt',confirmed:true,reason:'PRIVATE-INTERRUPTION',conditionsConfirmed:false,canSpeak:false}]
+ const after=calculateRound(r.world,next,input,'interrupted'),own=buildRoundFeedback(r.world,after.world,next,after.summary).actors.find(a=>a.actorId==='a')
+ assert.equal(own.actions.length,2);assert(own.actions.every(a=>a.status==='interrupted'));assert(!JSON.stringify(own).includes('PRIVATE-INTERRUPTION'))
+})
+
+test('Личные итоги: старые записи восстанавливают только собственные события',()=>{
+ const w=world(),c=collection([entry('a',[action('prepare'),action('release')])]);w.campaign.declarations={version:1,active:c,archive:[]}
+ const r=calculateRound(w,c,params([timing('a',[1000,1000])],[rule('new:a:0'),rule('new:a:1','release','unbound','prepare:new:a:0')]),'legacy')
+ const own=legacyRoundFeedback(w,{...r.summary,events:[null,...r.summary.events,{actorId:'b',workId:'secret',actionIndex:0,kind:'release',text:'PRIVATE'}]},'a')
+ assert.equal(own.coverage,'events');assert.deepEqual(own.resources,[]);assert.equal(own.note,'');assert.equal(own.actions.length,2);assert(own.actions.every(a=>a.status==='completed'))
+ assert.equal(legacyRoundFeedback(w,{...r.summary,durationSeconds:NaN},'a'),null)
+})
+
+test('Личные итоги: строгие границы метаданных и адресатов пояснений',()=>{
+ const w=world(),c=collection([entry('a',[{kind:'wait',seconds:1,note:''}])]),r=calculateRound(w,c,params([{actorId:'a',entryRevision:1,budgetMs:5000,costs:[]}],[]),'validation'),feedback=buildRoundFeedback(w,r.world,c,r.summary)
+ for(const mutate of [f=>f.actors[0].resources.push({id:'health',before:'1',after:'0',beforeMaximum:'1',afterMaximum:'1'}),f=>f.actors[0].actions[0].targetId='PRIVATE',f=>f.actors.push(f.actors[0]),f=>f.actors[0].actions[0].status='constructor']){
+  const f=structuredClone(feedback);mutate(f);assert(!isRoundFeedback(f))
+ }
+ assert.deepEqual(resultNotes({a:'  Готово. \n'},['a']),{a:'Готово.'})
+ for(const notes of [{unknown:'Текст'},{a:3},{a:'x'.repeat(2001)},{a:'bad\u0000'}])assert.throws(()=>resultNotes(notes,['a']))
+ const special=JSON.parse('{"constructor":"Текст"}');assert.deepEqual(resultNotes(special,['constructor']),special)
+ assert.equal(buildRoundFeedback(w,r.world,c,r.summary).actors[0].note,'')
+})
+
+test('Личные итоги: подтверждение проверяет сохранённые пояснения и их адресатов',()=>{
+ const w=world(),c=collection([entry('a',[{kind:'wait',seconds:1,note:''}])]),r=calculateRound(w,c,params([{actorId:'a',entryRevision:1,budgetMs:5000,costs:[]}],[]),'ack')
+ const summary={...r.summary,personal:buildRoundFeedback(w,r.world,c,r.summary,{a:'Первый',b:'Второй'})},command={previewId:'preview',generation:1,resultNotes:{a:' Первый ',b:'Второй'}}
+ const ack={receipt:{id:'receipt',previewId:'preview',generation:1,collectionId:c.id,revision:2,appliedAt:'2026-11-14T12:00:00Z',summary},duplicate:false}
+ assert(isFeedbackApplyAck(ack,command));assert(!isFeedbackApplyAck(ack,{...command,resultNotes:{a:'Второй',b:'Первый'}}))
+ delete summary.personal;assert(!isFeedbackApplyAck(ack,command));assert(isFeedbackApplyAck(ack,{previewId:'preview',generation:1}))
+})
 test('R03: начальный расход один раз, точный остаток и готовность независимо от старых часов',()=>{
  const w=world(),before=structuredClone(w),p=params([timing('a',[8000])],[rule('new:a:0')]),first=calculateRound(w,collection([entry('a',[action('prepare')])]),p,'initial')
  assert.deepEqual(w,before);assert.equal(first.world.characters[0].resources.mana.current,'43');assert.equal(first.world.characters[0].rpg.casts[0].status,'preparing')

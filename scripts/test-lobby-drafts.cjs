@@ -110,7 +110,9 @@ async function fixture() {
       const collection=w.campaign.declarations.active
       const eventSounds=w.campaign.scenes?.scenes.find(s=>s.id===collection.sceneId)?.physics?.eventSounds
       const input=eventSounds?{...body.input,soundRecordedAt:'2026-11-09T09:00:00.000Z'}:body.input
-      const result=load('roundExecution').calculateRound(w,collection,input,id)
+      const {resultNotes,...simulation}=input
+      const result=load('roundExecution').calculateRound(w,collection,simulation,id)
+      result.summary.personal=load('roundFeedback').buildRoundFeedback(w,result.world,collection,result.summary,resultNotes)
       roundPreviews.set(id,{world:result.world,summary:result.summary,source:w.revision})
       return {id,revision:w.revision,rulesStamp:body.rulesStamp,generation:1,collectionId:body.collectionId,epoch:body.epoch,summary:result.summary}
     }
@@ -120,6 +122,7 @@ async function fixture() {
       if(receipts.has(body.commandKey)) return {receipt:receipts.get(body.commandKey),duplicate:true}
       const p=roundPreviews.get(body.previewId)
       assert(p && p.source===w.revision,'Applying stale preview in UI fixture')
+      if(body.resultNotes!==undefined)p.summary.personal=load('roundFeedback').buildRoundFeedback(w,p.world,w.campaign.declarations.active,p.summary,load('roundFeedback').resultNotes(body.resultNotes,w.campaign.declarations.active.participantIds))
       const receipt={id:crypto.randomUUID(),previewId:body.previewId,collectionId:p.world.campaign.declarations.active.id,revision:w.revision+1,generation:1,appliedAt:'2026-10-11T00:00:00Z',summary:p.summary}
       worlds[lobby]={...p.world,revision:w.revision+1,executed:true}; receipts.set(body.commandKey,receipt)
       return {receipt,duplicate:false}
@@ -137,6 +140,7 @@ async function fixture() {
     if (url === '/characters') return cloud
     if (/^\/lobbies\/[ab]\/play\/story$/.test(url)) return {revision:7,closed:false,paused:false,planVersion:0,beats:[],messages:[],pending:[],activeSceneId:'',scenes:[],npcs:[],heroes:[]}
     if (/^\/lobbies\/[ab]\/characters\/hero-[ab]\/story$/.test(url)) return {closed:false,paused:false,sceneId:'',canAsk:true,contacts:[],messages:[]}
+    if (/^\/lobbies\/[ab]\/characters\/hero-[ab]\/round-results/.test(url)) return {revision:7,closed:false,reports:[],hasMore:false}
     if (url === '/lobbies/a' || url === '/lobbies/b') {
       if (failLobby) throw Error('Temporary lobby failure')
       return { id: url.at(-1), title: 'Room ' + url.at(-1), myRole: role, myPermissions: permissions, revision: worlds[url.at(-1)].revision, rank:'mortal',energy:'any', creationConditions:load('heroReview').defaultCreationConditions(), status: 'open', visibility: 'public', members, slots: 4 }
@@ -3575,6 +3579,57 @@ test('Очередь диалогов: ведущий загружает ран�
 })
 
 const liveStamp=letter=>'r1:'+letter.repeat(64)
+test('Личные итоги UI: пояснение после расчёта не меняет броски и сохраняется в команде',async()=>{
+ const f=await fixture()
+ try{
+  executableRound(f,'a');await executionFields(f,'a');await click('Рассчитать последствия раунда')
+  await input('[aria-label="Итог для Hero a"]','Путь свободен.')
+  assert(document.querySelector('[aria-label="Расчёт последствий"]'));assert.equal(f.executions.length,1)
+  assert(document.querySelector('[aria-label="Расчёт последствий"]').textContent.includes('Путь свободен.'))
+  await click('Применить рассчитанный раунд');assert.equal(f.executions.length,1)
+  assert.deepEqual(f.applications[0].resultNotes,{'hero-a':'Путь свободен.'});assert(document.body.textContent.includes('Исходное состояние сохранено'))
+ }finally{await f.close()}
+})
+
+test('Личные итоги UI: потерянный ответ сохраняет адресатов пояснений при перезагрузке',async()=>{
+ const f=await fixture()
+ try{
+  executableRound(f,'a');await executionFields(f,'a');await input('[aria-label="Итог для Hero a"]','Личный итог.')
+  await click('Рассчитать последствия раунда')
+  f.intercept((url,options)=>{if(url.endsWith('/rounds/apply')){f.intercept(null);return f.request(url,options).then(()=>{throw new(load('onlineClient').NetworkError)(0,'Ответ потерян')})}})
+  await click('Применить рассчитанный раунд');const original=f.applications[0]
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть инструменты заявлений')
+  assert.equal(document.querySelector('[aria-label="Итог для Hero a"]').value,'Личный итог.')
+  assert(document.querySelector('[aria-label="Итог для Hero a"]').closest('fieldset').disabled);await click('Проверить результат команды')
+  assert.deepEqual(f.applications[1],original);assert.equal(f.worlds.a.campaign.seconds,5);assert(document.body.textContent.includes('Повторных последствий нет.'))
+ }finally{await f.close()}
+})
+
+test('Личные итоги UI: неполная квитанция не теряет команду пояснений',async()=>{
+ const f=await fixture()
+ try{
+  executableRound(f,'a');await executionFields(f,'a');await click('Рассчитать последствия раунда');await input('[aria-label="Итог для Hero a"]','Нужный итог.')
+  f.intercept((url,options)=>{if(url.endsWith('/rounds/apply')){f.intercept(null);return f.request(url,options).then(value=>{const copy=structuredClone(value);delete copy.receipt.summary.personal;return copy})}})
+  await click('Применить рассчитанный раунд');assert(document.body.textContent.includes('Команда сохранена'))
+  await click('Проверить результат команды');assert.equal(f.applications[1].commandKey,f.applications[0].commandKey);assert(document.body.textContent.includes('Повторных последствий нет.'))
+ }finally{await f.close()}
+})
+
+test('Личные итоги UI: история героя загружается после перезагрузки и очищается при отказе доступа',async()=>{
+ const f=await fixture(),reads=[];let refused=false
+ const report={id:'turn:own',coverage:'full',fromSeconds:0,toSeconds:5,appliedAt:'2026-11-14T12:00:00Z',revision:8,note:'Вы увидели свет.',actions:[{id:'action:0',label:'Подготовка «Щит»',status:'continuing',progress:62.5}],resources:[{id:'mana',before:'20',after:'17',beforeMaximum:'20',afterMaximum:'20'}]}
+ try{
+  f.worlds.a.characters[0].ownerId=f.accountId
+  f.intercept(url=>{if(url.includes('/round-results')){reads.push(url);if(refused)throw new(load('onlineClient').NetworkError)(403,'Нет доступа');return {revision:8,closed:false,reports:url.includes('limit=10')?[report,{...report,id:'turn:earlier',note:'Ранний итог.'}]:[report],hasMore:!url.includes('limit=10')}}})
+  await f.role('PLAYER');await f.permissions([]);await f.open('a');await click('Открыть экран героя');await flush()
+  assert(document.querySelector('[aria-label="Итоги раундов героя"]').textContent.includes('Продолжается'));assert(document.body.textContent.includes('20 → 17'))
+  await click('Показать больше результатов');assert(reads.some(url=>url.endsWith('?limit=10')));assert(document.body.textContent.includes('Ранний итог.'))
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');await flush()
+  assert(document.body.textContent.includes('Вы увидели свет.'));const before=reads.length
+  refused=true;await flush(()=>f.notify());await flush();assert(reads.length>before);assert(!document.body.textContent.includes('Вы увидели свет.'))
+ }finally{await f.close()}
+})
+
 function livePreview(f,body,stamp,revision=f.worlds.a.revision){
  const w=f.worlds.a,c=w.campaign.declarations.active,result=load('roundExecution').calculateRound(w,c,body.input,'live-preview-seed')
  return {id:'live-preview',revision,rulesStamp:stamp,generation:1,collectionId:c.id,epoch:c.epoch,summary:result.summary}

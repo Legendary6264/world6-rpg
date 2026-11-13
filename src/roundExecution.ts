@@ -52,6 +52,7 @@ import { footsteps } from './footstepPhysics'
 import { contactChecker, surfaceDoses } from './bodyContactPhysics'
 import type { ContactDose, ContactOutcome } from './bodyContactPhysics'
 import { isTrappedByIce, waterSupportAt } from './aquaticMotion'
+import type {RoundFeedback} from './roundFeedback'
 export const ROUND_EXECUTOR_VERSION = 'r26-sound-travel-v1'
 export const compatibleRoundExecutor = (version: string) => [ROUND_EXECUTOR_VERSION, 'r25-aquatic-movement-v1', 'r24-terrain-movement-v1', 'r23-body-contact-v1', 'r22-event-acoustics-v1', 'r21-surface-traction-v1', 'r20-environment-exposure-v1', 'r19-room-air-v1', 'r18-condensation-fog-v1', 'r17-reaction-heat-v1', 'r16-aqueous-chemistry-v1', 'r15-horizontal-motion-v1', 'r14-structural-v1', 'r13-thermal-v1', 'r12-water-flow-v1', 'r11-water-electricity-v1', 'r10-tabletop-v1', 'r09-inspection-v1', 'r08-listening-v1', 'r08-round-speech-v1', 'r04-round-history-v8', 'r04-round-history-v7'].includes(version)
 
@@ -69,7 +70,7 @@ type SlideStatus = Pick<SlideStep, 'objectId' | 'name' | 'point' | 'speedMs'>
 type SlideStop = Omit<SlideStep, 'vxMs' | 'vyMs' | 'stopped' | 'speedMs' | 'traction'> & { atMs:ExactAmount; impact?:StructuralImpactOutcome }
 type WalkTraction = TractionTravel & {actorId:string; speedMs:number; safeSpeedMs:number}
 type SlideTraction = TractionTravel & {moverId:string; moverName:string}
-export type RoundExecutionSummary = { listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
+export type RoundExecutionSummary = { personal?:RoundFeedback; listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
   carried: { id: string; actorId: string; actionKind: string; remaining: ExactAmount; unit: string }[];
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
   movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls;

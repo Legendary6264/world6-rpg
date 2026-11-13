@@ -1,0 +1,16 @@
+.gb-round-results { padding: 1rem; margin: 1rem 0; border: 1px solid #53684d; border-radius: 8px; background: #1a2d23; color: #cbd8bc; }
+.gb-round-results h4 { margin: 0 0 .75rem; }
+.gb-round-result { padding: .8rem 0; overflow-wrap: anywhere; }
+.gb-round-result + .gb-round-result { border-top: 1px solid #53684d; }
+.gb-round-result header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; }
+.gb-round-result time { color: #afc29f; font-size: .8rem; }
+.gb-round-resources { display: flex; flex-wrap: wrap; gap: .75rem; padding: 0; list-style: none; }
+.gb-round-resources li { display: grid; gap: .2rem; padding: .5rem .75rem; border: 1px solid #53684d; border-radius: 5px; background: #243b2b; }
+.gb-round-actions { display: grid; gap: .5rem; padding-left: 1.3rem; }
+.gb-round-actions li { padding: .4rem .25rem; }
+.gb-round-actions strong,.gb-round-actions small { margin-left: .75rem; font-size: .85rem; color: #afc29f; }
+.gb-round-actions [data-status=interrupted] strong { color: #e1b89b; }
+.gb-round-note { padding: .75rem; border-left: 3px solid #bea77b; background: #243b2b; }
+.gb-round-note p { margin: .5rem 0 0; }
+.gb-round-results :focus-visible { outline: 2px solid #d2de9b; outline-offset: 3px; }
+@media(max-width:650px) { .gb-round-results { padding: .7rem; } .gb-round-actions strong { display: block; margin: .3rem 0 0; } }

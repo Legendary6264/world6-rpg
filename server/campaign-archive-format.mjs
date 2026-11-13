@@ -5,6 +5,7 @@ import {gzip,gunzip} from 'node:zlib'
 import {promisify} from 'node:util'
 import {fail,validId,integer,text,world} from './validation.mjs'
 import {previewRoundTimeline} from './generated/roundTimeline.mjs'
+import {isRoundFeedback,isResultNotes} from './generated/roundFeedback.mjs'
 export const ARCHIVE_FILE_LIMIT=32*1024*1024,ARCHIVE_JSON_LIMIT=128*1024*1024
 const zip=promisify(gzip),unzip=promisify(gunzip)
 export const archiveHash=value=>createHash('sha256').update(typeof value==='string'||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest('hex')
@@ -31,10 +32,12 @@ export function validateArchive(v){
  const rounds=rows(v.rounds,1000).map(r=>{
   keys(r,['id','authorLabel','collectionId','generation','revision','at','before','receipt','input','seed','executorVersion'])
   if(!record(r.receipt)||!record(r.receipt.summary)||r.receipt.id!==r.id||r.receipt.collectionId!==r.collectionId||r.receipt.revision!==r.revision||r.receipt.generation!==r.generation||r.receipt.appliedAt!==r.at)fail(400,'Несогласованная квитанция раунда.')
+  if(r.receipt.summary.personal!==undefined&&!isRoundFeedback(r.receipt.summary.personal))fail(400,'Некорректные персональные итоги раунда.')
   if(!(r.input===null||record(r.input))||!(r.seed===null||typeof r.seed==='string'&&r.seed.length>0&&r.seed.length<=160)||!(r.executorVersion===null||typeof r.executorVersion==='string'&&r.executorVersion.length>0&&r.executorVersion.length<=160)||(r.input===null)!==(r.seed===null)||(r.seed===null)!==(r.executorVersion===null))fail(400,'Несогласованные данные переигровки.')
   const before=world(r.before),c=before.campaign.declarations?.active
   if(!c||c.id!==r.collectionId||c.phase!=='closed')fail(400,'Исходный снимок не соответствует сбору раунда.')
   if(r.input?.replay!==undefined&&!isRoundReplay(r.input.replay))fail(400,'Некорректные броски переигровки.')
+  if(r.input?.resultNotes!==undefined&&!isResultNotes(r.input.resultNotes))fail(400,'Некорректные пояснения результата.')
   if(r.input!==null){try{previewRoundTimeline(c,r.input.timings)}catch{fail(400,'Некорректные бюджеты переигровки.')}if(!Array.isArray(r.input.continuations)||!Array.isArray(r.input.missingDecisions)||typeof r.input.interactionsConfirmed!=='boolean')fail(400,'Некорректные параметры переигровки.')}
   return {id:validId(r.id),authorLabel:text(r.authorLabel,160),collectionId:validId(r.collectionId),generation:integer(r.generation,1),revision:integer(r.revision),at:timestamp(r.at),before,receipt:structuredClone(r.receipt),input:r.input===null?null:structuredClone(r.input),seed:r.seed,executorVersion:r.executorVersion}
  })
