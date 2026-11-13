@@ -3,7 +3,7 @@ import {fail,id,integer,now,text} from './validation.mjs'
 import {controlledBindings,requireCharacterController} from './lobby-access.mjs'
 import {requireLobbyPermission} from './permissions.mjs'
 import {campaignSession,requireCampaignRunning} from './round-branch.mjs'
-import {emptyStory,isStoryBeats,MAX_STORY_MESSAGES,publicStory} from './generated/campaignStory.mjs'
+import {emptyStory,isStoryBeats,MAX_STORY_MESSAGES,publicStory,recentStoryMessages} from './generated/campaignStory.mjs'
 import {emptyPerception,perceivedMap} from './generated/scenePerception.mjs'
 
 const exact=(value,keys)=>!!value&&typeof value==='object'&&!Array.isArray(value)&&
@@ -13,6 +13,7 @@ const alive=actor=>actor&&!actor.rpg.dead&&actor.body.consciousness==='awake'
 const npcList=bindings=>bindings.filter(binding=>binding.npc)
 const sceneFor=(state,sceneId)=>state.campaign.scenes?.scenes.find(scene=>scene.id===sceneId)
 const bindingsFor=(tx,lobby)=>tx.all('SELECT * FROM character_bindings WHERE lobby_id=?',[lobby.id]).then(rows=>controlledBindings(tx,lobby,rows))
+const historyLimit=req=>req.query.limit===undefined?100:typeof req.query.limit==='string'&&/^\d{3,4}$/.test(req.query.limit)?integer(Number(req.query.limit),100,MAX_STORY_MESSAGES):fail(400,'Проверь размер истории: от 100 до 1000 реплик.')
 
 function audienceOptions(state,bindings,sceneId){
  const scene=sceneFor(state,sceneId)
@@ -25,7 +26,10 @@ function actorContext(state,bindings,actorId){
  const actor=state.characters.find(a=>a.id===actorId),binding=bindings.find(b=>b.character_id===actorId)
  if(!actor||!binding||binding.npc)fail(404,'Герой недоступен.')
  const perception=state.campaign.perceptions?.heroes.find(h=>h.actorId===actorId)??emptyPerception(actorId)
- return {actor,binding,perception,map:perceivedMap(perception,state.campaign.scenes,state.characters,state.campaign.seconds)}
+ const map=perceivedMap(perception,state.campaign.scenes,state.characters,state.campaign.seconds)
+ const present=!!map&&!!sceneFor(state,map.frame.id)?.tokens.some(t=>t.actorId===actorId)&&
+  !!perception.scenes.find(s=>s.sceneId===map.frame.id)?.areas.some(a=>a.visible)
+ return {actor,binding,perception,map,present}
 }
 
 export function campaignStoryRoutes(app,{db,auth,updated,lockedMembership,store,oldCommand}){
@@ -34,8 +38,8 @@ export function campaignStoryRoutes(app,{db,auth,updated,lockedMembership,store,
    const {lobby,member}=await lockedMembership(tx,req);master(member)
    const state=JSON.parse(lobby.world_json),bindings=await bindingsFor(tx,lobby),story=state.campaign.story??emptyStory()
    const scenes=state.campaign.scenes?.scenes??[],collection=state.campaign.declarations?.active
-   return {revision:lobby.revision,closed:lobby.status==='closed',paused:(await campaignSession(tx,lobby.id)).paused,planVersion:story.planVersion,beats:story.beats,
-    messages:story.messages.slice(-100),pending:story.messages.filter(m=>m.kind==='request'&&!m.resolved),
+   return {revision:lobby.revision,closed:lobby.status==='closed',paused:(await campaignSession(tx,lobby.id)).paused,planVersion:story.planVersion,beats:story.beats,totalMessages:story.messages.length,
+    messages:recentStoryMessages(story.messages,historyLimit(req)),pending:story.messages.filter(m=>m.kind==='request'&&!m.resolved),
     activeSceneId:state.campaign.scenes?.activeSceneId??'',scenes:scenes.map(s=>({id:s.id,name:s.name})),
     npcs:npcList(bindings).filter(b=>b.approved&&b.control.controllerId===req.user.id).flatMap(b=>{
      const actor=state.characters.find(a=>a.id===b.character_id)
@@ -54,9 +58,11 @@ export function campaignStoryRoutes(app,{db,auth,updated,lockedMembership,store,
    const c=actorContext(state,bindings,req.params.characterId)
    if(c.binding.owner_id!==req.user.id&&c.binding.control.controllerId!==req.user.id)master(member)
    const paused=(await campaignSession(tx,lobby.id)).paused
-   return {closed:lobby.status==='closed',paused,sceneId:c.map?.frame.id??'',messages:publicStory(state.campaign.story??emptyStory(),c.actor.id),
-    canAsk:lobby.status!=='closed'&&!paused&&!!c.binding.approved&&c.binding.control.controllerId===req.user.id&&!!c.map&&alive(c.actor),
-    contacts:c.map?.contacts.filter(contact=>contact.kind==='identified').map(contact=>({id:contact.id,label:contact.label}))??[]}
+   const story=state.campaign.story??emptyStory(),canWithdraw=lobby.status!=='closed'&&!!c.binding.approved&&c.binding.control.controllerId===req.user.id
+   return {closed:lobby.status==='closed',paused,sceneId:c.map?.frame.id??'',messages:publicStory(story,c.actor.id,historyLimit(req)),
+    totalMessages:story.messages.filter(message=>message.audience.includes(c.actor.id)).length,canWithdraw,
+    canAsk:canWithdraw&&!paused&&c.present&&alive(c.actor),
+    contacts:c.present?c.map.contacts.filter(contact=>contact.kind==='identified').map(contact=>({id:contact.id,label:contact.label})):[]}
   });res.json(result)
  })
 
@@ -67,7 +73,7 @@ export function campaignStoryRoutes(app,{db,auth,updated,lockedMembership,store,
   const result=await db.transaction(async tx=>{
    const {lobby,member}=await lockedMembership(tx,req),state=JSON.parse(lobby.world_json),bindings=await bindingsFor(tx,lobby)
    let actor
-   if(operation==='story-question'){
+   if(['story-question','story-withdraw'].includes(operation)){
     const c=actorContext(state,bindings,req.params.characterId)
     requireCharacterController(member,c.binding,req.user.id)
     if(!c.binding.approved)fail(409,'Дождись принятия героя мастером.')
@@ -84,13 +90,20 @@ export function campaignStoryRoutes(app,{db,auth,updated,lockedMembership,store,
     const npcs=npcList(bindings)
     if(b.beats.some(beat=>beat.sceneId&&!sceneFor(state,beat.sceneId)||beat.npcId&&!npcs.some(n=>n.character_id===beat.npcId)))fail(409,'Проверь выбранные сцены и НПС в плане.')
     story.beats=structuredClone(b.beats);story.planVersion++
+   }else if(['story-resolve','story-withdraw'].includes(operation)){
+    const entry=story.messages.find(m=>m.id===b.messageId&&m.kind==='request')
+    if(!entry||entry.resolved)fail(409,'Вопрос уже разобран или недоступен. Обнови список.')
+    if(operation==='story-withdraw'&&entry.actorId!==actor.actor.id)fail(403,'Можно снять только вопрос своего героя.')
+    const note=operation==='story-resolve'?text(b.note,1000):''
+    entry.resolved=true;entry.resolution={kind:operation==='story-resolve'?'dismissed':'withdrawn',note,at}
+    messageId=entry.id
    }else{
     await requireCampaignRunning(tx,lobby.id)
     if(story.messages.length>=MAX_STORY_MESSAGES)fail(409,'В истории уже 1000 реплик. Сохрани копию кампании перед продолжением.')
     const body=text(b.body,4000)
     let message
     if(operation==='story-question'){
-     if(!alive(actor.actor)||!actor.map)fail(409,'Для разговора нужен герой в сознании на открытой сцене.')
+     if(!alive(actor.actor)||!actor.present)fail(409,'Для разговора нужен герой в сознании на открытой сцене.')
      const contactId=text(b.contactId,160,0)
      const contact=contactId?actor.map.contacts.find(c=>c.id===contactId&&c.kind==='identified'):null
      const target=contactId?actor.perception.scenes.find(s=>s.sceneId===actor.map.frame.id)?.contacts.find(c=>c.id===contactId):null
@@ -110,7 +123,7 @@ export function campaignStoryRoutes(app,{db,auth,updated,lockedMembership,store,
      if(replyTo&&(!parent||parent.resolved||parent.sceneId!==b.sceneId||!b.audience.includes(parent.actorId)))fail(409,'Вопрос уже разобран или его герой отсутствует среди слушателей.')
      message={kind:b.kind,sceneId:b.sceneId,actorId:npc?.character_id??'',speaker:b.kind==='npc'?text(b.speaker,120):'Мастер',
       targetId:'',targetLabel:'',audience:[...b.audience],replyTo,resolved:true}
-     if(parent)parent.resolved=true
+     if(parent){parent.resolved=true;parent.resolution={kind:'answered',note:'',at}}
     }
     messageId=id()
     story.messages.push({...message,id:messageId,body,seconds:state.campaign.seconds,createdAt:at})
@@ -120,5 +133,7 @@ export function campaignStoryRoutes(app,{db,auth,updated,lockedMembership,store,
  })
  write('/api/lobbies/:id/play/story/plan','story-plan',['baseVersion','beats'])
  write('/api/lobbies/:id/play/story/publish','story-publish',['kind','sceneId','npcId','speaker','body','audience','replyTo'])
+ write('/api/lobbies/:id/play/story/resolve','story-resolve',['messageId','note'])
  write('/api/lobbies/:id/characters/:characterId/story','story-question',['body','contactId'])
+ write('/api/lobbies/:id/characters/:characterId/story/withdraw','story-withdraw',['messageId'])
 }

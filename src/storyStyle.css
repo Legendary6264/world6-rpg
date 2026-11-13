@@ -61,6 +61,9 @@
 .gb-story-beats small { display: block; margin-top: .3rem; }
 .gb-story-beats [aria-pressed=true] { background: #304330; border-color: #a2b78a; }
 .gb-story-history { margin-top: 1rem; }
+.gb-story-latest { position: sticky; bottom: .5rem; border-color: #a2b78a; background: #304330; }
+.gb-story-resolution { margin-top: .75rem; border-top: 1px solid #53684d; }
+.gb-story-feed article > .w6-button { display: block; margin-top: .6rem; }
 .gb-story-panel :focus-visible { outline: 2px solid #d2de9b; outline-offset: 3px; }
 @media (max-width: 650px) {
   .gb-story-panel { padding: .7rem; }

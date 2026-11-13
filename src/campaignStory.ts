@@ -9,12 +9,13 @@ export type StoryMessage = {
   id:string; kind:'request'|'narration'|'npc'; sceneId:string; actorId:string; speaker:string
   targetId:string; targetLabel:string; body:string; audience:string[]; replyTo:string
   resolved:boolean; seconds:number; createdAt:string
+  resolution?:{kind:'answered'|'dismissed'|'withdrawn';note:string;at:string}
 }
 export type CampaignStory = {version:1; planVersion:number; beats:StoryBeat[]; messages:StoryMessage[]}
-export type PublicStoryMessage = Pick<StoryMessage,'id'|'kind'|'speaker'|'body'|'seconds'|'createdAt'|'resolved'|'targetLabel'>
-export type StoryPlayerView = {closed:boolean; paused:boolean; sceneId:string; canAsk:boolean; contacts:{id:string;label:string}[]; messages:PublicStoryMessage[]}
+export type PublicStoryMessage = Pick<StoryMessage,'id'|'kind'|'speaker'|'body'|'seconds'|'createdAt'|'resolved'|'targetLabel'|'resolution'>
+export type StoryPlayerView = {closed:boolean; paused:boolean; sceneId:string; canAsk:boolean; canWithdraw:boolean; totalMessages:number; contacts:{id:string;label:string}[]; messages:PublicStoryMessage[]}
 export type StoryMasterView = {
-  revision:number;closed:boolean;paused:boolean;planVersion:number;beats:StoryBeat[];messages:StoryMessage[];pending:StoryMessage[]
+  revision:number;closed:boolean;paused:boolean;planVersion:number;totalMessages:number;beats:StoryBeat[];messages:StoryMessage[];pending:StoryMessage[]
   activeSceneId:string;scenes:{id:string;name:string}[];npcs:{id:string;name:string;sceneId:string}[]
   heroes:{id:string;name:string;sceneId:string;submitted:boolean}[]
 }
@@ -38,13 +39,16 @@ export function isStoryBeats(value:unknown):value is StoryBeat[] {
 }
 function isStoryMessage(value:unknown):value is StoryMessage {
   return physicsRecord(value) && physicsKeys(value,['id','kind','sceneId','actorId','speaker','targetId','targetLabel','body',
-    'audience','replyTo','resolved','seconds','createdAt']) && physicsId(value.id) &&
+    'audience','replyTo','resolved','seconds','createdAt',...(Object.hasOwn(value,'resolution')?['resolution']:[])]) && physicsId(value.id) &&
     ['request','narration','npc'].includes(String(value.kind)) && reference(value.sceneId) && reference(value.actorId) &&
     reference(value.targetId) && reference(value.replyTo) && text(value.speaker,120) && !!value.speaker.trim() &&
     text(value.targetLabel,120) && text(value.body,4000) && !!value.body.trim() &&
     Array.isArray(value.audience) && value.audience.length>0 && value.audience.length<=200 && value.audience.every(physicsId) &&
     new Set(value.audience).size===value.audience.length && typeof value.resolved==='boolean' &&
-    physicsNumber(value.seconds,0,1e12) && isTimestamp(value.createdAt)
+    physicsNumber(value.seconds,0,1e12) && isTimestamp(value.createdAt) &&
+    (!Object.hasOwn(value,'resolution') || value.kind==='request' && value.resolved===true && physicsRecord(value.resolution) &&
+      physicsKeys(value.resolution,['kind','note','at']) && ['answered','dismissed','withdrawn'].includes(String(value.resolution.kind)) &&
+      text(value.resolution.note,1000) && isTimestamp(value.resolution.at))
 }
 export function isCampaignStory(value:unknown):value is CampaignStory {
   if (!physicsRecord(value) || !physicsKeys(value,['version','planVersion','beats','messages']) || value.version!==1 ||
@@ -63,9 +67,14 @@ export function isStoryAck(value:unknown,operation:string,commandKey:string):boo
     Number.isSafeInteger(receipt.planVersion) && Number(receipt.planVersion)>=0 && isTimestamp(receipt.appliedAt) &&
     (operation==='story-plan' ? receipt.id==='' && Number(receipt.planVersion)>0 : physicsId(receipt.id))
 }
-export function publicStory(story:CampaignStory,actorId:string):PublicStoryMessage[] {
-  return story.messages.filter(message=>message.audience.includes(actorId)).slice(-100).map(message=>({
+export function publicStory(story:CampaignStory,actorId:string,limit=100):PublicStoryMessage[] {
+  return recentStoryMessages(story.messages.filter(message=>message.audience.includes(actorId)),limit).map(message=>({
     id:message.id,kind:message.kind,speaker:message.speaker,body:message.body,seconds:message.seconds,
     createdAt:message.createdAt,resolved:message.resolved,targetLabel:message.kind==='request' ? message.targetLabel : '',
+    ...(message.resolution?{resolution:{...message.resolution}}:{}),
   }))
+}
+export function recentStoryMessages(messages:StoryMessage[],limit=100):StoryMessage[]{
+  const activity=(message:StoryMessage)=>Date.parse(message.resolution?.at??message.createdAt)
+  return messages.toSorted((left,right)=>activity(left)-activity(right)).slice(-limit)
 }

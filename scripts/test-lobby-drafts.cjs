@@ -3388,7 +3388,7 @@ function storyView(){
   heroes:[{id:'hero-a',name:'Hero a',sceneId:'scene-a',submitted:false},{id:'friend-a',name:'Другой герой',sceneId:'scene-a',submitted:true}]}
 }
 function storyAck(operation,body,duplicate=false){
- return {receipt:{operation,commandKey:body.commandKey,id:operation==='story-plan'?'':'message-a',revision:8,planVersion:operation==='story-plan'?2:1,appliedAt:'2026-11-13T10:00:00.000Z'},duplicate}
+ return {receipt:{operation,commandKey:body.commandKey,id:operation==='story-plan'?'':body.messageId??'message-a',revision:8,planVersion:operation==='story-plan'?2:1,appliedAt:'2026-11-13T10:00:00.000Z'},duplicate}
 }
 test('Живая игра: подготовка и выпуск добавляются одной правкой, лимит очереди проверяет оба действия',async()=>{
  const f=await fixture()
@@ -3468,5 +3468,108 @@ test('Живая игра: конфликт плана сохраняет чер
   await click('Подготовить вступление');await click('Всем героям этой сцены')
   assert([...document.querySelectorAll('button')].find(b=>b.textContent==='Опубликовать выбранным героям').disabled)
   assert(document.body.textContent.includes('Игра на паузе'))
+ }finally{await f.close()}
+})
+
+test('Очередь диалогов: мастер закрывает вопрос с сохранённым пояснением, повтор после финала сохраняет черновик реплики',async()=>{
+ const f=await fixture(),view=storyView(),commands=[]
+ try{
+  f.intercept((url,options)=>{
+   if(url==='/lobbies/a/play/story')return structuredClone(view)
+   if(url==='/lobbies/a/play/story/resolve'){
+    const body=JSON.parse(options.body);commands.push(body)
+    if(commands.length===1){view.pending=[];throw Error('Подтверждение потеряно')}
+    return storyAck('story-resolve',body,true)
+   }
+  })
+  await f.open('a');await input('[aria-label="Текст реплики мастера"]','Ещё не опубликованная реплика')
+  await click('Закрыть вопрос Hero a');await input('[aria-label="Причина закрытия вопроса Hero a"]','Вернёмся к вопросу на следующей сцене.')
+  await f.mount(false);await f.mount(true);await f.open('a')
+  assert.equal(document.querySelector('[aria-label="Причина закрытия вопроса Hero a"]').value,'Вернёмся к вопросу на следующей сцене.')
+  await click('Закрыть с пояснением');view.closed=true;await flush(()=>f.notify())
+  await click('Проверить сохранение истории');assert.equal(commands.length,2);assert.deepEqual(commands[0],commands[1]);assert.equal(commands[0].messageId,'question-a')
+  assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Ещё не опубликованная реплика')
+  assert(document.body.textContent.includes('Вопрос закрыт. Пояснение доступно герою.'))
+ }finally{await f.close()}
+})
+test('Очередь диалогов: снятие вопроса переживает перезагрузку и сохраняет незавершённый новый вопрос',async()=>{
+ const f=await fixture(),commands=[],question={...storyView().pending[0],resolution:undefined}
+ try{
+  f.intercept((url,options)=>{
+   if(url==='/lobbies/a/characters/hero-a/story')return {closed:false,paused:false,sceneId:'scene-a',canAsk:true,canWithdraw:true,totalMessages:1,contacts:[],messages:[structuredClone(question)]}
+   if(url==='/lobbies/a/characters/hero-a/story/withdraw'){
+    const body=JSON.parse(options.body);commands.push(body)
+    if(commands.length===1)throw Error('Потерян ответ о снятии')
+    question.resolved=true;question.resolution={kind:'withdrawn',note:'',at:'2026-11-13T11:00:00.000Z'}
+    return storyAck('story-withdraw',body,true)
+   }
+  })
+  await ownActions(f,'a');await click('Разговоры');await input('[aria-label="Вопрос на сцене"]','Следующий вопрос ещё пишу')
+  await click('Снять вопрос');await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');await click('Разговоры')
+  await click('Проверить снятие вопроса');await flush(()=>f.notify())
+  assert.equal(commands.length,2);assert.deepEqual(commands[0],commands[1]);assert.equal(Object.hasOwn(commands[0],'operation'),false)
+  assert.equal(document.querySelector('[aria-label="Вопрос на сцене"]').value,'Следующий вопрос ещё пишу');assert(document.body.textContent.includes('Вопрос снят игроком'))
+ }finally{await f.close()}
+})
+test('Очередь диалогов: снятый другим участником вопрос блокирует ответ и позволяет отдельно опубликовать черновик',async()=>{
+ const f=await fixture(),view=storyView()
+ try{
+  f.intercept(url=>url==='/lobbies/a/play/story'?structuredClone(view):undefined)
+  await f.open('a');await click('Ответить Hero a');await input('[aria-label="Текст реплики мастера"]','Текст подготовленного ответа')
+  view.pending=[];await flush(()=>f.notify())
+  assert(document.body.textContent.includes('Этот вопрос уже разобран'))
+  assert([...document.querySelectorAll('button')].find(b=>b.textContent==='Опубликовать выбранным героям').disabled)
+  await click('Отдельная реплика');assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Текст подготовленного ответа')
+  assert(![...document.querySelectorAll('button')].find(b=>b.textContent==='Опубликовать выбранным героям').disabled)
+ }finally{await f.close()}
+})
+test('Очередь диалогов: незаконченный заголовок из пробелов не стирает заметки после перезагрузки',async()=>{
+ const f=await fixture(),view=storyView()
+ try{
+  f.intercept(url=>url==='/lobbies/a/play/story'?structuredClone(view):undefined)
+  await f.open('a');await click('План и заготовки');await input('[aria-label="Название эпизода"]','   ');await input('[aria-label="Заметки эпизода"]','Мотив, который ещё редактирую')
+  await f.mount(false);await f.mount(true);await f.open('a');await click('План и заготовки')
+  assert.equal(document.querySelector('[aria-label="Название эпизода"]').value,'   ');assert.equal(document.querySelector('[aria-label="Заметки эпизода"]').value,'Мотив, который ещё редактирую')
+  assert([...document.querySelectorAll('button')].find(b=>b.textContent==='Сохранить план приключения').disabled)
+ }finally{await f.close()}
+})
+test('Очередь диалогов: счётчик в разделе героя не читает ответы в скрытом игровом столе',async()=>{
+ const f=await fixture(),messages=[]
+ try{
+  f.intercept(url=>url==='/lobbies/a/characters/hero-a/story'?{closed:false,paused:false,sceneId:'scene-a',canAsk:true,canWithdraw:true,totalMessages:messages.length,contacts:[],messages:structuredClone(messages)}:undefined)
+  await ownActions(f,'a');messages.push({id:'reply-one',kind:'npc',speaker:'Страж',body:'Первый ответ',resolved:true,targetLabel:'',seconds:0,createdAt:'2026-11-13T10:00:00.000Z'});await flush(()=>f.notify())
+  const tab=()=>[...document.querySelectorAll('[role="tab"]')].find(b=>b.textContent.startsWith('Разговоры'))
+  assert.equal(tab().textContent,'Разговоры (1)');await click('Разговоры');assert.equal(tab().textContent,'Разговоры')
+  await flush(()=>document.querySelector('[role="tab"][aria-controls$="-world"]').click())
+  messages.push({...messages[0],id:'reply-two',body:'Ответ, пока стол скрыт',createdAt:'2026-11-13T10:00:01.000Z'});await flush(()=>f.notify())
+  assert.equal(tab().textContent,'Разговоры (1)')
+  await flush(()=>document.querySelector('[role="tab"][aria-controls$="-game"]').click());assert.equal(tab().textContent,'Разговоры')
+ }finally{await f.close()}
+})
+test('Очередь диалогов: игрок загружает раннюю историю, сохраняет новый вопрос и отметку прочтения',async()=>{
+ const f=await fixture(),messages=Array.from({length:200},(_,i)=>({id:'reply-'+i,kind:'npc',speaker:'Страж',body:'Реплика '+i,resolved:true,targetLabel:'',seconds:0,createdAt:new Date(Date.UTC(2026,10,13,10,0,i)).toISOString()})),reads=[]
+ try{
+  f.intercept(url=>{
+   if(!url.startsWith('/lobbies/a/characters/hero-a/story'))return
+   reads.push(url);return {closed:false,paused:false,sceneId:'scene-a',canAsk:true,canWithdraw:true,totalMessages:200,contacts:[],messages:structuredClone(url.includes('?limit=200')?messages:messages.slice(-100))}
+  })
+  await ownActions(f,'a');await click('Разговоры');await input('[aria-label="Вопрос на сцене"]','Пишу вопрос во время просмотра')
+  await click('Показать ранние реплики');assert(reads.some(url=>url.endsWith('?limit=200')))
+  assert.equal(document.querySelector('[aria-label="История диалога героя"]').querySelectorAll('article').length,200)
+  assert.equal(document.querySelector('[aria-label="Вопрос на сцене"]').value,'Пишу вопрос во время просмотра')
+  assert([...document.querySelectorAll('[role="tab"]')].some(tab=>tab.textContent==='Разговоры'))
+ }finally{await f.close()}
+})
+test('Очередь диалогов: ведущий загружает ранние сообщения, сохраняя несохранённый план',async()=>{
+ const f=await fixture(),view=storyView(),messages=Array.from({length:200},(_,i)=>({...view.pending[0],id:'history-'+i,kind:'narration',resolved:true,body:'История '+i})),reads=[]
+ try{
+  f.intercept(url=>{
+   if(!url.startsWith('/lobbies/a/play/story'))return
+   reads.push(url);return {...structuredClone(view),totalMessages:200,messages:structuredClone(url.includes('?limit=200')?messages:messages.slice(-100))}
+  })
+  await f.open('a');await click('План и заготовки');await input('[aria-label="Заметки эпизода"]','Сохранить эту мысль')
+  await click('Реплики и вопросы');await flush(()=>document.querySelector('.gb-story-history summary').click());await click('Загрузить раннюю историю')
+  assert(reads.some(url=>url.endsWith('?limit=200')));assert.equal(document.querySelector('[aria-label="История мастера"]').querySelectorAll('article').length,200)
+  await click('План и заготовки');assert.equal(document.querySelector('[aria-label="Заметки эпизода"]').value,'Сохранить эту мысль')
  }finally{await f.close()}
 })

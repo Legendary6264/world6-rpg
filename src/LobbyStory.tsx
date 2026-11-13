@@ -9,22 +9,25 @@ import LobbyWorkbench from './LobbyWorkbench'
 import './storyStyle.css'
 
 type Composer={kind:'narration'|'npc';sceneId:string;npcId:string;speaker:string;body:string;audience:string[];replyTo:string}
-type Draft={plan:StoryBeat[]|null;version?:number;selected:string;composer:Composer;command?:{operation:'plan'|'publish';body:string}}
+type Operation='plan'|'publish'|'resolve'
+type Draft={plan:StoryBeat[]|null;version?:number;selected:string;composer:Composer;resolution?:{messageId:string;note:string};command?:{operation:Operation;body:string}}
 const blankComposer=():Composer=>({kind:'narration',sceneId:'',npcId:'',speaker:'',body:'',audience:[],replyTo:''})
 function valid(value:unknown):value is Draft{
   if(!value||typeof value!=='object')return false
   const d=value as Draft,c=d.composer
-  return (d.plan===null||Array.isArray(d.plan)&&isStoryBeats(d.plan.map(beat=>({...beat,title:beat.title||'Черновик'}))))&&
+  return (d.plan===null||Array.isArray(d.plan)&&d.plan.every(beat=>!!beat&&typeof beat.title==='string'&&beat.title.length<=120)&&isStoryBeats(d.plan.map(beat=>({...beat,title:beat.title.trim()||'Черновик'}))))&&
     typeof d.selected==='string'&&(d.version===undefined||Number.isSafeInteger(d.version))&&!!c&&['narration','npc'].includes(c.kind)&&
     [c.sceneId,c.npcId,c.speaker,c.replyTo].every(field=>typeof field==='string'&&field.length<=160)&&typeof c.body==='string'&&c.body.length<=4000&&
     Array.isArray(c.audience)&&c.audience.length<=200&&c.audience.every(id=>typeof id==='string')&&
-    (!d.command||['plan','publish'].includes(d.command.operation)&&typeof d.command.body==='string'&&d.command.body.length<=1200000)
+    (!d.resolution||typeof d.resolution.messageId==='string'&&typeof d.resolution.note==='string'&&d.resolution.note.length<=1000)&&
+    (!d.command||['plan','publish','resolve'].includes(d.command.operation)&&typeof d.command.body==='string'&&d.command.body.length<=1200000)
 }
 export default function LobbyStory({accountId,lobbyId,checkingAccess,onNpcs,onRound}:{
   accountId:string;lobbyId:string;checkingAccess:boolean;onNpcs?:()=>void;onRound:()=>void
 }){
   const {request,refresh}=useOnline(),path='/lobbies/'+lobbyId+'/play/story'
-  const remote=useRemote<StoryMasterView>(checkingAccess?null:path),key=lobbyFormKey('story-master',accountId,lobbyId)
+  const [historyLimit,setHistoryLimit]=useState(100)
+  const remote=useRemote<StoryMasterView>(checkingAccess?null:path+(historyLimit===100?'':'?limit='+historyLimit)),key=lobbyFormKey('story-master',accountId,lobbyId)
   const [draft,setDraft]=useState<Draft>(()=>readLobbyForm(key,valid)??{plan:null,selected:'',composer:blankComposer()})
   const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[warning,setWarning]=useState('')
   const [section,setSection]=useState('conversation')
@@ -56,21 +59,23 @@ export default function LobbyStory({accountId,lobbyId,checkingAccess,onNpcs,onRo
     compose({kind:npc?'npc':'narration',sceneId:entry.sceneId,npcId:npc?.id??'',speaker:entry.targetLabel,
       body:'',audience:[entry.actorId],replyTo:entry.id})
   }
-  async function send(operation:'plan'|'publish'){
+  async function send(operation:Operation){
     if(checkingAccess||pending.current||remote.loading||!value||!draft.command&&(value.closed||operation==='publish'&&value.paused))return
     if(!draft.command&&operation==='plan'&&(stale||!isStoryBeats(plan))){setMessage('Заполни названия эпизодов и сверь версию плана.');return}
+    if(!draft.command&&operation==='resolve'&&(!draft.resolution?.messageId||!draft.resolution.note.trim())){setMessage('Укажи причину закрытия вопроса.');return}
     const command=draft.command??{operation,body:JSON.stringify(operation==='plan'?
       {baseVersion:draft.version??value.planVersion,beats:plan,commandKey:'story:'+crypto.randomUUID()}:
-      {...composer,sceneId,commandKey:'story:'+crypto.randomUUID()})}
+      operation==='resolve'?{...draft.resolution,commandKey:'story:'+crypto.randomUUID()}:{...composer,sceneId,commandKey:'story:'+crypto.randomUUID()})}
     if(!remember({...draft,command})){setMessage('Освободи место на устройстве перед отправкой.');return}
     const abort=new AbortController();pending.current=abort;setBusy(true)
     try{
       const reply=await request<{receipt:{operation:string};duplicate:boolean}>(path+'/'+command.operation,{method:'POST',body:command.body,signal:abort.signal})
       if(!mounted.current||abort.signal.aborted)return
-      const expected=command.operation==='plan'?'story-plan':'story-publish'
+      const expected=command.operation==='plan'?'story-plan':command.operation==='resolve'?'story-resolve':'story-publish'
       if(!isStoryAck(reply,expected,JSON.parse(command.body).commandKey))throw Error('Сервер не подтвердил сохранение. Повтори ту же команду.')
-      remember({...draft,command:undefined,...(command.operation==='plan'?{plan:null,version:undefined}:{composer:{...composer,body:'',replyTo:''}})})
-      setMessage(command.operation==='plan'?'План сохранён.':'Реплика опубликована выбранным героям.');refresh()
+      remember({...draft,command:undefined,...(command.operation==='plan'?{plan:null,version:undefined}:command.operation==='resolve'?
+        {resolution:undefined,composer:{...composer,replyTo:composer.replyTo===JSON.parse(command.body).messageId?'':composer.replyTo}}:{composer:{...composer,body:'',replyTo:''}})})
+      setMessage(command.operation==='plan'?'План сохранён.':command.operation==='resolve'?'Вопрос закрыт. Пояснение доступно герою.':'Реплика опубликована выбранным героям.');refresh()
     }catch(error){if(mounted.current&&!abort.signal.aborted){if(error instanceof NetworkError&&[400,403,404,409,413].includes(error.status))remember({...draft,command:undefined});setMessage((error as Error).message);refresh()}}
     finally{if(mounted.current&&pending.current===abort){pending.current=null;setBusy(false)}}
   }
@@ -83,10 +88,16 @@ export default function LobbyStory({accountId,lobbyId,checkingAccess,onNpcs,onRo
     {value?.paused&&<p role="status">Игра на паузе. Можно подготовить план и реплики; публикация доступна после продолжения сессии.</p>}
     {value&&<><div className="gb-story-party" aria-label="Герои на сцене">{heroes.map(hero=><span key={hero.id}>{hero.name} · {hero.submitted?'ход получен':'ожидаем ход'}</span>)}</div>
     <LobbyWorkbench label="Ведение сцены" selectedId={section} onSelectSection={setSection} sections={[
-      {id:'conversation',label:'Реплики и вопросы',content:<>
+      {id:'conversation',label:'Реплики и вопросы'+(value.pending.length?' ('+value.pending.length+')':''),content:<>
         {!!value.pending.length&&<section aria-label="Вопросы игроков"><h4>Вопросы игроков</h4>{value.pending.map(entry=><article className="gb-story-question" key={entry.id}>
-          <strong>{entry.speaker} → {entry.targetLabel}</strong><p className="w6-prose">{entry.body}</p>
-          <button className="w6-button" disabled={locked} onClick={()=>answer(entry)}>Ответить {entry.speaker}</button>
+          <strong>{entry.speaker} → {entry.targetLabel}</strong><small> · {value.scenes.find(scene=>scene.id===entry.sceneId)?.name??'Прежняя сцена'}</small><p className="w6-prose">{entry.body}</p>
+          {!value.heroes.some(hero=>hero.id===entry.actorId&&hero.sceneId===entry.sceneId)&&<p className="w6-copy">Герой уже вне этой сцены. Можно закрыть вопрос с пояснением.</p>}
+          <div className="w6-buttons"><button className="w6-button" disabled={locked||!value.heroes.some(hero=>hero.id===entry.actorId&&hero.sceneId===entry.sceneId)} onClick={()=>answer(entry)}>Ответить {entry.speaker}</button>
+          <button type="button" className="w6-button" disabled={locked} onClick={()=>remember({...draft,resolution:{messageId:entry.id,note:''}})}>Закрыть вопрос {entry.speaker}</button></div>
+          {draft.resolution?.messageId===entry.id&&<form className="gb-story-resolution" onSubmit={event=>{event.preventDefault();void send('resolve')}}><fieldset disabled={locked}>
+            <label className="w6-field"><span>Пояснение для героя</span><textarea aria-label={'Причина закрытия вопроса '+entry.speaker} maxLength={1000} rows={2} required value={draft.resolution.note} onChange={e=>remember({...draft,resolution:{messageId:entry.id,note:e.currentTarget.value}})}/></label>
+            <div className="w6-buttons"><button className="w6-button" disabled={!draft.resolution.note.trim()}>Закрыть с пояснением</button><button type="button" className="w6-button" onClick={()=>remember({...draft,resolution:undefined})}>Оставить в очереди</button></div>
+          </fieldset></form>}
         </article>)}</section>}
         <form aria-label="Реплика мастера" onSubmit={event=>{event.preventDefault();void send('publish')}}><fieldset disabled={locked}>
           <div className="gb-story-fields">
@@ -103,7 +114,7 @@ export default function LobbyStory({accountId,lobbyId,checkingAccess,onNpcs,onRo
             </select></label>
             <label className="w6-field"><span>Как назвать его игрокам</span><input aria-label="Имя говорящего для игроков" maxLength={120} required value={composer.speaker} placeholder="Например, Страж у ворот" onChange={e=>compose({speaker:e.currentTarget.value})}/></label>
           </div>}
-          {!!composer.replyTo&&<p>Ответ на выбранный вопрос. <button type="button" className="w6-button" onClick={()=>compose({replyTo:''})}>Отдельная реплика</button></p>}
+          {!!composer.replyTo&&<p>{value.pending.some(entry=>entry.id===composer.replyTo)?'Ответ на выбранный вопрос.':'Этот вопрос уже разобран. Черновик можно опубликовать отдельной репликой.'} <button type="button" className="w6-button" onClick={()=>compose({replyTo:''})}>Отдельная реплика</button></p>}
           <label className="w6-field"><span>{composer.kind==='npc'?'Слова персонажа':'Что видят и узнают герои'}</span><textarea aria-label="Текст реплики мастера" required rows={4} maxLength={4000} value={composer.body} onChange={e=>compose({body:e.currentTarget.value})}/></label>
           <fieldset><legend>Кто получит текст</legend><div className="gb-story-audience">{heroes.map(hero=><label key={hero.id}><input type="checkbox" checked={composer.audience.includes(hero.id)}
             onChange={e=>compose({audience:e.currentTarget.checked?[...composer.audience,hero.id]:composer.audience.filter(id=>id!==hero.id)})}/>{hero.name}</label>)}</div>
@@ -111,11 +122,11 @@ export default function LobbyStory({accountId,lobbyId,checkingAccess,onNpcs,onRo
             {!!heroes.length&&<button type="button" className="w6-button" onClick={()=>compose({audience:heroes.map(hero=>hero.id)})}>Всем героям этой сцены</button>}
           </fieldset>
           <p className="gb-game-help">Выбранные герои получат текст после публикации. Перемещение, бой и расходы способности оформляются ходом.</p>
-          <button className="w6-button w6-primary" disabled={value.paused||!composer.body.trim()||!composer.audience.length||composer.kind==='npc'&&(!composer.npcId||!composer.speaker.trim())}>Опубликовать выбранным героям</button>
+          <button className="w6-button w6-primary" disabled={value.paused||!!composer.replyTo&&!value.pending.some(entry=>entry.id===composer.replyTo)||!composer.body.trim()||!composer.audience.length||composer.kind==='npc'&&(!composer.npcId||!composer.speaker.trim())}>Опубликовать выбранным героям</button>
         </fieldset></form>
         {!!value.messages.length&&<details className="gb-story-history"><summary>История сцены</summary><div className="gb-story-feed" role="log" aria-label="История мастера">
-          {value.messages.filter(entry=>entry.sceneId===sceneId).slice(-30).map(entry=><article key={entry.id}><strong>{entry.speaker}</strong><small> · {entry.seconds} с · получателей {entry.audience.length}</small><p className="w6-prose">{entry.body}</p></article>)}
-        </div></details>}
+          {value.messages.filter(entry=>entry.sceneId===sceneId).map(entry=><article key={entry.id}><strong>{entry.speaker}</strong><small> · {entry.seconds} с · получателей {entry.audience.length}</small><p className="w6-prose">{entry.body}</p>{entry.resolution&&<small>{entry.resolution.kind==='dismissed'?'Закрыт: '+entry.resolution.note:entry.resolution.kind==='withdrawn'?'Снят игроком':'Есть ответ'}</small>}</article>)}
+        </div>{(value.totalMessages??0)>value.messages.length&&<button type="button" className="w6-button" disabled={locked} onClick={()=>setHistoryLimit(n=>Math.min(1000,n+100))}>Загрузить раннюю историю ({value.messages.length} из {value.totalMessages})</button>}</details>}
       </>},
       {id:'plan',label:'План и заготовки',content:<>
         <p className="w6-copy">План и заметки видны ведущим. Вступление и подготовленная реплика попадут к героям после публикации.</p>

@@ -23,12 +23,13 @@ type PlayerView = { closed?:boolean; work?: import('./roundWork').PersonalRoundW
   knowledge: { journal: Omit<JournalEntry, 'artwork' | 'eventKey'>[]; knownEffects: Omit<KnownEffect, 'createdAt' | 'updatedAt' | 'artwork'>[] }; inventory: { id: string; name: string; description: string; quantity: number }[] }
 type Note = { title: string; text: string; revision?: number;command?:KnowledgeCommand }
 const valid = (v: unknown): v is Note => !!v && typeof v === 'object' && typeof (v as Note).title === 'string' && (v as Note).title.length <= 120 && typeof (v as Note).text === 'string' && (v as Note).text.length <= 8000 && ((v as Note).revision === undefined || Number.isSafeInteger((v as Note).revision))&&((v as Note).command===undefined||isKnowledgeCommand((v as Note).command)&&!(v as Note).command!.disclosure)
-export default function LobbyPlayerScreen({ accountId, lobbyId, character, checkingAccess, members }: { accountId: string; lobbyId: string; character: PlayerCharacter; checkingAccess: boolean; members: {id:string;displayName:string}[] }) {
+export default function LobbyPlayerScreen({ accountId, lobbyId, character, checkingAccess, members,active:tableActive=true }: { accountId: string; lobbyId: string; character: PlayerCharacter; checkingAccess: boolean; members: {id:string;displayName:string}[];active?:boolean }) {
   const { request, refresh } = useOnline(), key = lobbyFormKey('player-note', accountId, lobbyId, character.id)
   const [opened, setOpened] = useState(false), [note, setNote] = useState<Note>(() => readLobbyForm(key, valid) ?? { title: '', text: '' }), [selected, setSelected] = useState('')
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [warning, setWarning] = useState(''), [query, setQuery] = useState(''), [pointChoice, setPointChoice] = useState<{sceneId:string;point:ScenePosition} | null>(null), [selectedObject,setSelectedObject]=useState(''), [queue,setQueue]=useState<DeclaredAction[]>([])
   const [abilityAim,setAbilityAim]=useState<SceneAbilityAim|null>(null)
   const [playerSection,setPlayerSection]=useState('actions'),[conversationTarget,setConversationTarget]=useState('')
+  const [dialogueUnread,setDialogueUnread]=useState(0)
   const appendSceneAction=useRef<((action:DeclaredAction)=>boolean)|null>(null)
   const active = useRef(false), pending = useRef<AbortController | null>(null)
   useEffect(() => { active.current = true; return () => { active.current = false; pending.current?.abort() } }, [])
@@ -82,9 +83,9 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
       </details><details><summary>Инвентарь</summary>{value.inventory.length ? value.inventory.map(i => <p key={i.id}>{i.name} × {i.quantity} · {i.description}</p>) : <p>Инвентарь пуст.</p>}</details>
       <div aria-label="Мои заряды">{value.hero.charges?.map(c=><p key={c.id}>{c.name}: {c.status==='ready'?'готов к отдельному выпуску':'подготовка'}.{c.holding&&<> {c.status==='ready'&&c.holding.remainingSeconds!==null?'Осталось удержания: '+c.holding.remainingSeconds+' с.':''} Расход удержания за мировую секунду: Мана {c.holding.holdCost.mana}, Тень {c.holding.holdCost.shadow}, Выносливость {c.holding.holdCost.stamina}.</>}</p>)}</div><details><summary>Известные способности</summary>{value.hero.abilities?.length ? value.hero.abilities.map(a => <p key={a.id}><strong>{a.name}</strong> · {a.description}</p>) : <p>Нет утверждённых способностей.</p>}</details>
         </div>},
-        {id:'conversations',label:'Разговоры',content:<>
+        {id:'conversations',label:'Разговоры'+(dialogueUnread?' ('+dialogueUnread+')':''),content:<>
           <LobbyDialogue key={character.id+':'+conversationTarget} accountId={accountId} lobbyId={lobbyId} characterId={character.id} contactId={conversationTarget}
-            checkingAccess={checkingAccess||remote.loading} />
+            active={tableActive&&playerSection==='conversations'} onUnreadChange={setDialogueUnread} checkingAccess={checkingAccess||remote.loading} />
           <details><summary>Реплики исполненных раундов</summary><LobbyConversations journal={value.knowledge.journal}/></details>
         </>},
         {id:'journal',label:'Журнал',content:<div className="gb-player-tabs">
