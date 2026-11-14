@@ -31,7 +31,7 @@ export function objectActions(o:InteractiveObject):{operation:ObjectOperation;la
  if(objectLightSource(o))actions.push({operation:o.active===false?'ignite':'extinguish',label:o.active===false?'Зажечь':'Погасить'})
  return actions
 }
-export function operateSceneObject(o:SceneObject,operation:ObjectOperation):SceneObject{
+export function operateSceneObject<T extends InteractiveObject>(o:T,operation:ObjectOperation):T{
  if(!supportsObjectOperation(o,operation))throw Error('Это действие недоступно для выбранного объекта.')
  if(operation==='open'&&o.locked)throw Error('Объект заперт. Сначала нужно отпереть замок.')
  if(operation==='lock'&&o.open)throw Error('Сначала закрой объект, затем запри замок.')

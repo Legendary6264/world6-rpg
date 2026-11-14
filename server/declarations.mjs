@@ -1,4 +1,5 @@
 import {objectOperations,supportsObjectOperation} from './generated/tabletopInteractions.mjs'
+import {declarationItems,itemPlanIssues} from './generated/plannedInteractions.mjs'
 import {declarationAbilities} from './generated/declarationAbilities.mjs'
 import {createHash} from 'node:crypto'
 import {rejectRetiredCommand} from './campaign-retention-state.mjs'
@@ -24,7 +25,7 @@ function options(state, actor, c, npc=false) {
   if(npc&&c){const scene=state.campaign.scenes?.scenes.find(s=>s.id===c.sceneId)
     return {frame:scene?{width:scene.width,depth:scene.depth,minZ:scene.minZ,maxZ:scene.maxZ}:null,
       targets:scene?[...scene.tokens.filter(t=>t.actorId!==actor.id).map(t=>({id:t.actorId,kind:'contact',label:state.characters.find(a=>a.id===t.actorId)?.name??'Существо'})),...scene.objects.map(o=>({id:o.id,kind:'object',label:o.name}))]:[],
-      items:actor.rpg.inventory.filter(i=>i.quantity>0).map(i=>({id:i.id,name:i.name,quantity:i.quantity})),
+      items:declarationItems(actor.rpg.inventory),
       ...declarationAbilities(actor.rpg)}
   }
   const p = state.campaign.perceptions?.heroes.find(h => h.actorId === actor.id) ?? emptyPerception(actor.id)
@@ -33,12 +34,14 @@ function options(state, actor, c, npc=false) {
   const visible = map && p.activeSceneId === c.sceneId ? map : null
   return { frame: visible ? { width: visible.frame.width, depth: visible.frame.depth, minZ: visible.frame.minZ, maxZ: visible.frame.maxZ } : null,
     targets: [...(visible?.contacts ?? []).filter(t => t.kind !== 'self' && t.kind !== 'sound').map(t => ({ id: t.id, kind: 'contact', label: t.label })), ...(visible?.objects ?? []).map(o => ({ id: o.id, kind: 'object', label: o.name }))],
-    items: actor.rpg.inventory.filter(i => i.quantity > 0).map(i => ({ id: i.id, name: i.name, quantity: i.quantity })),
+    items: declarationItems(actor.rpg.inventory),
     ...declarationAbilities(actor.rpg) }
 }
 function prepareActions(actions, state, actor, c,npc=false) {
   const o = options(state, actor, c,npc)
   if (!o) fail(409, 'Мастер должен открыть герою сцену этого сбора заявлений.')
+  const inventoryIssue=itemPlanIssues(o.items,actions)[0]
+  if(inventoryIssue)fail(409,'Действие '+(inventoryIssue.index+1)+': '+inventoryIssue.message)
   const inFrame = p => o.frame && p.x >= 0 && p.x <= o.frame.width && p.y >= 0 && p.y <= o.frame.depth && p.z >= o.frame.minZ && p.z <= o.frame.maxZ
   const known = state.campaign.perceptions?.heroes.find(h => h.actorId === actor.id)?.scenes.find(s => s.sceneId === c.sceneId)
   const result = [], resolved = []

@@ -3579,6 +3579,95 @@ test('Очередь диалогов: ведущий загружает ран�
 })
 
 const liveStamp=letter=>'r1:'+letter.repeat(64)
+async function interactionBar({items=[],object,mode='item',contactId='ally',contacts}={}){
+ const tree=createRoot(document.getElementById('root')),Bar=load('GameActionBar').default
+ const map={title:'Сцена',description:'',frame:{id:'scene',width:20,depth:20,groundZ:0,minZ:-2,maxZ:10,view:'top',palette:'stone'},areas:[],objects:object?[object]:[],contacts:contacts??[{id:'self',kind:'self',label:'Герой',signs:'',x:1,y:1,z:0},{id:'ally',kind:'identified',label:'Союзник',signs:'',x:2,y:1,z:0}]}
+ let draft={...load('gameControls').emptyQuickAction(),mode},queue=[]
+ const options={frame:map.frame,targets:[{id:'ally',kind:'contact',label:'Союзник'},...(object?[{id:object.id,kind:'object',label:object.name}]:[])],items:load('plannedInteractions').declarationItems(items),abilities:[]}
+ const render=()=>tree.render(React.createElement(Bar,{map,point:null,contactId,objectId:object?.id??'',options,disabled:false,plannedActions:queue,draft,onChange:value=>{draft=value;render()},onAdd:action=>{queue=[...queue,action];render();return true}}))
+ await flush(render)
+ return {map,options,get queue(){return queue},render:()=>flush(render),contact:async value=>{contactId=value;await flush(render)},clear:async()=>{queue=[];await flush(render)},close:()=>flush(()=>tree.unmount())}
+}
+const interactionPotion=()=>({...load('rpgSchema').emptyItem(),id:'potion',name:'Настой',quantity:2,category:'consumable',slot:'none',equipped:false,durability:100,consumable:{...load('rpgSchema').emptyConsumableEffect(),targets:'creature',restore:{mana:4,shadow:0,stamina:0}}})
+test('Контекстные действия UI: расходник показывает подходящее действие, дозы и правку очереди',async()=>{
+ const f=await interactionBar({items:[interactionPotion()]})
+ try{
+  await selectValue('[aria-label="Быстрый предмет"]','potion')
+  assert(!enabledButton('Снарядить'));assert(!enabledButton('Активировать'));assert(enabledButton('Использовать одну дозу'))
+  await click('Использовать одну дозу');assert.equal(f.queue[0].target.kind,'self');assert(document.body.textContent.includes('после запланированного использования: 1'))
+  await click('Использовать одну дозу');assert(!enabledButton('Использовать одну дозу'));assert.equal(f.queue.length,2)
+  await f.clear();assert(enabledButton('Использовать одну дозу'));assert.equal(f.options.items[0].quantity,2)
+ }finally{await f.close()}
+})
+test('Контекстные действия UI: артефакт сначала снаряжается, активации учитывают его энергию',async()=>{
+ const artifact={...load('rpgSchema').emptyItem(),id:'ring',name:'Кольцо',slot:'right',quantity:1,equipped:false,durability:100,artifactLevel:1,artifactCharge:5,activationCost:2,activationModifiers:[{parameter:'movement',flat:1,percent:0}]}
+ const f=await interactionBar({items:[artifact]})
+ try{
+  await selectValue('[aria-label="Быстрый предмет"]','ring');assert(enabledButton('Снарядить'));assert(!enabledButton('Активировать'));assert(!enabledButton('Использовать одну дозу'))
+  await click('Снарядить');assert(enabledButton('Снять'));assert(enabledButton('Активировать'))
+  await click('Активировать');await click('Активировать');assert(!enabledButton('Активировать'));assert(document.body.textContent.includes('5 → 1'))
+  assert.equal(f.options.items[0].use.artifact.charge,5);assert.equal(artifact.equipped,false)
+ }finally{await f.close()}
+})
+test('Контекстные действия UI: исчезнувшая цель расходника не заменяется собой или звуком',async()=>{
+ const f=await interactionBar({items:[interactionPotion()]})
+ try{
+  await selectValue('[aria-label="Быстрый предмет"]','potion');await selectValue('[aria-label="Цель предмета"]','selected')
+  await click('Использовать одну дозу');assert.deepEqual(f.queue[0].target,{kind:'contact',id:'ally'})
+  await f.contact('missing');assert(!enabledButton('Использовать одну дозу'));assert(document.body.textContent.includes('Прежняя цель расходника недоступна'))
+  f.map.contacts.push({id:'sound',kind:'sound',label:'Шорох',signs:'',x:3,y:3});await f.contact('sound');assert(!enabledButton('Использовать одну дозу'))
+  await selectValue('[aria-label="Цель предмета"]','self');await click('Использовать одну дозу');assert.deepEqual(f.queue[1].target,{kind:'self'})
+ }finally{await f.close()}
+})
+test('Контекстные действия UI: отпереть, открыть, закрыть и запереть не меняют карту до исполнения',async()=>{
+ const object={id:'door',name:'Дверь',kind:'door',x:4,y:4,z:0,width:1,depth:1,height:2,open:false,locked:true,visible:true},f=await interactionBar({object,mode:'world'})
+ try{
+  assert(!enabledButton('Открыть дверь'));await click('Отпереть');await click('Открыть дверь');assert(enabledButton('Закрыть дверь'))
+  await click('Закрыть дверь');await click('Запереть');assert.deepEqual(f.queue.map(a=>a.operation),['unlock','open','close','lock'])
+  assert.equal(f.map.objects[0].locked,true);assert.equal(f.map.objects[0].open,false);assert(document.body.textContent.includes('с учётом твоей очереди'))
+  await f.clear();assert(!enabledButton('Открыть дверь'));assert(enabledButton('Отпереть'))
+ }finally{await f.close()}
+})
+test('Контекстные действия UI: недоступный предмет не подменяется другим',async()=>{
+ const f=await interactionBar({items:[interactionPotion()]})
+ try{
+  await selectValue('[aria-label="Быстрый предмет"]','potion');f.options.items=[];await f.render()
+  assert(document.body.textContent.includes('Этот предмет больше не доступен'));assert(!enabledButton('Использовать одну дозу'));assert.equal(f.queue.length,0)
+ }finally{await f.close()}
+})
+
+test('Контекстные действия UI: план расходника союзнику переживает перезагрузку и отправляется без списания',async()=>{
+ const f=await fixture()
+ try{
+  const potion=interactionPotion();f.worlds.a.characters[0].rpg.inventory=[potion]
+  await ownActions(f,'a')
+  f.declarations.a.options.items=load('plannedInteractions').declarationItems([potion]);f.declarations.a.options.targets=[{id:'ally',kind:'contact',label:'Союзник'}]
+  f.perceptions.a={title:'Площадка',description:'',frame:{id:'scene-a',width:20,depth:20,groundZ:0,minZ:-2,maxZ:10,view:'top',palette:'stone'},areas:[],objects:[],contacts:[{id:'self',kind:'self',label:'Герой',signs:'',x:1,y:1,z:0},{id:'ally',kind:'identified',label:'Союзник',signs:'',x:2,y:1,z:0}]}
+  f.context.events++;await f.render();await flush()
+  await flush(()=>document.querySelector('.gb-contact[aria-label="Союзник"]').dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true})))
+  await quickMode('Предметы');await selectValue('[aria-label="Быстрый предмет"]','potion');await selectValue('[aria-label="Цель предмета"]','selected');await click('Использовать одну дозу')
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');await flush()
+  assert.equal(document.querySelector('[aria-label="Цель предмета"]').value,'selected');assert(!enabledButton('Использовать одну дозу'))
+  await flush(()=>document.querySelector('.gb-contact[aria-label="Союзник"]').dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true})))
+  await click('Использовать одну дозу');await click('Отправить заявление')
+  assert.equal(f.writes[0].actions.length,2);assert(f.writes[0].actions.every(a=>a.target.kind==='contact'&&a.target.id==='ally'))
+  assert.equal(f.worlds.a.characters[0].rpg.inventory[0].quantity,2)
+ }finally{await f.close()}
+})
+test('Контекстные действия UI: уменьшение стопки требует исправить сохранённый план перед отправкой',async()=>{
+ const f=await fixture()
+ try{
+  await ownActions(f,'a');f.declarations.a.options.items=load('plannedInteractions').declarationItems([interactionPotion()]);f.context.events++;await f.render();await flush()
+  await quickMode('Предметы');await selectValue('[aria-label="Быстрый предмет"]','potion');await click('Использовать одну дозу');await click('Использовать одну дозу')
+  assert(enabledButton('Отправить заявление'));f.declarations.a.options.items[0].quantity=1;f.context.events++;await f.render();await flush()
+  assert(!enabledButton('Отправить заявление'));assert(document.body.textContent.includes('В плане использовано больше доз'))
+  await click('Убрать действие 2');assert(enabledButton('Отправить заявление'))
+  f.declarations.a.options.items=[];f.context.events++;await f.render();await flush();assert(!enabledButton('Отправить заявление'));assert(document.body.textContent.includes('Расходник больше не доступен'))
+  f.declarations.a.options.items=load('plannedInteractions').declarationItems([{...interactionPotion(),quantity:1}]);f.context.events++;await f.render();await flush()
+  await click('Отправить заявление');assert.equal(f.writes[0].actions.length,1)
+ }finally{await f.close()}
+})
+
 test('Личные итоги UI: пояснение после расчёта не меняет броски и сохраняется в команде',async()=>{
  const f=await fixture()
  try{

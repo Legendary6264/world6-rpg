@@ -2,6 +2,7 @@ import type {SceneAbilityAim} from './sceneAbilityAim'
 import { emptyQuickAction, isQuickActionDraft, gameActionLabel, gameTurnStatus } from './gameControls'
 import type { QuickActionDraft } from './gameControls'
 import GameActionBar from './GameActionBar'
+import {itemPlanIssues} from './plannedInteractions'
 import AbilityChargeSelect from './AbilityChargeSelect'
 import type { PerceivedMap } from './scenePerception'
 import { spatialLabel } from './abilitySpatial'
@@ -55,6 +56,8 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
         f.kind === 'speak' ? { ...shared, target, volume: f.volume, text: f.speech } : f.kind === 'item' ? { ...shared, target, itemId: f.itemId, quantity: coordinate(f.quantity),...(f.itemOperation?{operation:f.itemOperation}:{}) } :
           { ...shared, target, abilityId: f.abilityId, stage: f.stage, ...(f.stage==='release'&&f.castId?{castId:f.castId}:{}) }
     if (!isDeclaredAction(candidate) || draft.actions.length >= 20) { setMessage('Проверь параметры действия. В последовательности допустимо от 1 до 20 действий.'); return }
+    const inventoryIssue=value?.options?itemPlanIssues(value.options.items,[...draft.actions,candidate])[0]:undefined
+    if(inventoryIssue){setMessage(inventoryIssue.message);return}
     if(repeatedCharge(candidate)){setMessage('Этот заряд уже запланирован к выпуску в очереди. Каждый заряд выпускается один раз.');return}
     remember({ ...draft, actions: [...draft.actions, candidate], form: { ...f, route: [], note: '' } }); setMessage('Действие добавлено в черновик.')
   }
@@ -70,12 +73,9 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
         if(charges.has(action.castId)){setMessage('Этот заряд уже запланирован к выпуску в очереди. Каждый заряд выпускается один раз.');return false}
         charges.add(action.castId)
       }
-      if(action.kind==='item'&&action.operation==='consume'){
-        const available=value?.options?.items.find(i=>i.id===action.itemId)?.quantity
-        const planned=combined.reduce((n,a)=>n+(a.kind==='item'&&a.itemId===action.itemId&&a.operation==='consume'?a.quantity:0),0)
-        if(available!==undefined&&planned>available){setMessage('В очереди уже использованы все доступные дозы этого предмета.');return false}
-      }
     }
+    const inventoryIssue=value?.options?itemPlanIssues(value.options.items,combined)[0]:undefined
+    if(inventoryIssue){setMessage(inventoryIssue.message);return false}
     const next=remember({...draft,actions:combined,...(actions.some(action=>action.kind==='speak')?{quick:{...(draft.quick??emptyQuickAction()),text:''}}:{})})
     setUndo({actions:draft.actions,base:JSON.stringify(next.base)});setMessage(actions.length===1?'Действие добавлено в ход.':'Подготовка и применение добавлены в ход.');return true
   }
@@ -99,7 +99,8 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
   }
   const stale = hasDraftContent(draft) && !!draft.base && (!c || draft.base.collectionId !== c.id || draft.base.epoch !== c.epoch || draft.base.baseVersion !== (value?.entry?.revision ?? 0) || draft.base.controlStamp !== value?.controlStamp)
   useEffect(() => { onQueue?.(stale ? emptyQueue : draft.actions) }, [draft.actions, stale, onQueue])
-  const available = !busy && !checkingAccess && !remote.loading,editable=available&&!draft.submission, canSend = editable && !!value?.canSubmit && !!value.options && draft.actions.length > 0 && !stale && (value.entry?.status !== 'submitted' || !!c?.allowReplace)
+  const inventoryIssues=value?.options?itemPlanIssues(value.options.items,draft.actions):[]
+  const available = !busy && !checkingAccess && !remote.loading,editable=available&&!draft.submission, canSend = editable && !!value?.canSubmit && !!value.options && draft.actions.length > 0 && !inventoryIssues.length && !stale && (value.entry?.status !== 'submitted' || !!c?.allowReplace)
   useEffect(()=>{if(sceneActionRef)sceneActionRef.current=action=>editable&&!stale?appendAction(action):false;return ()=>{if(sceneActionRef)sceneActionRef.current=null}})
   const targetLabel = (a: DeclaredAction) => {
     const t=actionTarget(a)
@@ -118,7 +119,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
         <p>Автор плана: {members.find(m => m.id === value.entry!.submittedBy)?.displayName ?? 'Участник кампании'}</p>{value.entry.actions.map((a, i) => <p key={i}>{i + 1}. {gameActionLabel(a,value?.options)} · {targetLabel(a)}{a.note && ' · ' + a.note}</p>)}{value.entry.note && <p>Замечание мастера: {value.entry.note}</p>}
         <button className="w6-button" disabled={!editable} onClick={loadSent}>Загрузить отправленное в черновик</button></details>}
     </>}
-    <GameActionBar onAimChange={onAimChange} onTalk={onTalk} map={map} point={pickedPoint} contactId={selectedContact} objectId={selectedObject} options={value?.options??null} disabled={!editable||draft.actions.length>=20} draft={draft.quick??emptyQuickAction()} onChange={quick=>remember({...draft,quick})} onAdd={appendAction} onAddMany={appendActions}/>
+    <GameActionBar plannedActions={stale?[]:draft.actions} onAimChange={onAimChange} onTalk={onTalk} map={map} point={pickedPoint} contactId={selectedContact} objectId={selectedObject} options={value?.options??null} disabled={!editable||draft.actions.length>=20} draft={draft.quick??emptyQuickAction()} onChange={quick=>remember({...draft,quick})} onAdd={appendAction} onAddMany={appendActions}/>
     <details className="gb-game-advanced"><summary>Точные параметры и сложная последовательность</summary><fieldset disabled={!editable}><legend>Черновик последовательности</legend>
       {pickedPoint && <button className="w6-button" onClick={() => remember({ ...draft, form: { ...f, targetKind: ['area','direction'].includes(f.targetKind)?f.targetKind:'point', x: String(pickedPoint.x), y: String(pickedPoint.y), z: String(pickedPoint.z) } })}>Использовать выбранные координаты ({pickedPoint.x}; {pickedPoint.y}; {pickedPoint.z})</button>}
       {value?.options?.targets.some(t => t.kind === 'contact' && t.id === selectedContact) && <button className="w6-button" onClick={() => remember({ ...draft, form: { ...f, targetKind: 'contact', targetId: selectedContact } })}>Использовать отмеченный контакт</button>}<label className="w6-field"><span>Категория действия</span><select aria-label="Категория действия" value={f.kind} onChange={e => field('kind', e.currentTarget.value)}>{actionKinds.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}</select></label>
@@ -143,6 +144,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       <button className="w6-button" onClick={addAction}>Добавить действие в последовательность</button>
     </fieldset></details><fieldset disabled={!editable} className="gb-game-queue"><legend>Мой ход · {draft.actions.length} / 20 действий</legend>
       {!!draft.quick?.text.trim()&&<p className="w6-copy">В поле реплики есть текст, который ещё не добавлен в очередь хода.</p>}
+      {inventoryIssues.map(issue=><p role="alert" key={issue.index}>Действие {issue.index+1}: {issue.message} Убери лишнее действие или скорректируй очередь.</p>)}
       {draft.actions.length===0&&<p className="w6-copy">Выбери действие на панели над очередью. После исполнения результат появится на карте.</p>}
       {draft.actions.map((a, i) => <article className="gb-journal-entry" key={i}><p>{i + 1}. {gameActionLabel(a,value?.options)} · {targetLabel(a)}{a.note && ' · ' + a.note}</p><button className="w6-button" onClick={() => editQueue(draft.actions.filter((_, n) => n !== i))}>Убрать действие {i + 1}</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' выше'} disabled={i===0} onClick={()=>{const next=[...draft.actions];[next[i-1],next[i]]=[next[i],next[i-1]];editQueue(next)}}>↑</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' ниже'} disabled={i===draft.actions.length-1} onClick={()=>{const next=[...draft.actions];[next[i+1],next[i]]=[next[i],next[i+1]];editQueue(next)}}>↓</button></article>)}
       <button type="button" className="w6-button" disabled={!undo||undo.base!==JSON.stringify(draft.base)||stale} onClick={()=>{if(undo){remember({...draft,actions:undo.actions});setUndo(null)}}}>Отменить правку очереди</button>

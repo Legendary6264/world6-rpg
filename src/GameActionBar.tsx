@@ -1,4 +1,5 @@
 import {knownAimTargets} from './sceneAimTargets'
+import {plannedItem,itemChoices,itemTarget,plannedObject} from './plannedInteractions'
 import SceneAbilityAimSummary from './SceneAbilityAimSummary'
 import {useEffect,useMemo,useRef} from 'react'
 import {buildSceneAbilityAim} from './sceneAbilityAim'
@@ -13,7 +14,8 @@ import type { DeclaredAction, DeclarationOptions, DeclarationTarget } from './ac
 import type { PerceivedMap } from './scenePerception'
 import type { ScenePosition } from './sceneTypes'
 
-export default function GameActionBar({ map, point, contactId, objectId, options, disabled, onAdd, draft, onChange,onAimChange,resolveAim,environmentOnly=false,onTalk,onAddMany }: {
+export default function GameActionBar({ map, point, contactId, objectId, options, disabled, onAdd, draft, onChange,onAimChange,resolveAim,environmentOnly=false,onTalk,onAddMany,plannedActions=[] }: {
+  plannedActions?:DeclaredAction[];
   onTalk?:()=>void;onAddMany?:(actions:DeclaredAction[])=>boolean;
   onAimChange?:(aim:SceneAbilityAim|null)=>void;resolveAim?:(aim:SceneAbilityAim)=>SceneAbilityAim;environmentOnly?:boolean;
   map: PerceivedMap | null; point: ScenePosition | null; contactId: string; objectId: string;
@@ -22,7 +24,8 @@ export default function GameActionBar({ map, point, contactId, objectId, options
   const {mode,text,volume,item,ability,aim}=draft
   const modeHelp={world:['Окружение и движение','Выбери точку, предмет или существо на сцене. Здесь появятся доступные действия.'],speak:['Реплика героя','Напиши слова героя и выбери громкость. Реплика попадёт в план хода.'],item:['Предмет из инвентаря','Выбери предмет и нужное действие с ним.'],ability:['Применение способности','Выбери способность, заряд и цель. Проверь область перед добавлением в план.']}[mode]
   const field=<K extends keyof QuickActionDraft>(key:K,value:QuickActionDraft[K])=>onChange({...draft,[key]:value})
-  const object=map?.objects.find(o=>o.id===objectId),contact=map?.contacts.find(c=>c.id===contactId&&c.kind!=='self')
+  const observedObject=map?.objects.find(o=>o.id===objectId),objectPlan=observedObject?plannedObject(observedObject,plannedActions):null,object=objectPlan?.object
+  const contact=map?.contacts.find(c=>c.id===contactId&&c.kind!=='self')
   const self = map?.contacts.find(c=>c.kind==='self'), falling = !!self?.falling
   const modeAvailable = (id:string) => !map || (id!=='swim'||!!map.aquatics) && (id!=='sneak'||!!map.soundTravel)
   const movement = modeAvailable(draft.movement) ? draft.movement : 'ground'
@@ -36,6 +39,9 @@ export default function GameActionBar({ map, point, contactId, objectId, options
   const knownObject=options?.targets.some(t=>t.kind==='object'&&t.id===objectId),knownContact=options?.targets.some(t=>t.kind==='contact'&&t.id===contactId)
   const ownContact=map?.contacts.find(c=>c.kind==='self'&&c.id===contactId),selectedContact=contact??ownContact
   const selected:DeclarationTarget|null=knownObject?{kind:'object',id:objectId}:knownContact?{kind:'contact',id:contactId}:ownContact?{kind:'self'}:null
+  const inventoryItem=options?.items.find(i=>i.id===item),plannedInventoryItem=inventoryItem?plannedItem(inventoryItem,plannedActions):null
+  const inventoryChoices=plannedInventoryItem?itemChoices(plannedInventoryItem):[]
+  const consumeTarget=plannedInventoryItem?itemTarget(draft.itemAim??'self',plannedInventoryItem,selected):null
   const selectedPoint:ScenePosition|null=knownObject&&object?{x:object.x,y:object.y,z:object.z+object.height/2}:selectedContact?.z!==undefined&&selectedContact?.kind!=='sound'&&(knownContact||ownContact)?{x:selectedContact.x,y:selectedContact.y,z:selectedContact.z}:null
   const selectedLabel=knownObject?object?.name:selectedContact?.label
   const template=options?.abilities.find(a=>a.id===ability)
@@ -54,6 +60,8 @@ export default function GameActionBar({ map, point, contactId, objectId, options
     {mode==='world'&&onTalk&&contact?.kind==='identified'&&<button type="button" className="w6-button" onClick={onTalk}>Поговорить с {contact.label}</button>}
     <fieldset disabled={disabled}>
       {mode==='world'&&<><p className="gb-game-context">{object?<><strong>{object.name}</strong> · {object.visible?'объект перед тобой':'последнее известное состояние'}{object.kind==='door'&&(object.open?' · открыта':' · закрыта')}</>:contact?<><strong>{contact.label}</strong>{contact.signs&&' · '+contact.signs}</>:shownPoint?<>Отметка ({shownPoint.x}, {shownPoint.y}, {shownPoint.z}) м</>:'Нажми на землю, предмет или существо на карте.'}</p>
+        {!!objectPlan?.changes&&<p className="gb-game-help">Доступные действия показаны с учётом твоей очереди. Состояние мира изменится после исполнения мастером.</p>}
+        {objectPlan?.issues.map(issue=><p className="gb-game-help" key={issue.index}>Действие {issue.index+1} в плане: {issue.message}</p>)}
         {falling && !environmentOnly && <p className="gb-game-help">Герой падает. Новый маршрут можно задать после приземления.</p>}
         {self?.support==='water' && !environmentOnly && <p className="gb-game-help">{self.submerged?'Голова под водой.':'Голова над водой.'}
           {self.breathRemainingSeconds!==undefined && <> Запас воздуха {self.breathRemainingSeconds.toLocaleString('ru-RU',{maximumFractionDigits:1})} с.</>}</p>}
@@ -85,7 +93,23 @@ export default function GameActionBar({ map, point, contactId, objectId, options
         </div></>}
       {mode==='speak'&&<><label className="w6-field"><span>Реплика героя</span><textarea aria-label="Быстрая реплика героя" rows={2} maxLength={4000} value={text} onChange={e=>field('text',e.currentTarget.value)}/></label>
         <div className="w6-buttons"><select aria-label="Громкость быстрой реплики" value={volume} onChange={e=>field('volume',e.currentTarget.value as typeof volume)}><option value="whisper">Шёпот</option><option value="normal">Обычный голос</option><option value="shout">Крик</option></select><button className="w6-button" disabled={!text.trim()} onClick={()=>{onAdd({kind:'speak',text,volume,target:{kind:'none'},note:''})}}>Добавить реплику в ход</button></div></>}
-      {mode==='item'&&<><label className="w6-field"><span>Предмет из инвентаря</span><select aria-label="Быстрый предмет" value={item} onChange={e=>field('item',e.currentTarget.value)}><option value="">Выбери предмет</option>{options?.items.map(i=><option key={i.id} value={i.id}>{i.name} × {i.quantity}</option>)}</select></label><div className="w6-buttons">{([['equip','Снарядить'],['unequip','Снять'],['activate','Активировать'],['consume','Использовать одну дозу']] as const).map(([operation,label])=><button key={operation} className="w6-button" disabled={!options?.items.some(i=>i.id===item)} onClick={()=>onAdd({kind:'item',itemId:item,quantity:1,operation,target:{kind:'self'},note:''})}>{label}</button>)}</div></>}
+      {mode==='item'&&<><label className="w6-field"><span>Предмет из инвентаря</span><select aria-label="Быстрый предмет" value={item} onChange={e=>onChange({...draft,item:e.currentTarget.value,itemAim:'self'})}><option value="">Выбери предмет</option>{options?.items.map(i=><option key={i.id} value={i.id}>{i.name} × {i.quantity}</option>)}{!!item&&!inventoryItem&&<option value={item} disabled>Прежний предмет</option>}</select></label>
+        {!!item&&!inventoryItem&&<p role="alert">Этот предмет больше не доступен. Выбери другой предмет; автоматической замены нет.</p>}
+        {inventoryItem&&plannedInventoryItem&&<>
+          <p className="gb-game-help">В инвентаре: {inventoryItem.quantity}{inventoryItem.quantity!==plannedInventoryItem.quantity&&<> · после запланированного использования: {Math.max(0,plannedInventoryItem.quantity)}</>}{plannedInventoryItem.use?.equipped?' · снаряжён с учётом плана':''}.</p>
+          {plannedInventoryItem.quantity<0&&<p role="alert">В плане использовано больше доз, чем есть в инвентаре. Убери лишнее действие из очереди.</p>}
+          {plannedInventoryItem.use?.artifact&&<p className="gb-game-help">Энергия артефакта: {inventoryItem.use!.artifact!.charge} → {Math.max(0,plannedInventoryItem.use.artifact.charge)} · расход активации {plannedInventoryItem.use.artifact.cost}.</p>}
+          {(plannedInventoryItem.use?.consumable?.targets==='creature'||draft.itemAim==='selected')&&<label className="w6-field"><span>Кому применить расходник</span><select aria-label="Цель предмета" value={draft.itemAim??'self'} onChange={e=>field('itemAim',e.currentTarget.value as 'self'|'selected')}>
+            <option value="self">На себя</option><option value="selected" disabled={plannedInventoryItem.use?.consumable?.targets!=='creature'||!(selected?.kind==='contact'||selected?.kind==='self')}>Выбранное существо{selectedContact?.label?' · '+selectedContact.label:''}</option>
+          </select></label>}
+          {draft.itemAim==='selected'&&!consumeTarget&&<p role="alert">Прежняя цель расходника недоступна. Выбери существо на карте или примени на себя.</p>}
+          <div className="w6-buttons">{inventoryChoices.map(({operation,label,reason})=><div key={operation}><button type="button" className="w6-button" disabled={!!reason||operation==='consume'&&!consumeTarget} onClick={()=>{
+            const target=operation==='consume'?consumeTarget:{kind:'self'} as const
+            if(target)onAdd({kind:'item',itemId:item,quantity:1,operation,target,note:''})
+          }}>{label}</button>{reason&&<p className="gb-game-help">{reason}</p>}</div>)}</div>
+          {!inventoryChoices.length&&<p className="gb-game-help">Для предмета не настроено быстрое действие.{plannedInventoryItem.use?.slot!=='none'&&plannedInventoryItem.quantity>1?' Для экипировки сначала раздели стопку в листе героя.':' Описать использование можно в точных параметрах.'}</p>}
+        </>}
+      </>}
       {mode==='ability'&&<><label className="w6-field"><span>{environmentOnly?'Эффект для пробы':'Утверждённая способность'}</span><select aria-label="Быстрая способность" value={ability} onChange={e=>chooseAbility(e.currentTarget.value)}><option value="">Выбери способность</option>{options?.abilities.map(a=><option key={a.id} value={a.id}>{a.name}{a.canPrepare===false?' · только оплаченные заряды':''}</option>)}</select></label>
         {!environmentOnly&&ability&&<AbilityChargeSelect options={options} abilityId={ability} value={draft.castId??''} onChange={id=>chooseAbility(ability,id)}/>}
         {draft.castId&&!selectedCharge&&<p role="alert">Этот заряд больше не доступен. Выбери другой заряд; автоматической замены нет.</p>}

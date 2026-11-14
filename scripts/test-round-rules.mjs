@@ -17,6 +17,7 @@ const {calculateRound}=await module('roundExecution'),{createDefaultCharacter}=a
 const {emptyCampaign,emptyAbility,emptyItem,emptyConsumableEffect,copyItem,copyRpg,isRpg,isItem}=await module('rpgSchema'),{createScene,emptyScenes}=await module('scenes')
 const {copyRoundWork,personalRoundWork,isRoundWork}=await module('roundWork'),{advanceWorld,interruptCast,consumeItemPlan,activeEffects}=await module('rpgEngine')
 const {buildRoundFeedback,legacyRoundFeedback,publicFeedback,isRoundFeedback,resultNotes,isFeedbackApplyAck}=await module('roundFeedback')
+const {declarationItems,plannedItem,itemChoices,itemTarget,plannedObject,itemPlanIssues}=await module('plannedInteractions')
 const inputFields={region:'torso',distanceM:999,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:'PRIVATE-RULE'}
 const action=(stage,target={kind:'self'})=>({kind:'ability',abilityId:'spell',stage,target,note:'PRIVATE-ACTION'})
 const item=(operation)=>({kind:'item',itemId:'artifact',quantity:1,target:{kind:'self'},note:'',operation})
@@ -37,6 +38,61 @@ function prepare(cost=8000,binding='unbound',target={kind:'self'}){
  const w=world(),c=collection([entry('a',[action('prepare',target)])]),p=params([timing('a',[cost])],[rule('new:a:0','prepare',binding)])
  return calculateRound(w,c,p,'initial')
 }
+
+test('Контекстные действия: сводка инвентаря не раскрывает эффекты и формулы',()=>{
+ const w=doseWorld({targets:'self',condition:'PRIVATE-CONDITION',cureLabels:['PRIVATE-DIAGNOSIS']}),inventory=w.characters[0].rpg.inventory,before=structuredClone(inventory)
+ inventory[0].description='PRIVATE-ITEM-DESCRIPTION';const items=declarationItems(inventory)
+ assert.equal(items[0].use.consumable.targets,'self');assert.equal(items[0].quantity,2)
+ for(const secret of ['PRIVATE-CONDITION','PRIVATE-DIAGNOSIS','PRIVATE-ITEM-DESCRIPTION','restore','modifiers','templateId'])assert(!JSON.stringify(items).includes(secret),secret)
+ assert.equal(inventory[0].quantity,before[0].quantity);assert.equal(inventory[0].consumable.condition,'PRIVATE-CONDITION')
+})
+
+test('Контекстные действия: снарядить и активировать по очереди, энергия совпадает с исполнителем',()=>{
+ const w=world(),before=structuredClone(w),base=declarationItems(w.characters[0].rpg.inventory)[0]
+ assert(itemChoices(base).find(c=>c.operation==='activate').reason.includes('снаряди'))
+ const actions=[item('equip'),item('activate'),item('activate')],c=collection([entry('a',actions)]),rules=actions.map((a,index)=>({key:'new:a:'+index,kind:'item',operation:a.operation,confirmed:true}))
+ const r=calculateRound(w,c,params([timing('a',[1000,1000,1000])],rules),'planned-artifact'),planned=plannedItem(base,actions),actual=r.world.characters[0].rpg.inventory[0]
+ assert.equal(planned.use.artifact.charge,actual.artifactCharge);assert.equal(planned.use.equipped,actual.equipped);assert.equal(planned.use.artifact.charge,4);assert.deepEqual(w,before)
+ const drained=plannedItem(base,[...actions,item('activate')]);assert(itemChoices(plannedItem(drained,[item('activate')])).find(c=>c.operation==='activate').reason)
+ assert.equal(plannedItem(base,[]).use.artifact.charge,10);assert.equal(base.use.equipped,false)
+})
+
+test('Контекстные действия: дозы резервируются только в плане и восстанавливаются при правке',()=>{
+ const w=doseWorld(),base=declarationItems(w.characters[0].rpg.inventory)[0],planned=plannedItem(base,[dose(),dose()])
+ assert.equal(planned.quantity,0);assert(itemChoices(planned).find(c=>c.operation==='consume').reason);assert.equal(base.quantity,2)
+ assert.equal(plannedItem(base,[dose()]).quantity,1);assert.equal(itemChoices(plannedItem(base,[dose()])).find(c=>c.operation==='consume').reason,'')
+ const actions=[dose(),dose()],rules=actions.map((_,index)=>doseRule('new:a:'+index)),c=collection([entry('a',actions)]),p=params([timing('a',[1000,1000])],rules)
+ p.rules.forEach(r=>r.input.distanceM=0)
+ assert.equal(calculateRound(w,c,p,'planned-doses').world.characters[0].rpg.inventory.length,0)
+ assert.deepEqual(itemPlanIssues([base],actions),[]);assert.equal(itemPlanIssues([{...base,quantity:1}],actions)[0].index,1)
+ assert.match(itemPlanIssues([],actions)[0].message,/больше не доступен/)
+ assert.deepEqual(itemPlanIssues([base],[{...dose(),operation:undefined,quantity:2}]),[])
+})
+
+test('Контекстные действия: цель расходника не заменяется собой при исчезновении контакта',()=>{
+ const own=declarationItems(doseWorld({targets:'self'}).characters[0].rpg.inventory)[0],other=declarationItems(doseWorld({targets:'creature'}).characters[0].rpg.inventory)[0],selected={kind:'contact',id:'ally-contact'}
+ assert.deepEqual(itemTarget('self',own,null),{kind:'self'});assert.equal(itemTarget('selected',own,selected),null)
+ assert.deepEqual(itemTarget('selected',other,selected),selected);assert.equal(itemTarget('selected',other,null),null);assert.equal(itemTarget('selected',other,{kind:'object',id:'door'}),null)
+})
+
+test('Контекстные действия: дверь прогнозируется по порядку без изменения известного состояния',()=>{
+ const object={id:'door',name:'Дверь',kind:'door',x:1,y:2,z:0,width:1,depth:1,height:2,open:false,locked:true}
+ const action=operation=>({kind:'interact',target:{kind:'object',id:'door'},operation,note:''}),before=structuredClone(object)
+ const opened=plannedObject(object,[action('unlock'),action('open')]);assert.equal(opened.object.open,true);assert.equal(opened.object.locked,false);assert.equal(opened.changes,2)
+ const closed=plannedObject(object,[action('unlock'),action('open'),action('close'),action('lock')]);assert.equal(closed.object.locked,true);assert.equal(closed.object.open,false);assert.deepEqual(closed.issues,[])
+ const invalid=plannedObject(object,[action('open'),action('unlock')]);assert.equal(invalid.issues[0].index,0);assert.match(invalid.issues[0].message,/заперт/);assert.equal(invalid.object.open,false);assert.deepEqual(object,before)
+})
+
+test('Контекстные действия: тип, поломка, настройки и старые сводки предметов',()=>{
+ const item={...emptyItem(),id:'plain',name:'Предмет',slot:'none',quantity:1,equipped:false,durability:100},plain=declarationItems([item])[0]
+ assert.deepEqual(itemChoices(plain),[])
+ const broken=declarationItems([{...item,category:'consumable',maximumDurability:10,durability:0,worksBroken:false,consumable:emptyConsumableEffect()}])[0]
+ assert(itemChoices(broken)[0].reason.includes('повреждён'));assert.equal(itemChoices(declarationItems([{...item,category:'consumable',maximumDurability:10,durability:0,worksBroken:true,consumable:{...emptyConsumableEffect(),restore:{mana:1,shadow:0,stamina:0}}}])[0])[0].reason,'')
+ const unconfigured=declarationItems([{...item,category:'consumable',consumable:emptyConsumableEffect()}])[0];assert.match(itemChoices(unconfigured)[0].reason,/не настроен/)
+ const timed=declarationItems([{...item,category:'consumable',consumable:{...emptyConsumableEffect(),modifiers:[{parameter:'movement',flat:1,percent:0}],duration:0}}])[0];assert.match(itemChoices(timed)[0].reason,/не настроен/)
+ assert.equal(itemChoices({id:'old',name:'Старый предмет',quantity:1}).length,4)
+ assert(itemChoices({id:'old',name:'Старый предмет',quantity:0}).every(c=>c.reason))
+})
 
 test('Личные итоги: незавершённая подготовка, очередь выпуска и однократный расход',()=>{
  const w=world(),c=collection([entry('a',[action('prepare'),action('release')])]),p=params([timing('a',[8000,1000])],[rule('new:a:0'),rule('new:a:1','release','unbound','prepare:new:a:0')])

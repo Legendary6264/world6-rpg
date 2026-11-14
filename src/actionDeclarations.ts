@@ -29,9 +29,13 @@ export type DeclarationCollection = { id: string; sceneId: string; sceneName: st
 export type ActionDeclarations = { version: 1; active: DeclarationCollection | null; archive: DeclarationCollection[] }
 export type DeclarationAbility = { id:string; name:string; spatial?:AbilitySpatial; rangeM?:number; visualEffect?:AbilityVisualSpec; canPrepare?:boolean; cost?:Cost }
 export type DeclarationCharge = Omit<DeclarationAbility,'id'|'canPrepare'> & { id:string; abilityId:string; status:'preparing'|'ready'; binding:'bound'|'unbound'; readyAt:number; holdUntil:number|null; holdCost:Cost }
+export type DeclarationItem = {id:string;name:string;quantity:number;use?:{
+  slot:'none'|'left'|'right'|'both'|'body';equipped:boolean;working:boolean;
+  consumable?:{targets:'self'|'creature';rangeM:number;configured?:boolean};artifact?:{charge:number;cost:number;configured:boolean}
+}}
 export type DeclarationOptions = { frame: { width: number; depth: number; minZ: number; maxZ: number } | null;
   targets: { id: string; kind: 'contact' | 'object'; label: string }[];
-  items: { id: string; name: string; quantity: number }[]; abilities: DeclarationAbility[]; casts?:DeclarationCharge[] }
+  items: DeclarationItem[]; abilities: DeclarationAbility[]; casts?:DeclarationCharge[] }
 export type HeroDeclarations = { collection: { id: string; epoch: number; phase: DeclarationCollection['phase']; durationSeconds: number; allowReplace: boolean } | null;
   paused?: boolean; executed?: boolean; participating: boolean; canSubmit: boolean; controlStamp: string; entry: Pick<DeclarationEntry, 'revision' | 'status' | 'actions' | 'submittedAt' | 'submittedBy' | 'note'> | null;
   options: DeclarationOptions | null; readiness: { userId: string; ready: boolean }[] }
