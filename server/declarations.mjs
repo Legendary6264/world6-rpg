@@ -1,6 +1,7 @@
 import {objectOperations,supportsObjectOperation} from './generated/tabletopInteractions.mjs'
 import {declarationItems} from './generated/plannedInteractions.mjs'
 import {reviewDeclaration} from './generated/declarationReview.mjs'
+import {declarationTransitions} from './declaration-transitions.mjs'
 import {declarationAbilities} from './generated/declarationAbilities.mjs'
 import {createHash} from 'node:crypto'
 import {rejectRetiredCommand} from './campaign-retention-state.mjs'
@@ -81,6 +82,7 @@ async function save(tx, req, lobby, state, declarations, record, action) {
   await record(tx, req, action)
 }
 export function declarationRoutes(app, { db, auth, updated, lockedMembership, record, store, oldCommand }) {
+  const transitions=declarationTransitions({store,oldCommand})
   app.post('/api/lobbies/:id/declarations/preview', auth.middleware, async (req, res) => {
     const value = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireMaster(member); assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
@@ -99,14 +101,14 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
     const value = await db.transaction(async tx => {
       const { lobby, member } = await lockedMembership(tx, req); requireMaster(member)
       const state = JSON.parse(lobby.world_json),bindings=await bindingsFor(tx,lobby)
-      const collection = state.campaign.declarations?.active
+      const collection = state.campaign.declarations?.active,generation=await roundGeneration(tx,lobby.id)
       const scene = collection?.phase === 'closed' ? state.campaign.scenes?.scenes.find(s => s.id === collection.sceneId) : undefined
-      return { revision: lobby.revision, rulesStamp:await roundRulesToken(tx,lobby), paused:(await campaignSession(tx,lobby.id)).paused, declarations: state.campaign.declarations ?? emptyDeclarations(),
+      return { revision: lobby.revision, generation, rulesStamp:await roundRulesToken(tx,lobby), paused:(await campaignSession(tx,lobby.id)).paused, declarations: state.campaign.declarations ?? emptyDeclarations(),
         ...(scene ? { acoustics:sceneAcoustics(scene) } : {}),
         scenes: (state.campaign.scenes?.scenes ?? []).map(s => ({ id: s.id, name: s.name, objects: s.objects.map(o => ({ id: o.id, name: o.name, operations:objectOperations.filter(operation=>supportsObjectOperation(o,operation)) })) })),
         roundWork: state.campaign.roundWork ?? { version: 1, entries: [] },
         movementBodies: (state.campaign.scenes?.scenes ?? []).flatMap(s => s.tokens.map(t => ({ sceneId: s.id, actorId: t.actorId, diameter: t.diameter, x:t.x,y:t.y,z:t.z }))),
-        executed: !!(state.campaign.declarations?.active?.id && await collectionExecuted(tx,lobby.id,await roundGeneration(tx,lobby.id),state.campaign.declarations.active.id)),
+        executed: !!(state.campaign.declarations?.active?.id && await collectionExecuted(tx,lobby.id,generation,state.campaign.declarations.active.id)),
         actors: state.characters.map(a => { const b = bindings.find(b => b.character_id === a.id); return { id: a.id, name: a.name, approved: !!b?.approved, canFly: bodyConsequences(a.body).canFly, speechEligible:!a.rpg.dead&&a.body.consciousness==='awake',
           regions:a?bodyRegionDefs(a.body).map(r=>({key:r.key,label:r.label})):[],
           casts:(a?.rpg.casts??[]).filter(c=>['preparing','ready'].includes(c.status)).map(c=>({id:c.id,abilityId:c.ability.id,name:c.ability.name,status:c.status,binding:c.roundPreparation?.binding??'bound',...(c.roundPreparation?{roundPreparation:true}:{}),...(c.ability.chargePolicy?{chargePolicy:copyAbility(c.ability).chargePolicy}:{}),...(c.ability.spatial?{spatial:copyAbility(c.ability).spatial}:{})})),
@@ -114,9 +116,11 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
     }); res.json(value)
   })
   app.post('/api/lobbies/:id/declarations', auth.middleware, async (req, res) => {
-    const revision = integer(req.body.revision)
-    await db.transaction(async tx => {
-      const { lobby, member } = await lockedMembership(tx, req); requireMaster(member); assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
+    const transition=transitions.request(req,'open'),revision = integer(req.body.revision)
+    const result=await db.transaction(async tx => {
+      const { lobby, member } = await lockedMembership(tx, req); requireMaster(member)
+      const priorCommand=await transitions.previous(tx,req,lobby,transition);if(priorCommand)return priorCommand
+      assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
       if (lobby.revision !== revision) fail(409, 'Кампания изменилась. Проверь настройки сбора.')
       const state = JSON.parse(lobby.world_json), d = state.campaign.declarations ?? emptyDeclarations()
       if (d.active) fail(409, 'Сначала закрой прежний приём и сохрани его в истории.')
@@ -129,13 +133,15 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
       scene.roundDurationSeconds=req.body.durationSeconds
       d.active = { id: id(), sceneId: scene.id, sceneName: scene.name, durationSeconds: req.body.durationSeconds, allowReplace: req.body.allowReplace,
         phase: 'open', epoch: 1, participantIds: ids, entries: [], history: [] }; event(d.active, req, 'open')
-      await save(tx, req, lobby, state, d, record, 'open-declarations')
-    }); updated(req.params.id); res.status(201).json({ revision: revision + 1 })
+      return transitions.finish(tx,req,lobby,state,d,transition,()=>save(tx, req, lobby, state, d, record, 'open-declarations'))
+    }); if(!result?.duplicate)updated(req.params.id); res.status(201).json(result??{ revision: revision + 1 })
   })
   app.post('/api/lobbies/:id/declarations/next', auth.middleware, async (req,res) => {
-    const revision=integer(req.body.revision)
-    await db.transaction(async tx=>{
-      const {lobby,member}=await lockedMembership(tx,req);requireMaster(member);assertOpen(lobby);await requireCampaignRunning(tx,lobby.id)
+    const transition=transitions.request(req,'next'),revision=integer(req.body.revision)
+    const result=await db.transaction(async tx=>{
+      const {lobby,member}=await lockedMembership(tx,req);requireMaster(member)
+      const priorCommand=await transitions.previous(tx,req,lobby,transition);if(priorCommand)return priorCommand
+      assertOpen(lobby);await requireCampaignRunning(tx,lobby.id)
       if(lobby.revision!==revision)fail(409,'Кампания изменилась. Обнови состояние раунда.')
       const state=JSON.parse(lobby.world_json),d=state.campaign.declarations??emptyDeclarations(),c=d.active;checkEpoch(c,req.body)
       if(c.phase!=='closed'||!await collectionExecuted(tx,lobby.id,await roundGeneration(tx,lobby.id),c.id))fail(409,'Следующий раунд доступен после применения текущего.')
@@ -144,12 +150,15 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
       if(!scene||!c.participantIds.every(id=>bindings.some(b=>b.character_id===id&&b.approved)&&state.characters.some(a=>a.id===id)))fail(409,'Состав участников изменился. Подготовь новый сбор вручную.')
       d.archive.push(c)
       d.active={id:id(),sceneId:scene.id,sceneName:scene.name,durationSeconds:c.durationSeconds,allowReplace:c.allowReplace,phase:'open',epoch:1,participantIds:[...c.participantIds],entries:[],history:[]}
-      event(d.active,req,'open');await save(tx,req,lobby,state,d,record,'next-declaration-round')
-    });updated(req.params.id);res.status(201).json({revision:revision+1})
+      event(d.active,req,'open');return transitions.finish(tx,req,lobby,state,d,transition,()=>save(tx,req,lobby,state,d,record,'next-declaration-round'))
+    });if(!result?.duplicate)updated(req.params.id);res.status(201).json(result??{revision:revision+1})
   })
   app.patch('/api/lobbies/:id/declarations', auth.middleware, async (req, res) => {
-    await db.transaction(async tx => {
-      const { lobby, member } = await lockedMembership(tx, req); requireMaster(member); assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
+    const transition=transitions.request(req,['close','reopen','archive'])
+    const result=await db.transaction(async tx => {
+      const { lobby, member } = await lockedMembership(tx, req); requireMaster(member)
+      const priorCommand=await transitions.previous(tx,req,lobby,transition);if(priorCommand)return priorCommand
+      assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
       const state = JSON.parse(lobby.world_json), d = state.campaign.declarations ?? emptyDeclarations(), c = d.active; checkEpoch(c, req.body)
       if (req.body.operation === 'close' && c.phase === 'open') { c.phase = 'closed'; c.epoch += 1; event(c, req, 'close') }
       else if (req.body.operation === 'reopen' && c.phase === 'closed') {
@@ -160,8 +169,8 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
         if (d.archive.length >= 20) fail(409, 'История содержит 20 сборов. Сохрани копию перед дальнейшей работой.')
         d.archive.push(c); d.active = null
       } else fail(409, 'Этот переход сейчас недоступен.')
-      await save(tx, req, lobby, state, d, record, 'declarations-' + req.body.operation)
-    }); updated(req.params.id); res.json({ ok: true })
+      return transitions.finish(tx,req,lobby,state,d,transition,()=>save(tx, req, lobby, state, d, record, 'declarations-' + req.body.operation))
+    }); if(!result?.duplicate)updated(req.params.id); res.json(result??{ ok: true })
   })
   app.get('/api/lobbies/:id/characters/:characterId/declarations', auth.middleware, async (req, res) => {
     const value = await db.transaction(async tx => {
@@ -214,14 +223,17 @@ export function declarationRoutes(app, { db, auth, updated, lockedMembership, re
     }); if(!result.duplicate)updated(req.params.id); res.json(result)
   })
   app.post('/api/lobbies/:id/characters/:characterId/declarations/return', auth.middleware, async (req, res) => {
-    await db.transaction(async tx => {
-      const { lobby, member } = await lockedMembership(tx, req); requireMaster(member); assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
+    const transition=transitions.request(req,'return')
+    const result=await db.transaction(async tx => {
+      const { lobby, member } = await lockedMembership(tx, req); requireMaster(member)
+      const priorCommand=await transitions.previous(tx,req,lobby,transition);if(priorCommand)return priorCommand
+      assertOpen(lobby); await requireCampaignRunning(tx,lobby.id)
       const { state, actor, declarations, c } = await context(tx, req, lobby); checkEpoch(c, req.body)
       const entry = c.entries.find(e => e.actorId === actor.id)
       if (c.phase !== 'open' || !entry || entry.revision !== integer(req.body.baseVersion) || entry.status !== 'submitted') fail(409, 'Сначала открой приём и обнови заявление.')
       if (typeof req.body.note !== 'string' || !req.body.note.trim() || req.body.note.length > 2000) fail(400, 'Укажи причину возврата.')
       entry.status = 'returned'; entry.revision += 1; entry.note = req.body.note.trim(); event(c, req, 'return', entry)
-      await save(tx, req, lobby, state, declarations, record, 'return-declaration')
-    }); updated(req.params.id); res.json({ ok: true })
+      return transitions.finish(tx,req,lobby,state,declarations,transition,()=>save(tx, req, lobby, state, declarations, record, 'return-declaration'))
+    }); if(!result?.duplicate)updated(req.params.id); res.json(result??{ ok: true })
   })
 }

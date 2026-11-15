@@ -19,6 +19,7 @@ const {copyRoundWork,personalRoundWork,isRoundWork}=await module('roundWork'),{a
 const {buildRoundFeedback,legacyRoundFeedback,publicFeedback,isRoundFeedback,resultNotes,isFeedbackApplyAck}=await module('roundFeedback')
 const {declarationItems,plannedItem,itemChoices,itemTarget,plannedObject,itemPlanIssues}=await module('plannedInteractions')
 const {reviewDeclaration,retargetDeclaration}=await module('declarationReview'),{declarationAbilities}=await module('declarationAbilities')
+const {isDeclarationTransitionCommand,isDeclarationTransitionAck,declarationTransitionPayload,declarationTransitionRequest,declarationTransitionOperations}=await module('declarationTransitions')
 const inputFields={region:'torso',distanceM:999,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:'PRIVATE-RULE'}
 const action=(stage,target={kind:'self'})=>({kind:'ability',abilityId:'spell',stage,target,note:'PRIVATE-ACTION'})
 const item=(operation)=>({kind:'item',itemId:'artifact',quantity:1,target:{kind:'self'},note:'',operation})
@@ -39,6 +40,43 @@ function prepare(cost=8000,binding='unbound',target={kind:'self'}){
  const w=world(),c=collection([entry('a',[action('prepare',target)])]),p=params([timing('a',[cost])],[rule('new:a:0','prepare',binding)])
  return calculateRound(w,c,p,'initial')
 }
+
+function transitionCommand(operation){
+ const common={operation,generation:2,commandKey:'roundflow:'+operation+'-command-1234'}
+ if(operation==='open')return {...common,revision:5,sceneId:'scene',participantIds:['a','b'],durationSeconds:5,allowReplace:true}
+ const scoped={...common,collectionId:'collection',epoch:3}
+ return operation==='next'?{...scoped,revision:5}:operation==='return'?{...scoped,actorId:'a',baseVersion:4,note:'  Уточни действие.  '}:scoped
+}
+function transitionProof(command){
+ const kind=command.operation,newRound=kind==='open'||kind==='next',gone=kind==='archive'
+ return {duplicate:false,receipt:{id:command.commandKey,operation:declarationTransitionOperations[kind],generation:command.generation,revision:6,appliedAt:'2026-11-15T09:00:00Z',collectionId:command.collectionId??null,epoch:command.epoch??null,nextCollectionId:gone?null:newRound?'new-collection':command.collectionId,nextEpoch:gone?null:newRound?1:command.epoch+(kind==='return'?0:1),phase:gone?null:kind==='close'?'closed':'open',...(kind==='return'?{actorId:command.actorId,entryVersion:5,note:command.note.trim()}:{})}}
+}
+test('Переходы раунда: команды сохраняют точное намерение и отвергают чужие поля',()=>{
+ for(const operation of ['open','close','reopen','archive','next','return']){
+  const command=transitionCommand(operation);assert(isDeclarationTransitionCommand(command))
+  for(const invalid of [{...command,generation:0},{...command,commandKey:'other:key'},{...command,world:{}},{...command,operation:'unknown'}])assert(!isDeclarationTransitionCommand(invalid))
+ }
+ assert(!isDeclarationTransitionCommand({...transitionCommand('open'),participantIds:['a','a']}));assert(!isDeclarationTransitionCommand({...transitionCommand('return'),note:' '}))
+})
+test('Переходы раунда: порядок полей не меняет команду; получатель, поколение и текст учитываются',()=>{
+ const command=transitionCommand('return'),ordered=Object.fromEntries(Object.entries(command).reverse())
+ assert.deepEqual(declarationTransitionPayload(command),declarationTransitionPayload(ordered))
+ for(const patch of [{actorId:'b'},{generation:3},{note:'Другое замечание'},{baseVersion:5}])assert.notDeepEqual(declarationTransitionPayload({...command,...patch}),declarationTransitionPayload(command))
+})
+test('Переходы раунда: подтверждение связано с ключом, веткой, исходным сбором и результатом',()=>{
+ for(const operation of ['open','close','reopen','archive','next','return']){
+  const command=transitionCommand(operation),proof=transitionProof(command);assert(isDeclarationTransitionAck(proof,command))
+  for(const patch of [{id:'roundflow:different-command'},{generation:1},{operation:'submit-declaration'},{collectionId:'wrong'},{epoch:100},{revision:0},{appliedAt:'invalid'}])assert(!isDeclarationTransitionAck({...proof,receipt:{...proof.receipt,...patch}},command),operation+':'+JSON.stringify(patch))
+  assert(!isDeclarationTransitionAck({ok:true},command));assert(!isDeclarationTransitionAck({revision:6},command));assert(!isDeclarationTransitionAck({receipt:proof.receipt},command))
+ }
+})
+test('Переходы раунда: возврат связывает замечание с героем и версией; следующий раунд имеет новый сбор',()=>{
+ const command=transitionCommand('return'),proof=transitionProof(command)
+ for(const patch of [{actorId:'b'},{entryVersion:4},{note:'Другое замечание'},{phase:'closed'}])assert(!isDeclarationTransitionAck({...proof,receipt:{...proof.receipt,...patch}},command))
+ const next=transitionCommand('next'),ack=transitionProof(next);assert(!isDeclarationTransitionAck({...ack,receipt:{...ack.receipt,nextCollectionId:next.collectionId}},next));assert(!isDeclarationTransitionAck({...ack,receipt:{...ack.receipt,revision:7}},next))
+ assert.deepEqual(declarationTransitionRequest('/lobbies/room',command),{path:'/lobbies/room/characters/a/declarations/return',method:'POST'})
+ assert.deepEqual(declarationTransitionRequest('/lobbies/room',next),{path:'/lobbies/room/declarations/next',method:'POST'})
+})
 
 function declarationOptions(w=world()){
  return {frame:{width:20,depth:20,minZ:-5,maxZ:20},targets:[{id:'known-b',kind:'contact',label:'Союзник'},{id:'door',kind:'object',label:'Дверь'}],items:declarationItems(w.characters[0].rpg.inventory),...declarationAbilities(w.characters[0].rpg)}

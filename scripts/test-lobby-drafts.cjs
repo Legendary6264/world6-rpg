@@ -67,6 +67,10 @@ const { serializeLobbyBackup, parseLobbyBackup } = load('lobbyBackup')
 const storage = load('lobbyDraftStorage')
 const { lobbyPermissions } = load('lobbyAccess')
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
+function masterTransitionAck(command,revision=8,duplicate=false){
+ const kind=command.operation,newRound=kind==='open'||kind==='next',gone=kind==='archive'
+ return {duplicate,receipt:{id:command.commandKey,operation:load('declarationTransitions').declarationTransitionOperations[kind],generation:command.generation,revision,appliedAt:'2026-11-15T09:00:00Z',collectionId:command.collectionId??null,epoch:command.epoch??null,nextCollectionId:gone?null:newRound?'new-'+command.commandKey.slice(10):command.collectionId,nextEpoch:gone?null:newRound?1:command.epoch+(kind==='return'?0:1),phase:gone?null:kind==='close'?'closed':'open',...(kind==='return'?{actorId:command.actorId,entryVersion:command.baseVersion+1,note:command.note.trim()}:{})}}
+}
 async function flush(fn = () => {}) { await act(async () => { fn(); await new Promise(r => setTimeout(r, 5)) }) }
 async function input(selector, value) {
   const field = document.querySelector(selector)
@@ -90,7 +94,7 @@ async function fixture() {
   // still exercise the saved room; unrelated fixtures must not inherit its URL.
   window.history.replaceState(null,'','/')
   const tree = createRoot(document.getElementById('root'))
-  const accountId = crypto.randomUUID(), writes = [], previews = [], executions = [], applications = [], roundPreviews = new Map(), receipts = new Map(), cloud = [], perceptions = {}, knowledge={a:[],b:[]}
+  const accountId = crypto.randomUUID(), writes = [], previews = [], executions = [], applications = [], roundPreviews = new Map(), receipts = new Map(), masterReceipts=new Map(), cloud = [], perceptions = {}, knowledge={a:[],b:[]}
   const members = [{ id: accountId, displayName: 'GM', lobbyRole: 'GM', permissions: [...lobbyPermissions] }, { id: 'friend-id', displayName: 'Friend', lobbyRole: 'ASSISTANT', permissions: [] }]
   const declarations = Object.fromEntries(['a','b'].map(id => [id, {collection:null,participating:false,canSubmit:false,entry:null,options:null,readiness:[],controlStamp:'0'}]))
   const worlds = Object.fromEntries(['a', 'b'].map(id => [id, {
@@ -104,6 +108,12 @@ async function fixture() {
       if (intercepted !== undefined) return intercepted
     }
     if(url.endsWith('/rounds/replay/options'))return null
+    if(['POST','PATCH'].includes(options?.method)&&/\/declarations(?:\/(?:next|return))?$/.test(url)&&JSON.parse(options.body??'{}').commandKey?.startsWith('roundflow:')){
+      const command=JSON.parse(options.body),expected=load('declarationTransitions').declarationTransitionRequest('/lobbies/'+url.split('/')[2],command)
+      assert.equal(url,expected.path);assert.equal(options.method,expected.method);writes.push({url,...command})
+      if(masterReceipts.has(command.commandKey))return {receipt:masterReceipts.get(command.commandKey),duplicate:true}
+      const reply=masterTransitionAck(command,worlds[url.split('/')[2]].revision+1);masterReceipts.set(command.commandKey,reply.receipt);return reply
+    }
     if (options?.method === 'POST' && url.endsWith('/rounds/calculate')) {
       const body=JSON.parse(options.body), w=worlds[url.split('/')[2]], id=crypto.randomUUID()
       executions.push({url,...body})
@@ -150,7 +160,7 @@ async function fixture() {
     const declarationMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/declarations$/)
     if(declarationMatch) return structuredClone(declarations[declarationMatch[1]])
     const masterMatch=url.match(/^\/lobbies\/([ab])\/declarations$/)
-    if(masterMatch) { const w=worlds[masterMatch[1]]; return {revision:w.revision,rulesStamp:rulesStamps[masterMatch[1]],executed:!!w.executed,roundWork:structuredClone(w.campaign.roundWork??{version:1,entries:[]}),movementBodies:(w.campaign.scenes?.scenes??[]).flatMap(s=>s.tokens.map(t=>({sceneId:s.id,actorId:t.actorId,diameter:t.diameter}))),declarations:structuredClone(w.campaign.declarations??{version:1,active:null,archive:[]}),scenes:(w.campaign.scenes?.scenes??[]).map(s=>({id:s.id,name:s.name,objects:s.objects.map(o=>({id:o.id,name:o.name,operations:load('tabletopInteractions').objectOperations.filter(operation=>load('tabletopInteractions').supportsObjectOperation(o,operation))}))})),actors:w.characters.map(c=>({id:c.id,name:c.name,approved:true,regions:load('characterBody').bodyRegionDefs(c.body).map(r=>({key:r.key,label:r.label})),casts:c.rpg.casts.filter(x=>['preparing','ready'].includes(x.status)).map(x=>({id:x.id,abilityId:x.ability.id,name:x.ability.name,status:x.status,binding:x.roundPreparation?.binding??'bound',roundPreparation:!!x.roundPreparation,chargePolicy:x.ability.chargePolicy,spatial:x.ability.spatial})),items:c.rpg.inventory.map(i=>({id:i.id,name:i.name,quantity:i.quantity,consumable:i.consumable})),abilities:c.rpg.abilities.map(b=>({id:b.id,name:b.name,spatial:b.spatial}))}))} }
+    if(masterMatch) { const w=worlds[masterMatch[1]]; return {revision:w.revision,generation:1,rulesStamp:rulesStamps[masterMatch[1]],executed:!!w.executed,roundWork:structuredClone(w.campaign.roundWork??{version:1,entries:[]}),movementBodies:(w.campaign.scenes?.scenes??[]).flatMap(s=>s.tokens.map(t=>({sceneId:s.id,actorId:t.actorId,diameter:t.diameter}))),declarations:structuredClone(w.campaign.declarations??{version:1,active:null,archive:[]}),scenes:(w.campaign.scenes?.scenes??[]).map(s=>({id:s.id,name:s.name,objects:s.objects.map(o=>({id:o.id,name:o.name,operations:load('tabletopInteractions').objectOperations.filter(operation=>load('tabletopInteractions').supportsObjectOperation(o,operation))}))})),actors:w.characters.map(c=>({id:c.id,name:c.name,approved:true,regions:load('characterBody').bodyRegionDefs(c.body).map(r=>({key:r.key,label:r.label})),casts:c.rpg.casts.filter(x=>['preparing','ready'].includes(x.status)).map(x=>({id:x.id,abilityId:x.ability.id,name:x.ability.name,status:x.status,binding:x.roundPreparation?.binding??'bound',roundPreparation:!!x.roundPreparation,chargePolicy:x.ability.chargePolicy,spatial:x.ability.spatial})),items:c.rpg.inventory.map(i=>({id:i.id,name:i.name,quantity:i.quantity,consumable:i.consumable})),abilities:c.rpg.abilities.map(b=>({id:b.id,name:b.name,spatial:b.spatial}))}))} }
     const perceptionMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/perception$/)
     if(perceptionMatch){const room=perceptionMatch[1],world=worlds[room];return {revision:world.revision,hero:world.characters[0],map:perceptions[room]??null,knowledge:{journal:structuredClone(knowledge[room]),knownEffects:[]},inventory:[],canWriteNotes:world.characters[0].ownerId===context.user.id}}
     const disclosureMatch=url.match(/^\/lobbies\/([ab])\/characters\/hero-[ab]\/disclosure$/)
@@ -3579,6 +3589,110 @@ test('Очередь диалогов: ведущий загружает ран�
 })
 
 const liveStamp=letter=>'r1:'+letter.repeat(64)
+async function masterFlow(f,phase='open',executed=false){
+ closedTimeline(f,'a');const c=f.worlds.a.campaign.declarations.active;c.phase=phase;c.epoch=phase==='open'?1:2;f.worlds.a.executed=executed
+ await f.open('a');await click('Открыть инструменты заявлений');return c
+}
+test('Команды раунда UI: потерянный следующий раунд повторяется после перезагрузки прежним ключом',async()=>{
+ const f=await fixture(),commands=[];let proof
+ try{
+  const c=await masterFlow(f,'closed',true)
+  f.intercept((url,options)=>{if(url!=='/lobbies/a/declarations/next')return;const body=JSON.parse(options.body);commands.push(body)
+   if(!proof){proof=masterTransitionAck(body,8);f.worlds.a.campaign.declarations.archive.push(structuredClone(c));f.worlds.a.campaign.declarations.active={...c,id:proof.receipt.nextCollectionId,phase:'open',epoch:1,entries:[],history:[]};f.worlds.a.revision=8;f.worlds.a.executed=false;throw new(load('onlineClient').NetworkError)(0,'Ответ потерян')}
+   return {...proof,duplicate:true}
+  })
+  await click('Начать следующий раунд');assert(document.querySelector('[aria-label="Проверка команды раунда"]'))
+  await f.mount(false);await f.mount(true);await f.open('a');assert(document.body.textContent.includes('Переход раунда ожидает подтверждения'));await click('Открыть инструменты заявлений');await click('Проверить команду раунда')
+  assert.deepEqual(commands[1],commands[0]);assert.equal(f.worlds.a.campaign.declarations.archive.length,1);assert(!document.querySelector('[aria-label="Проверка команды раунда"]'));assert(document.body.textContent.includes('Текущий раунд мог измениться позже'))
+ }finally{await f.close()}
+})
+test('Команды раунда UI: возврат с замечанием подтверждается после новой правки игрока',async()=>{
+ const f=await fixture(),commands=[];let proof
+ try{
+  const c=await masterFlow(f);await input('[aria-label="Замечание к заявлению Hero a"]','  Уточни путь.  ')
+  f.intercept((url,options)=>{if(!url.endsWith('/declarations/return'))return;const body=JSON.parse(options.body);commands.push(body)
+   if(!proof){proof=masterTransitionAck(body,8);c.entries[0]={...c.entries[0],revision:3,note:'',actions:[{kind:'wait',seconds:4,note:'Новый план'}]};f.worlds.a.revision=9;throw new(load('onlineClient').NetworkError)(0,'Ответ потерян')}
+   return {...proof,duplicate:true}
+  })
+  await click('Вернуть заявление Hero a');await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть инструменты заявлений');await click('Проверить команду раунда')
+  assert.deepEqual(commands[1],commands[0]);assert.equal(commands[0].actorId,'hero-a');assert.equal(commands[0].note,'  Уточни путь.  ');assert.equal(f.worlds.a.campaign.declarations.active.entries[0].revision,3);assert(!document.querySelector('[aria-label="Проверка команды раунда"]'))
+ }finally{await f.close()}
+})
+test('Команды раунда UI: старое открытие не очищается ответом в другом лобби',async()=>{
+ const f=await fixture(),gate=deferred(),commands=[];let proof
+ try{
+  f.worlds.a.campaign.scenes=load('scenes').createScene(load('scenes').emptyScenes(),'scene-a','Площадка','top');await f.open('a');await click('Открыть инструменты заявлений')
+  await selectValue('[aria-label="Сцена приёма"]','scene-a');await input('[aria-label="Длительность раунда, с"]','5');await flush(()=>document.querySelector('[aria-label="Участник сбора Hero a"]').click())
+  f.intercept((url,options)=>{if(url!=='/lobbies/a/declarations'||options?.method!=='POST')return;const body=JSON.parse(options.body);commands.push(body)
+   if(!proof){proof=masterTransitionAck(body,8);f.worlds.a.campaign.declarations={version:1,archive:[],active:{id:proof.receipt.nextCollectionId,sceneId:'scene-a',sceneName:'Площадка',durationSeconds:5,allowReplace:true,phase:'open',epoch:1,participantIds:['hero-a'],entries:[],history:[]}};f.worlds.a.revision=8;return gate.promise}
+   return {...proof,duplicate:true}
+  })
+  await click('Начать приём заявлений');await f.open('b');await flush(()=>gate.resolve(proof));assert(!document.body.textContent.includes('Приём открыт. Игроки готовят'))
+  await f.open('a');await click('Открыть инструменты заявлений');await click('Проверить команду раунда');assert.deepEqual(commands[1],commands[0]);assert.equal(f.worlds.a.campaign.declarations.active.id,proof.receipt.nextCollectionId)
+ }finally{gate.resolve(proof);await f.close()}
+})
+test('Команды раунда UI: два быстрых закрытия отправляют один запрос',async()=>{
+ const f=await fixture(),gate=deferred(),commands=[]
+ try{
+  const c=await masterFlow(f);f.intercept((url,options)=>{if(url==='/lobbies/a/declarations'&&options?.method==='PATCH'){commands.push(JSON.parse(options.body));return gate.promise}})
+  const button=enabledButton('Закрыть приём заявлений');await flush(()=>{button.click();button.click()});assert.equal(commands.length,1)
+  c.phase='closed';c.epoch=2;f.worlds.a.revision=8;await flush(()=>gate.resolve(masterTransitionAck(commands[0],8)));assert(!document.querySelector('[aria-label="Проверка команды раунда"]'))
+ }finally{gate.resolve();await f.close()}
+})
+for(const fault of ['missing','generation','scope'])test('Команды раунда UI: неполное или чужое подтверждение сохраняет команду · '+fault,async()=>{
+ const f=await fixture(),commands=[]
+ try{
+  await masterFlow(f);f.intercept((url,options)=>{if(url!=='/lobbies/a/declarations'||options?.method!=='PATCH')return;const body=JSON.parse(options.body);commands.push(body);const proof=masterTransitionAck(body,8,commands.length>1)
+   if(commands.length===1){if(fault==='missing')return {ok:true};if(fault==='generation')proof.receipt.generation++;else proof.receipt.epoch++;}return proof
+  })
+  await click('Закрыть приём заявлений');assert(document.querySelector('[aria-label="Проверка команды раунда"]'));await click('Проверить команду раунда');assert.deepEqual(commands[1],commands[0]);assert(!document.querySelector('[aria-label="Проверка команды раунда"]'))
+ }finally{await f.close()}
+})
+test('Команды раунда UI: ошибка хранилища оставляет настройки и не отправляет переход',async()=>{
+ const f=await fixture(),prototype=dom.window.Storage.prototype,original=prototype.setItem
+ try{
+  await masterFlow(f);prototype.setItem=()=>{throw Error('Storage full')};await click('Закрыть приём заявлений');assert.equal(f.writes.length,0);assert(document.body.textContent.includes('Команда не отправлена'))
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть инструменты заявлений');assert(!document.querySelector('[aria-label="Проверка команды раунда"]'))
+  prototype.setItem=original;await click('Закрыть приём заявлений');assert.equal(f.writes.length,1);assert.equal(f.writes[0].operation,'close')
+ }finally{prototype.setItem=original;await f.close()}
+})
+test('Команды раунда UI: явный конфликт снимает ожидание, сохраняя замечание',async()=>{
+ const f=await fixture()
+ try{
+  await masterFlow(f);await input('[aria-label="Замечание к заявлению Hero a"]','Сохранить мысль мастера')
+  f.intercept((url,options)=>{if(url==='/lobbies/a/declarations'&&options?.method==='PATCH')throw new(load('onlineClient').NetworkError)(409,'Сбор изменился')})
+  await click('Закрыть приём заявлений');assert(!document.querySelector('[aria-label="Проверка команды раунда"]'));assert.equal(document.querySelector('[aria-label="Замечание к заявлению Hero a"]').value,'Сохранить мысль мастера');assert(document.body.textContent.includes('Проверь текущее состояние'))
+ }finally{await f.close()}
+})
+test('Команды раунда UI: пауза блокирует новые переходы, но позволяет подтвердить прежний',async()=>{
+ const f=await fixture(),commands=[];let proof
+ try{
+  const c=await masterFlow(f)
+  const intercept=(url,options)=>{
+   if(url==='/lobbies/a/declarations'&&!options?.method){f.intercept(null);const reply=f.request(url,options);f.intercept(intercept);return reply.then(value=>({...value,paused:true}))}
+   if(url==='/lobbies/a/declarations'&&options?.method==='PATCH'){const body=JSON.parse(options.body);commands.push(body);if(!proof){proof=masterTransitionAck(body,8);c.phase='closed';c.epoch=2;f.worlds.a.revision=8;throw new(load('onlineClient').NetworkError)(0,'Ответ потерян')}return {...proof,duplicate:true}}
+  }
+  f.intercept(intercept);await click('Закрыть приём заявлений');await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть инструменты заявлений')
+  assert(!enabledButton('Открыть приём повторно'));assert(enabledButton('Проверить команду раунда'));await click('Проверить команду раунда');assert.deepEqual(commands[1],commands[0])
+ }finally{await f.close()}
+})
+test('Команды раунда UI: неподтверждённая версия сервера не отправляет ненадёжный переход',async()=>{
+ const f=await fixture()
+ try{
+  const intercept=(url,options)=>{if(url==='/lobbies/a/declarations'&&!options?.method){f.intercept(null);const reply=f.request(url,options);f.intercept(intercept);return reply.then(value=>{delete value.generation;return value})}}
+  f.intercept(intercept);await masterFlow(f);await click('Закрыть приём заявлений');assert.equal(f.writes.length,0);assert(document.body.textContent.includes('Сервер не подтвердил версию управления'));assert(!document.querySelector('[aria-label="Проверка команды раунда"]'))
+ }finally{await f.close()}
+})
+test('Команды раунда UI: после восстановления замечание требует сверки даже при прежних версиях заявления',async()=>{
+ const f=await fixture()
+ try{
+  await masterFlow(f);await input('[aria-label="Замечание к заявлению Hero a"]','Сохранить замечание после восстановления')
+  const intercept=(url,options)=>{if(url==='/lobbies/a/declarations'&&!options?.method){f.intercept(null);const reply=f.request(url,options);f.intercept(intercept);return reply.then(value=>({...value,generation:2}))}}
+  f.intercept(intercept);f.context.events++;await f.render();await flush();assert(!enabledButton('Вернуть заявление Hero a'));assert.equal(document.querySelector('[aria-label="Замечание к заявлению Hero a"]').value,'Сохранить замечание после восстановления')
+  await click('Замечание к плану проверено');await click('Вернуть заявление Hero a');assert.equal(f.writes[0].generation,2);assert.equal(f.writes[0].note,'Сохранить замечание после восстановления')
+ }finally{await f.close()}
+})
+
 const reviewSpell={id:'review-spell',name:'Щит',canPrepare:true}
 const reviewCharge=id=>({id,abilityId:reviewSpell.id,name:'Заряд щита',status:'ready',binding:'unbound',readyAt:0,holdUntil:null,holdCost:{mana:0,shadow:0,stamina:0}})
 const reviewRelease=(target={kind:'self'},castId)=>({kind:'ability',abilityId:reviewSpell.id,stage:'release',target,note:'Сохранить замысел',...(castId?{castId}:{})})
