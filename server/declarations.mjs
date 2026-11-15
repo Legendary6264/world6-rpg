@@ -1,5 +1,6 @@
 import {objectOperations,supportsObjectOperation} from './generated/tabletopInteractions.mjs'
-import {declarationItems,itemPlanIssues} from './generated/plannedInteractions.mjs'
+import {declarationItems} from './generated/plannedInteractions.mjs'
+import {reviewDeclaration} from './generated/declarationReview.mjs'
 import {declarationAbilities} from './generated/declarationAbilities.mjs'
 import {createHash} from 'node:crypto'
 import {rejectRetiredCommand} from './campaign-retention-state.mjs'
@@ -40,17 +41,12 @@ function options(state, actor, c, npc=false) {
 function prepareActions(actions, state, actor, c,npc=false) {
   const o = options(state, actor, c,npc)
   if (!o) fail(409, 'Мастер должен открыть герою сцену этого сбора заявлений.')
-  const inventoryIssue=itemPlanIssues(o.items,actions)[0]
-  if(inventoryIssue)fail(409,'Действие '+(inventoryIssue.index+1)+': '+inventoryIssue.message)
-  const inFrame = p => o.frame && p.x >= 0 && p.x <= o.frame.width && p.y >= 0 && p.y <= o.frame.depth && p.z >= o.frame.minZ && p.z <= o.frame.maxZ
+  const issue=reviewDeclaration(actions,o)[0]
+  if(issue)fail(issue.status,'Действие '+(issue.index+1)+': '+issue.message)
   const known = state.campaign.perceptions?.heroes.find(h => h.actorId === actor.id)?.scenes.find(s => s.sceneId === c.sceneId)
   const result = [], resolved = []
-  const selectedCasts=new Set()
   actions.forEach((input, index) => {
     const a = copyDeclaredAction(input), focus=actionTarget(a)
-    if (!o.frame && (a.kind === 'move' || focus && ['point','area','direction'].includes(focus.kind))) fail(409, 'Мастер должен открыть герою схему сцены для выбора координат.')
-    if (a.kind === 'move' && !a.route.every(inFrame) || focus && ['point','area','direction'].includes(focus.kind) && !inFrame(focus.point)) fail(400, 'Проверь координаты в доступной схеме сцены.')
-    if(a.kind==='interact'&&a.operation==='relocate'&&(!o.frame||!inFrame(a.destination)))fail(400,'Укажи новое положение объекта в доступной схеме сцены.')
     if (focus && ['contact', 'object'].includes(focus.kind)) {
       const target = o.targets.find(t => t.kind === focus.kind && t.id === focus.id)
       if (!target) fail(409, 'Выбранная отметка больше не доступна герою. Проверь цель.')
@@ -62,10 +58,6 @@ function prepareActions(actions, state, actor, c,npc=false) {
         resolved.push({ index, actorId: contact.actorId })
       }
     }
-    if (a.kind === 'item' && !o.items.some(i => i.id === a.itemId && i.quantity >= a.quantity)) fail(409, 'Проверь предмет и количество в инвентаре героя.')
-    if (a.kind === 'ability' && !(a.stage==='prepare'?actor.rpg.abilities.some(b=>b.id===a.abilityId&&b.approved):o.abilities.some(b => b.id === a.abilityId))) fail(409, 'Выбери утверждённую способность героя или существующий заряд для выпуска.')
-    if(a.kind==='ability'&&a.castId&&!o.casts.some(c=>c.id===a.castId&&c.abilityId===a.abilityId))fail(409,'Выбранный собственный заряд больше не доступен. Проверь заряд и отправь исправленное заявление.')
-    if(a.kind==='ability'&&a.castId){if(selectedCasts.has(a.castId))fail(400,'Один заряд нельзя выпустить дважды в одной очереди.');selectedCasts.add(a.castId)}
     result.push(a)
   }); return { actions: result, resolved }
 }

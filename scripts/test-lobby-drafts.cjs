@@ -1101,7 +1101,7 @@ test('Сведение мастера: текст переживает смен�
 
 function readyDeclarations(id) {
   return {collection:{id:'collection-'+id,epoch:1,phase:'open',durationSeconds:5,allowReplace:true},participating:true,canSubmit:true,entry:null,controlStamp:'0',readiness:[],
-    options:{sceneId:'scene-'+id,width:20,depth:20,minZ:-5,maxZ:20,targets:[],items:[],abilities:[]}}
+    options:{frame:{width:20,depth:20,minZ:-5,maxZ:20},targets:[],items:[],abilities:[]}}
 }
 
 function knowledgeAck(url,body,duplicate=false){
@@ -3579,6 +3579,106 @@ test('Очередь диалогов: ведущий загружает ран�
 })
 
 const liveStamp=letter=>'r1:'+letter.repeat(64)
+const reviewSpell={id:'review-spell',name:'Щит',canPrepare:true}
+const reviewCharge=id=>({id,abilityId:reviewSpell.id,name:'Заряд щита',status:'ready',binding:'unbound',readyAt:0,holdUntil:null,holdCost:{mana:0,shadow:0,stamina:0}})
+const reviewRelease=(target={kind:'self'},castId)=>({kind:'ability',abilityId:reviewSpell.id,stage:'release',target,note:'Сохранить замысел',...(castId?{castId}:{})})
+async function reviewQueue(f,actions,patch={}){
+ await ownActions(f,'a');Object.assign(f.declarations.a.options,{abilities:[reviewSpell],casts:[],...patch});f.context.events++;await f.render();await flush()
+ await waitAction('1');const key=load('lobbyFormDrafts').lobbyFormKey('action-sequence',f.accountId,'a','hero-a'),saved=JSON.parse(localStorage.getItem(key))
+ load('lobbyFormDrafts').writeLobbyForm(key,{...saved,actions})
+ await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');await flush();return key
+}
+test('Проверка хода UI: цель исправляется в полной очереди, отменяется и сохраняется при перезагрузке',async()=>{
+ const f=await fixture(),actions=[reviewRelease({kind:'contact',id:'old'},'paid'),...Array.from({length:19},()=>({kind:'wait',seconds:1,note:''}))]
+ try{
+  const key=await reviewQueue(f,actions,{targets:[{kind:'contact',id:'new',label:'Доступный союзник'}],casts:[reviewCharge('paid')]})
+  assert(!enabledButton('Отправить заявление'));assert(document.querySelector('[aria-label="Проверка действия 1"]'))
+  await selectValue('[aria-label="Новая цель действия 1"]','new');assert(enabledButton('Отправить заявление'))
+  let saved=JSON.parse(localStorage.getItem(key));assert.equal(saved.actions.length,20);assert.equal(saved.actions[0].castId,'paid');assert.equal(saved.actions[0].note,actions[0].note);assert.deepEqual(saved.actions.slice(1),actions.slice(1))
+  await click('Отменить правку очереди');assert(!enabledButton('Отправить заявление'));await selectValue('[aria-label="Новая цель действия 1"]','new')
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');await click('Отправить заявление')
+  assert.equal(f.writes[0].actions.length,20);assert.deepEqual(f.writes[0].actions[0].target,{kind:'contact',id:'new'})
+ }finally{await f.close()}
+})
+test('Проверка хода UI: исправление цели прислушивания сохраняет длительность, режим и заметку',async()=>{
+ const f=await fixture(),listen={kind:'wait',seconds:3,note:'Тихо у двери',listening:{mode:'eavesdrop',target:{kind:'contact',id:'old'}}}
+ try{
+  const key=await reviewQueue(f,[listen],{targets:[{kind:'contact',id:'new',label:'Собеседник'}]})
+  await selectValue('[aria-label="Новая цель действия 1"]','new');const saved=JSON.parse(localStorage.getItem(key)).actions[0]
+  assert.equal(saved.seconds,3);assert.equal(saved.note,listen.note);assert.equal(saved.listening.mode,'eavesdrop');assert.deepEqual(saved.listening.target,{kind:'contact',id:'new'})
+  await click('Отправить заявление');assert.deepEqual(f.writes[0].actions,[saved])
+ }finally{await f.close()}
+})
+test('Проверка хода UI: потраченный заряд не заменяется автоматически; готовящийся и выбор мастера допустимы',async()=>{
+ const f=await fixture()
+ try{
+  const key=await reviewQueue(f,[reviewRelease({kind:'self'},'spent')],{casts:[{...reviewCharge('preparing'),status:'preparing'},reviewCharge('ready')]})
+  assert(!enabledButton('Отправить заявление'));assert.equal(document.querySelector('[aria-label="Заряд действия 1"]').value,'spent')
+  await selectValue('[aria-label="Заряд действия 1"]','preparing');assert(enabledButton('Отправить заявление'));assert.equal(JSON.parse(localStorage.getItem(key)).actions[0].castId,'preparing')
+  f.declarations.a.options.casts=[reviewCharge('ready')];f.context.events++;await f.render();await flush()
+  assert(!enabledButton('Отправить заявление'));await selectValue('[aria-label="Заряд действия 1"]','')
+  assert(enabledButton('Отправить заявление'));await click('Отправить заявление');assert(!Object.hasOwn(f.writes[0].actions[0],'castId'));assert.equal(f.writes[0].actions[0].note,'Сохранить замысел')
+ }finally{await f.close()}
+})
+test('Проверка хода UI: повторный выпуск одного заряда исправляется без потери двух действий',async()=>{
+ const f=await fixture()
+ try{
+  await reviewQueue(f,[reviewRelease({kind:'self'},'one'),reviewRelease({kind:'self'},'one')],{casts:[reviewCharge('one'),reviewCharge('two')]})
+  assert(!enabledButton('Отправить заявление'));assert(!document.querySelector('[aria-label="Заряд действия 1"]'))
+  await selectValue('[aria-label="Заряд действия 2"]','two');await click('Отправить заявление');assert.deepEqual(f.writes[0].actions.map(a=>a.castId),['one','two'])
+ }finally{await f.close()}
+})
+test('Проверка хода UI: новая рамка и новый сбор требуют исправления координат и сверки базы',async()=>{
+ const f=await fixture(),move={kind:'move',route:[{x:10,y:2,z:0}],support:'ground',note:'Старый маршрут'}
+ try{
+  const key=await reviewQueue(f,[move]);assert(enabledButton('Отправить заявление'))
+  f.declarations.a.options.frame.width=5;f.declarations.a.collection.id='new-collection';f.context.events++;await f.render();await flush()
+  assert(!enabledButton('Отправить заявление'));await click('Последовательность проверена с текущей версией');assert(!enabledButton('Отправить заявление'));assert.deepEqual(JSON.parse(localStorage.getItem(key)).actions[0],move)
+  await click('Убрать действие 1');await waitAction('1');await click('Отправить заявление');assert.equal(f.writes[0].collectionId,'new-collection');assert.equal(f.writes[0].actions[0].kind,'wait')
+ }finally{await f.close()}
+})
+test('Проверка хода UI: отправленный план остаётся сохранённым при изменении доступных сведений',async()=>{
+ const f=await fixture(),action=reviewRelease({kind:'contact',id:'old'})
+ try{
+  await ownActions(f,'a');Object.assign(f.declarations.a.options,{abilities:[reviewSpell],targets:[{id:'new',kind:'contact',label:'Союзник'}]})
+  f.declarations.a.entry={revision:1,status:'submitted',actions:[action],submittedBy:f.accountId,submittedAt:'2026-11-15T09:00:00Z',note:''};f.declarations.a.collection.allowReplace=false;f.context.events++;await f.render();await flush()
+  assert(document.querySelector('[aria-label="Отправленный ход требует проверки"]'));assert.equal(f.writes.length,0);assert.deepEqual(f.declarations.a.entry.actions,[action])
+  await click('Загрузить отправленное в черновик');await selectValue('[aria-label="Новая цель действия 1"]','new');assert(!enabledButton('Заменить заявление'));assert.deepEqual(f.declarations.a.entry.actions,[action])
+ }finally{await f.close()}
+})
+test('Проверка хода UI: потерянная отправка проверяется той же командой после исчезновения цели',async()=>{
+ const f=await fixture(),commands=[]
+ try{
+  await reviewQueue(f,[reviewRelease({kind:'contact',id:'old'},'paid')],{targets:[{id:'old',kind:'contact',label:'Прежний контакт'}],casts:[reviewCharge('paid')]})
+  f.intercept((url,options)=>{
+   if(!url.endsWith('/characters/hero-a/declarations')||options?.method!=='PUT')return
+   const command=JSON.parse(options.body);commands.push(command)
+   if(commands.length===1){f.declarations.a.options.targets=[];f.declarations.a.options.casts=[];f.declarations.a.collection.phase='closed';f.declarations.a.canSubmit=false;throw new(load('onlineClient').NetworkError)(0,'Ответ потерян')}
+   return {entryVersion:1,duplicate:true}
+  })
+  await click('Отправить заявление');await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');await click('Повторить отправку хода')
+  assert.deepEqual(commands[1],commands[0]);assert.equal(commands.length,2);assert(document.body.textContent.includes('Сервер подтвердил ход'))
+ }finally{await f.close()}
+})
+test('Проверка хода UI: исполненный или отменённый ход остаётся историей без требования исправить заряд',async()=>{
+ const f=await fixture(),action=reviewRelease({kind:'contact',id:'old'},'spent')
+ try{
+  await ownActions(f,'a');f.declarations.a.options.abilities=[reviewSpell];f.declarations.a.entry={revision:1,status:'submitted',actions:[action],submittedBy:f.accountId,submittedAt:'2026-11-15T09:00:00Z',note:''};f.context.events++;await f.render();await flush()
+  assert(document.querySelector('[aria-label="Отправленный ход требует проверки"]'))
+  f.declarations.a.executed=true;f.context.events++;await f.render();await flush();assert(!document.querySelector('[aria-label="Отправленный ход требует проверки"]'))
+  f.declarations.a.executed=false;f.declarations.a.collection.phase='cancelled';f.context.events++;await f.render();await flush();assert(!document.querySelector('[aria-label="Отправленный ход требует проверки"]'));assert.deepEqual(f.declarations.a.entry.actions,[action])
+ }finally{await f.close()}
+})
+test('Проверка хода UI: недоступное хранилище блокирует отправку до сохранения команды повтора',async()=>{
+ const f=await fixture(),prototype=dom.window.Storage.prototype,original=prototype.setItem
+ try{
+  await reviewQueue(f,[{kind:'wait',seconds:1,note:'Не потерять'}]);prototype.setItem=()=>{throw Error('Storage full')}
+  await click('Отправить заявление');assert.equal(f.writes.length,0);assert(document.body.textContent.includes('Ход не отправлен: команда повтора не сохранена'))
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');assert(!enabledButton('Повторить отправку хода'));assert(enabledButton('Отправить заявление'))
+  prototype.setItem=original;await click('Отправить заявление');assert.equal(f.writes.length,1);assert.equal(f.writes[0].actions[0].note,'Не потерять')
+ }finally{prototype.setItem=original;await f.close()}
+})
+
 async function interactionBar({items=[],object,mode='item',contactId='ally',contacts}={}){
  const tree=createRoot(document.getElementById('root')),Bar=load('GameActionBar').default
  const map={title:'Сцена',description:'',frame:{id:'scene',width:20,depth:20,groundZ:0,minZ:-2,maxZ:10,view:'top',palette:'stone'},areas:[],objects:object?[object]:[],contacts:contacts??[{id:'self',kind:'self',label:'Герой',signs:'',x:1,y:1,z:0},{id:'ally',kind:'identified',label:'Союзник',signs:'',x:2,y:1,z:0}]}

@@ -18,6 +18,7 @@ const {emptyCampaign,emptyAbility,emptyItem,emptyConsumableEffect,copyItem,copyR
 const {copyRoundWork,personalRoundWork,isRoundWork}=await module('roundWork'),{advanceWorld,interruptCast,consumeItemPlan,activeEffects}=await module('rpgEngine')
 const {buildRoundFeedback,legacyRoundFeedback,publicFeedback,isRoundFeedback,resultNotes,isFeedbackApplyAck}=await module('roundFeedback')
 const {declarationItems,plannedItem,itemChoices,itemTarget,plannedObject,itemPlanIssues}=await module('plannedInteractions')
+const {reviewDeclaration,retargetDeclaration}=await module('declarationReview'),{declarationAbilities}=await module('declarationAbilities')
 const inputFields={region:'torso',distanceM:999,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:'PRIVATE-RULE'}
 const action=(stage,target={kind:'self'})=>({kind:'ability',abilityId:'spell',stage,target,note:'PRIVATE-ACTION'})
 const item=(operation)=>({kind:'item',itemId:'artifact',quantity:1,target:{kind:'self'},note:'',operation})
@@ -38,6 +39,49 @@ function prepare(cost=8000,binding='unbound',target={kind:'self'}){
  const w=world(),c=collection([entry('a',[action('prepare',target)])]),p=params([timing('a',[cost])],[rule('new:a:0','prepare',binding)])
  return calculateRound(w,c,p,'initial')
 }
+
+function declarationOptions(w=world()){
+ return {frame:{width:20,depth:20,minZ:-5,maxZ:20},targets:[{id:'known-b',kind:'contact',label:'Союзник'},{id:'door',kind:'object',label:'Дверь'}],items:declarationItems(w.characters[0].rpg.inventory),...declarationAbilities(w.characters[0].rpg)}
+}
+test('Проверка хода: все проблемы по действиям без скрытых идентификаторов и изменения плана',()=>{
+ const options=declarationOptions(),actions=[action('release',{kind:'contact',id:'PRIVATE-UNKNOWN-ACTOR'}),{...action('release'),abilityId:'PRIVATE-ABILITY',castId:'PRIVATE-CAST'},{kind:'move',route:[{x:21,y:1,z:0}],support:'ground',note:''},{...item('activate'),itemId:'PRIVATE-ITEM'},{kind:'wait',seconds:2,note:'PRIVATE-NOTE',listening:{mode:'eavesdrop',target:{kind:'object',id:'PRIVATE-OBJECT'}}}]
+ const before=structuredClone({options,actions}),issues=reviewDeclaration(actions,options)
+ assert.deepEqual([...new Set(issues.map(i=>i.index))],[0,1,2,3,4]);assert.equal(issues.find(i=>i.code==='coordinates').status,400)
+ for(const secret of ['PRIVATE-UNKNOWN-ACTOR','PRIVATE-ABILITY','PRIVATE-CAST','PRIVATE-ITEM','PRIVATE-NOTE','PRIVATE-OBJECT'])assert(!JSON.stringify(issues).includes(secret),secret)
+ assert.deepEqual({options,actions},before)
+})
+test('Проверка хода: оплаченный готовящийся заряд сохраняется после отзыва новой подготовки',()=>{
+ const w=prepare(8000).world,cast=w.characters[0].rpg.casts[0];w.characters[0].rpg.abilities[0].approved=false
+ const options=declarationOptions(w),release={...action('release'),castId:cast.id}
+ assert.deepEqual(reviewDeclaration([release],options),[]);assert.deepEqual(reviewDeclaration([action('release')],options),[])
+ assert.equal(reviewDeclaration([action('prepare')],options)[0].code,'ability')
+ options.casts=[];assert.equal(reviewDeclaration([release],options)[0].code,'cast');assert.equal(release.castId,cast.id)
+})
+test('Проверка хода: утрата карты и изменение рамки затрагивают только координатные действия',()=>{
+ const options=declarationOptions(),move={kind:'move',route:[{x:4,y:4,z:0}],support:'ground',note:''},listen={kind:'wait',seconds:1,note:'',listening:{mode:'listen',target:{kind:'point',point:{x:4,y:4,z:0}}}}
+ assert.deepEqual(reviewDeclaration([move,listen,item('equip'),action('prepare')],options),[])
+ const missing=reviewDeclaration([move,listen,item('equip'),action('prepare')],{...options,frame:null});assert.deepEqual(missing.map(i=>i.index),[0,1]);assert(missing.every(i=>i.status===409))
+ const small=reviewDeclaration([move,listen],{...options,frame:{...options.frame,width:2}});assert(small.every(i=>i.code==='coordinates'&&i.status===400))
+ const relocate={kind:'interact',operation:'relocate',target:{kind:'object',id:'door'},destination:{x:1,y:1,z:21},note:''};assert.equal(reviewDeclaration([relocate],options)[0].code,'coordinates')
+})
+test('Проверка хода: один явный заряд нельзя планировать дважды; выбор мастера остаётся доступен',()=>{
+ const w=prepare(1000).world,cast=w.characters[0].rpg.casts[0],options=declarationOptions(w),release={...action('release'),castId:cast.id}
+ const issues=reviewDeclaration([release,release],options);assert.equal(issues.length,1);assert.equal(issues[0].index,1);assert.equal(issues[0].code,'duplicate-cast');assert.equal(issues[0].status,400)
+ assert.deepEqual(reviewDeclaration([action('prepare'),action('release')],declarationOptions()),[])
+})
+test('Проверка хода: замена контакта сохраняет текст, заряд и параметры прислушивания',()=>{
+ const target={kind:'contact',id:'known-b'},release={...action('release',{kind:'contact',id:'old'}),castId:'paid',note:'Осмысленный план'},before=structuredClone(release)
+ const next=retargetDeclaration(release,target);assert.equal(next.castId,'paid');assert.equal(next.note,release.note);assert.deepEqual(next.target,target);assert.deepEqual(release,before)
+ const listen={kind:'wait',seconds:3,note:'Тихо',listening:{mode:'eavesdrop',target:{kind:'contact',id:'old'}}},changed=retargetDeclaration(listen,target)
+ assert.equal(changed.seconds,3);assert.equal(changed.listening.mode,'eavesdrop');assert.deepEqual(changed.listening.target,target)
+ assert.equal(retargetDeclaration(listen,{kind:'object',id:'door'}),null);assert.equal(retargetDeclaration({kind:'wait',seconds:1,note:''},target),null)
+})
+test('Проверка хода: общие заявления и количества для ручного разрешения сохранены',()=>{
+ const options=declarationOptions();options.items[0].quantity=2
+ assert.deepEqual(reviewDeclaration([{...item(undefined),quantity:2},{kind:'interact',operation:'take',target:{kind:'object',id:'door'},note:'Решает мастер'}],options),[])
+ assert.equal(reviewDeclaration([{...item('equip'),quantity:3}],options)[0].code,'item')
+ assert.equal(reviewDeclaration([{...item('consume'),quantity:2},item('consume')],options)[0].code,'inventory')
+})
 
 test('Контекстные действия: сводка инвентаря не раскрывает эффекты и формулы',()=>{
  const w=doseWorld({targets:'self',condition:'PRIVATE-CONDITION',cureLabels:['PRIVATE-DIAGNOSIS']}),inventory=w.characters[0].rpg.inventory,before=structuredClone(inventory)

@@ -3,6 +3,8 @@ import { emptyQuickAction, isQuickActionDraft, gameActionLabel, gameTurnStatus }
 import type { QuickActionDraft } from './gameControls'
 import GameActionBar from './GameActionBar'
 import {itemPlanIssues} from './plannedInteractions'
+import {reviewDeclaration} from './declarationReview'
+import DeclarationActionReview from './DeclarationActionReview'
 import AbilityChargeSelect from './AbilityChargeSelect'
 import type { PerceivedMap } from './scenePerception'
 import { spatialLabel } from './abilitySpatial'
@@ -42,7 +44,8 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
   useEffect(() => () => pending.current?.abort(), [request])
   const value = remote.value, c = value?.collection, f = draft.form
   const base = (): Base | undefined => c ? { collectionId: c.id, epoch: c.epoch, baseVersion: value?.entry?.revision ?? 0, controlStamp: value?.controlStamp ?? '' } : undefined
-  function remember(next: Draft) { const saved = { ...next, base: next.base && (hasDraftContent(draft)||next.base.collectionId===c?.id) ? next.base : base() }; setDraft(saved); setWarning(writeLobbyForm(key, saved) ? '' : 'Не удалось сохранить черновик на устройстве. Не закрывай страницу.');return saved }
+  function saveDraft(next: Draft) { const saved = { ...next, base: next.base && (hasDraftContent(draft)||next.base.collectionId===c?.id) ? next.base : base() }; setDraft(saved);const persisted=writeLobbyForm(key,saved); setWarning(persisted ? '' : 'Не удалось сохранить черновик на устройстве. Не закрывай страницу.');return {draft:saved,persisted} }
+  function remember(next:Draft){return saveDraft(next).draft}
   function field(k: keyof Omit<Form, 'route'>, text: string) { remember({ ...draft, form: { ...f, [k]: text } }) }
   const point = (): ScenePosition => ({ x: coordinate(f.x), y: coordinate(f.y), z: coordinate(f.z) })
   function addPoint() { const p = point(); if (!Object.values(p).every(Number.isFinite) || f.route.length >= 20) { setMessage('Укажи X/Y/Z; маршрут содержит не больше 20 точек.'); return }
@@ -84,7 +87,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
     if(!available||!value||!draft.submission&&!canSend||inFlight.current)return
     const source = draft, b = source.base ?? source.submission ?? base(); if (!b) return
     const command=source.submission??{...b,actions:source.actions,commandKey:'declaration:'+crypto.randomUUID()}
-    remember({...source,submission:command})
+    if(!saveDraft({...source,submission:command}).persisted){writeLobbyForm(key,source);setDraft(source);setMessage('Ход не отправлен: команда повтора не сохранена. Освободи место на устройстве и повтори отправку.');return}
     inFlight.current=true
     const abort = new AbortController(); pending.current = abort; setBusy(true)
     try { const result = await request<{ entryVersion: number }>(path, { method: 'PUT', signal: abort.signal, body: JSON.stringify(command) })
@@ -99,8 +102,8 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
   }
   const stale = hasDraftContent(draft) && !!draft.base && (!c || draft.base.collectionId !== c.id || draft.base.epoch !== c.epoch || draft.base.baseVersion !== (value?.entry?.revision ?? 0) || draft.base.controlStamp !== value?.controlStamp)
   useEffect(() => { onQueue?.(stale ? emptyQueue : draft.actions) }, [draft.actions, stale, onQueue])
-  const inventoryIssues=value?.options?itemPlanIssues(value.options.items,draft.actions):[]
-  const available = !busy && !checkingAccess && !remote.loading,editable=available&&!draft.submission, canSend = editable && !!value?.canSubmit && !!value.options && draft.actions.length > 0 && !inventoryIssues.length && !stale && (value.entry?.status !== 'submitted' || !!c?.allowReplace)
+  const planIssues=value?.options?reviewDeclaration(draft.actions,value.options):[],sentIssues=!checkingAccess&&!value?.executed&&c?.phase!=='cancelled'&&value?.options&&value.entry?reviewDeclaration(value.entry.actions,value.options):[]
+  const available = !busy && !checkingAccess && !remote.loading,editable=available&&!draft.submission, canSend = editable && !!value?.canSubmit && !!value.options && draft.actions.length > 0 && !planIssues.length && !stale && (value.entry?.status !== 'submitted' || !!c?.allowReplace)
   useEffect(()=>{if(sceneActionRef)sceneActionRef.current=action=>editable&&!stale?appendAction(action):false;return ()=>{if(sceneActionRef)sceneActionRef.current=null}})
   const targetLabel = (a: DeclaredAction) => {
     const t=actionTarget(a)
@@ -116,6 +119,7 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       {value.paused&&<p role="status">Кампания на паузе. Черновик можно подготовить; отправка доступна после продолжения.</p>}{c?.phase === 'open' && value.participating && !value.canSubmit && !value.paused && <p>Заявлять действия может действующий управляющий принятого героя.</p>}{c && !value.participating && <p>Мастер не включил героя в этот сбор.</p>}{c && <p>{c.allowReplace ? 'До закрытия можно заменить отправленную последовательность.' : 'Для изменения отправленного заявления нужен возврат мастером.'}</p>}
       <p>Готовность игроков: {value.readiness.map(r => <span key={r.userId}>{members.find(m => m.id === r.userId)?.displayName ?? 'Игрок'}: {r.ready ? 'готов' : 'ожидаем'} · </span>)} · содержимое чужих планов скрыто.</p>
       {value.entry && <details open><summary>Моё отправленное заявление · {value.entry.status === 'submitted' ? 'отправлено' : 'возвращено'}</summary>
+        {!!sentIssues.length&&<section aria-label="Отправленный ход требует проверки"><p>После отправки изменились доступные сведения. Подтверждённый ход сохранён; проверь его перед заменой.</p>{sentIssues.map(issue=><p key={issue.index+':'+issue.code}>Действие {issue.index+1}: {issue.message}</p>)}</section>}
         <p>Автор плана: {members.find(m => m.id === value.entry!.submittedBy)?.displayName ?? 'Участник кампании'}</p>{value.entry.actions.map((a, i) => <p key={i}>{i + 1}. {gameActionLabel(a,value?.options)} · {targetLabel(a)}{a.note && ' · ' + a.note}</p>)}{value.entry.note && <p>Замечание мастера: {value.entry.note}</p>}
         <button className="w6-button" disabled={!editable} onClick={loadSent}>Загрузить отправленное в черновик</button></details>}
     </>}
@@ -144,9 +148,11 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       <button className="w6-button" onClick={addAction}>Добавить действие в последовательность</button>
     </fieldset></details><fieldset disabled={!editable} className="gb-game-queue"><legend>Мой ход · {draft.actions.length} / 20 действий</legend>
       {!!draft.quick?.text.trim()&&<p className="w6-copy">В поле реплики есть текст, который ещё не добавлен в очередь хода.</p>}
-      {inventoryIssues.map(issue=><p role="alert" key={issue.index}>Действие {issue.index+1}: {issue.message} Убери лишнее действие или скорректируй очередь.</p>)}
+      {!!planIssues.length&&<p role="status">Нужно проверить действий: {new Set(planIssues.map(issue=>issue.index)).size}. Причины показаны в очереди.</p>}
       {draft.actions.length===0&&<p className="w6-copy">Выбери действие на панели над очередью. После исполнения результат появится на карте.</p>}
-      {draft.actions.map((a, i) => <article className="gb-journal-entry" key={i}><p>{i + 1}. {gameActionLabel(a,value?.options)} · {targetLabel(a)}{a.note && ' · ' + a.note}</p><button className="w6-button" onClick={() => editQueue(draft.actions.filter((_, n) => n !== i))}>Убрать действие {i + 1}</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' выше'} disabled={i===0} onClick={()=>{const next=[...draft.actions];[next[i-1],next[i]]=[next[i],next[i-1]];editQueue(next)}}>↑</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' ниже'} disabled={i===draft.actions.length-1} onClick={()=>{const next=[...draft.actions];[next[i+1],next[i]]=[next[i],next[i+1]];editQueue(next)}}>↓</button></article>)}
+      {draft.actions.map((a, i) => <article className="gb-journal-entry" key={i}><p>{i + 1}. {gameActionLabel(a,value?.options)} · {targetLabel(a)}{a.note && ' · ' + a.note}</p>
+        <DeclarationActionReview action={a} index={i} options={value?.options??null} issues={planIssues.filter(issue=>issue.index===i)} onChange={action=>{editQueue(draft.actions.map((current,index)=>index===i?action:current));setMessage('Действие '+(i+1)+' обновлено. Проверь оставшуюся очередь.')}}/>
+        <button className="w6-button" onClick={() => editQueue(draft.actions.filter((_, n) => n !== i))}>Убрать действие {i + 1}</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' выше'} disabled={i===0} onClick={()=>{const next=[...draft.actions];[next[i-1],next[i]]=[next[i],next[i-1]];editQueue(next)}}>↑</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' ниже'} disabled={i===draft.actions.length-1} onClick={()=>{const next=[...draft.actions];[next[i+1],next[i]]=[next[i],next[i+1]];editQueue(next)}}>↓</button></article>)}
       <button type="button" className="w6-button" disabled={!undo||undo.base!==JSON.stringify(draft.base)||stale} onClick={()=>{if(undo){remember({...draft,actions:undo.actions});setUndo(null)}}}>Отменить правку очереди</button>
       {stale && <><p role="alert">Изменились приём, управление или моё заявление. Проверь черновик и доступные цели.</p><button className="w6-button" disabled={!c} onClick={() => remember({ ...draft, base: base() })}>Последовательность проверена с текущей версией</button></>}
       <button className="w6-button" disabled={!canSend} onClick={() => void submit()}>{value?.entry?.status === 'submitted' ? 'Заменить заявление' : 'Отправить заявление'}</button>

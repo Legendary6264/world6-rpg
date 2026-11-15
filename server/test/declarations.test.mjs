@@ -6,6 +6,9 @@ import { emptyItem, emptyAbility } from '../generated/rpgSchema.mjs'
 import { emptyScenes, createScene, sceneObject, placeSceneToken } from '../generated/scenes.mjs'
 import { parseLobbyBackup } from '../generated/lobbyBackup.mjs'
 import { unpackArchive } from '../campaign-archive-format.mjs'
+import {reviewDeclaration} from '../generated/declarationReview.mjs'
+import {calculateRound} from '../generated/roundExecution.mjs'
+import {interruptCast} from '../generated/rpgEngine.mjs'
 
 async function setup(t, dialect) {
   const f = await fixture(t, dialect), { api } = f, gm = await f.register('owner'), player = await f.register('orders-player'), other = await f.register('orders-other'), helper = await f.register('orders-helper')
@@ -40,6 +43,44 @@ async function setup(t, dialect) {
   return { ...f, get server() { return f.server }, get base() { return f.base }, gm, player, other, helper, root, heroes, npc, route, revision, grant, start, view, body, send, phase }
 }
 const wait = (note = '') => [{ kind: 'wait', seconds: 1, note }]
+for(const dialect of ['sqlite','postgres'])test('Проверка сохранённого хода · '+dialect,async t=>{
+ const f=await setup(t,dialect),{api,gm,player,root}=f,initial=await api(root+'/world',gm.token),actor=initial.characters.find(a=>a.id===f.heroes[0])
+ actor.rpg.formulas=[];actor.statistics.energyRegeneration='0';actor.resources.mana={maximum:'50',current:'50'};Object.assign(actor.body.parts.torso,{maximum:100,current:100})
+ Object.assign(actor.rpg.abilities.find(a=>a.id==='own-ability'),{approved:true,mechanism:'effect',duration:30,modifiers:[{parameter:'movement',flat:1,percent:0}],cost:{mana:3,shadow:0,stamina:0}})
+ const fields={region:'torso',distanceM:0,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:''}
+ const prepare={kind:'ability',abilityId:'own-ability',stage:'prepare',target:{kind:'none'},note:''},collection={id:'review-preparation',sceneId:'orders-scene',sceneName:'Подготовка',durationSeconds:5,allowReplace:true,phase:'closed',epoch:2,participantIds:[actor.id],history:[],entries:[{actorId:actor.id,actorName:actor.name,revision:1,status:'submitted',actions:[prepare],resolved:[],submittedBy:gm.user.id,submittedAt:'2026-11-15T08:00:00Z',note:''}]}
+ const prepared=calculateRound(initial,collection,{timings:[{actorId:actor.id,entryRevision:1,budgetMs:5000,costs:[{index:0,personalMs:1000}]}],continuations:[],missingDecisions:[],interactionsConfirmed:false,rules:[{key:'new:'+actor.id+':0',kind:'ability',binding:'unbound',charge:'',confirmed:true,input:fields}]},'review-preparation-seed').world
+ await api(root+'/world',gm.token,'PUT',{revision:initial.revision,world:prepared});await f.start()
+ const castId=prepared.characters.find(a=>a.id===actor.id).rpg.casts[0].id,release=(target={kind:'self'},cast=castId)=>({kind:'ability',abilityId:'own-ability',stage:'release',target,castId:cast,note:'Проверить сохранённый замысел'})
+ let command
+ await t.test('Клиент и сервер находят одинаковые проблемы; ошибки ничего не меняют и не раскрывают',async()=>{
+  const v=await f.view(),before=await api(root+'/world',gm.token),audit=await f.server.db.get('SELECT COUNT(*) AS n FROM audit WHERE target_id=?',[root.split('/').at(-1)])
+  const cases=[[release({kind:'contact',id:'PRIVATE-TARGET'})],[release({kind:'self'},'PRIVATE-CAST')],[release(),release()],[{kind:'move',route:[{x:v.options.frame.width+1,y:0,z:0}],support:'ground',note:''}],[{kind:'wait',seconds:1,note:'',listening:{mode:'eavesdrop',target:{kind:'object',id:'PRIVATE-OBJECT'}}}],[{kind:'item',itemId:'own-item',quantity:3,target:{kind:'self'},note:''}]]
+  for(const actions of cases){const issue=reviewDeclaration(actions,v.options)[0];assert(issue);const error=await f.send(actions,0,player.token,issue.status,v);assert(error.message.includes('Действие '+(issue.index+1)))
+   for(const secret of ['PRIVATE-TARGET','PRIVATE-CAST','PRIVATE-OBJECT',f.npc.id,f.npc.name,'secret-object'])assert(!JSON.stringify(error).includes(secret),secret)
+  }
+  assert.deepEqual(await api(root+'/world',gm.token),before);assert.deepEqual(await f.server.db.get('SELECT COUNT(*) AS n FROM audit WHERE target_id=?',[root.split('/').at(-1)]),audit)
+ })
+ await t.test('Принятый план и повтор команды сохраняются после исчезновения цели и закрытия приёма',async()=>{
+  const v=await f.view(),contact=v.options.targets.find(target=>target.kind==='contact');command={...f.body(v,[release({kind:'contact',id:contact.id})]),commandKey:'declaration:'+crypto.randomUUID()}
+  await api(f.route(0)+'/declarations',player.token,'PUT',command)
+  const disclosure=await api(f.route(0)+'/disclosure',gm.token);disclosure.draft.scenes[0].contacts=[]
+  await api(f.route(0)+'/disclosure',gm.token,'PUT',{revision:disclosure.revision,draft:disclosure.draft});await f.phase('close');await f.restart()
+  const current=await f.view(),before=await api(root+'/world',gm.token);assert.equal(reviewDeclaration(command.actions,current.options)[0].code,'target');assert.deepEqual(current.entry.actions,command.actions)
+  const reply=await api(f.route(0)+'/declarations',player.token,'PUT',command);assert.equal(reply.duplicate,true);assert.equal(reply.entryVersion,1);assert.deepEqual(await api(root+'/world',gm.token),before)
+ })
+ await t.test('Правка требует доступной цели, а старое подтверждение не затирает исправленный план',async()=>{
+  await f.phase('reopen');await f.send(command.actions,0,player.token,409)
+  await f.send([release()]);const changed=await f.view();assert.equal(changed.entry.revision,2);assert.equal(changed.entry.actions[0].target.kind,'self')
+  const reply=await api(f.route(0)+'/declarations',player.token,'PUT',command);assert.equal(reply.duplicate,true);assert.deepEqual((await f.view()).entry,changed.entry)
+ })
+ await t.test('Прерванный заряд требует исправления; ранее принятый план остаётся доступен для проверки',async()=>{
+  const before=await api(root+'/world',gm.token),next=interruptCast(before,actor.id,castId,'review-interruption')
+  await api(root+'/world',gm.token,'PUT',{revision:before.revision,world:next})
+  const v=await f.view();assert.equal(reviewDeclaration(v.entry.actions,v.options)[0].code,'cast');await f.send([release()],0,player.token,409)
+  assert.equal((await f.view()).entry.revision,2);assert.equal((await f.view()).entry.actions[0].castId,castId)
+ })
+})
 for(const dialect of ['sqlite','postgres'])test('Доставка хода: повтор, закрытие сбора, перезапуск и откат · '+dialect,async t=>{
  const f=await setup(t,dialect),{api,player,other,gm}=f;await f.start(false)
  const path=f.route(0)+'/declarations',command={...f.body(await f.view(),wait('Приватный надёжный ход')),commandKey:'declaration:'+crypto.randomUUID()},revision=await f.revision()
