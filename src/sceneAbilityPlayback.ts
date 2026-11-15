@@ -40,6 +40,7 @@ export class SceneAbilityPlayback {
   presentationMs(id:string){return this.presentation.get(id)??0}
   sample(visual:SceneAbilityVisual,reduced=false,controlledMs?:number){
     const entry=this.entries.get(visual.id)
-    return sampleAbilityVisual(visual,controlledMs??entry?.elapsed??0,controlledMs!==undefined||entry?.playing===true,reduced)
+    const elapsed=controlledMs===undefined?entry?.elapsed??0:Math.max(0,controlledMs-(visual.presentationOffsetMs??0))
+    return sampleAbilityVisual(visual,elapsed,controlledMs!==undefined||entry?.playing===true,reduced)
   }
 }

@@ -6,6 +6,7 @@ import {promisify} from 'node:util'
 import {fail,validId,integer,text,world} from './validation.mjs'
 import {previewRoundTimeline} from './generated/roundTimeline.mjs'
 import {isRoundFeedback,isResultNotes} from './generated/roundFeedback.mjs'
+import {isRoundPresentationSource} from './round-presentation-storage.mjs'
 export const ARCHIVE_FILE_LIMIT=32*1024*1024,ARCHIVE_JSON_LIMIT=128*1024*1024
 const zip=promisify(gzip),unzip=promisify(gunzip)
 export const archiveHash=value=>createHash('sha256').update(typeof value==='string'||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest('hex')
@@ -33,6 +34,7 @@ export function validateArchive(v){
   keys(r,['id','authorLabel','collectionId','generation','revision','at','before','receipt','input','seed','executorVersion'])
   if(!record(r.receipt)||!record(r.receipt.summary)||r.receipt.id!==r.id||r.receipt.collectionId!==r.collectionId||r.receipt.revision!==r.revision||r.receipt.generation!==r.generation||r.receipt.appliedAt!==r.at)fail(400,'Несогласованная квитанция раунда.')
   if(r.receipt.summary.personal!==undefined&&!isRoundFeedback(r.receipt.summary.personal))fail(400,'Некорректные персональные итоги раунда.')
+  if(r.receipt.presentation!==undefined&&!isRoundPresentationSource(r.receipt.presentation))fail(400,'Некорректная запись просмотра раунда.')
   if(!(r.input===null||record(r.input))||!(r.seed===null||typeof r.seed==='string'&&r.seed.length>0&&r.seed.length<=160)||!(r.executorVersion===null||typeof r.executorVersion==='string'&&r.executorVersion.length>0&&r.executorVersion.length<=160)||(r.input===null)!==(r.seed===null)||(r.seed===null)!==(r.executorVersion===null))fail(400,'Несогласованные данные переигровки.')
   const before=world(r.before),c=before.campaign.declarations?.active
   if(!c||c.id!==r.collectionId||c.phase!=='closed')fail(400,'Исходный снимок не соответствует сбору раунда.')

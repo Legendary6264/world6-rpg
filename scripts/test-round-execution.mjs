@@ -113,6 +113,15 @@ function motionWorld(a = location(2,2), b = location(25,18)) {
 const motionInput = (timings,missing=['b']) => ({...input(timings,missing),movement:{confirmed:true,bodies:[{actorId:'a',heightM:2,flightReason:'Мастер подтвердил действующую левитацию и её условия'},{actorId:'b',heightM:2,flightReason:'Мастер подтвердил действующую левитацию и её условия'}]}})
 const ownToken = w => w.campaign.scenes.scenes[0].tokens.find(t=>t.actorId==='a')
 const terrainInput = ms => motionInput([timing('a',[ms],10000)])
+test('Запись исполнения сохраняет поворот фактического маршрута и не меняет движение или источник',()=>{
+ const w=motionWorld(),before=structuredClone(w),c=collection([entry('a',[move([location(4,2),location(4,4)])])])
+ const result=calculateRound(w,c,motionInput([timing('a',[4000],10000)]),'presentation-route')
+ assert.deepEqual(w,before);assert.equal(result.world.campaign.seconds,10)
+ assert.deepEqual(['x','y','z'].map(k=>ownToken(result.world)[k]),[4,4,0])
+ const traces=result.summary.presentationMotions;assert(traces.length>=2)
+ assert(traces.every(t=>t.actorId==='a'&&t.endMs>t.startMs));assert(traces.some(t=>t.to.x===4&&t.to.y===2))
+ assert(traces.some(t=>t.from.x===4&&t.from.y===2&&t.to.y===4))
+})
 const terrainRound = action => collection([entry('a',[action])])
 const terrainBody = (extra={}) => ({
   version:1,material:physicsMaterialPreset('steel'),massKg:40,temperatureK:293.15,wetnessFraction:0,...extra,

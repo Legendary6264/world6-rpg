@@ -15,7 +15,7 @@ export type FeedbackResource={id:ResourceId;before:string;after:string;beforeMax
 export type PersonalRoundFeedback={actorId:string;coverage:'full'|'events';fromSeconds:number;toSeconds:number;note:string;actions:FeedbackAction[];resources:FeedbackResource[]}
 export type RoundFeedback={version:1;actors:PersonalRoundFeedback[]}
 export type PublicRoundFeedback=Omit<PersonalRoundFeedback,'actorId'>&{id:string;appliedAt:string;revision:number}
-export type RoundFeedbackView={revision:number;closed:boolean;reports:PublicRoundFeedback[];hasMore:boolean}
+export type RoundFeedbackView={revision:number;generation?:number;closed:boolean;reports:PublicRoundFeedback[];hasMore:boolean}
 const text=(value:unknown,max:number):value is string=>typeof value==='string'&&value.length<=max
 export function isResultNotes(value:unknown):value is Record<string,string>{
   return physicsRecord(value)&&Object.keys(value).length<=200&&Object.entries(value).every(([id,note])=>physicsId(id)&&text(note,2000)&&Array.from(note).every(char=>char>=' '||'\t\n\r'.includes(char)))

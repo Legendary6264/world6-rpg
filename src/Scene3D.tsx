@@ -73,7 +73,7 @@ const clipping = (a: KnownArea) => [new THREE.Plane(new THREE.Vector3(1, 0, 0), 
 export default function Scene3D(props: Props) {
   const { model, selection, marker, route } = props
   const guidesJSON=JSON.stringify({marker,route}),applyGuides=useRef<((point:ScenePosition|null,route:ScenePosition[])=>void)|null>(null)
-  const structuralJSON=useMemo(()=>JSON.stringify({...model,fog:undefined,smoke:undefined,visuals:[],entities:model.entities.map(e=>model.restricted?e:{...e,...(e.geometry.kind==='actor'?{geometry:{...e.geometry,facing:0,characterAnimation:'idle'}}:{}),transform:{position:{x:0,y:0,z:0}}})}),[model])
+  const structuralJSON=useMemo(()=>JSON.stringify({...model,fog:undefined,smoke:undefined,visuals:[],entities:model.entities.map(e=>model.restricted&&e.geometry.kind!=='actor'?e:{...e,...(e.geometry.kind==='actor'?{geometry:{...e.geometry,facing:0,characterAnimation:'idle'}}:{}),transform:{position:{x:0,y:0,z:0}}})}),[model])
   const constructionModel=useMemo(()=>JSON.parse(structuralJSON) as SceneRenderModel,[structuralJSON])
   const applyPositions=useRef<((next:SceneRenderModel)=>void)|null>(null),applyPlacement=useRef<((next:Props['placement'])=>void)|null>(null)
   const [effectPlayback]=useState(()=>new SceneAbilityPlayback(model.frame.id,model.visuals))
@@ -365,20 +365,21 @@ export default function Scene3D(props: Props) {
       updateAxes()
       const vfxNow=performance.now()
       if(vfxNeedsMotion()&&document.visibilityState==='visible'){if(vfxLast!==undefined)effectPlayback.advance(Math.min(100,Math.max(0,vfxNow-vfxLast)));vfxLast=vfxNow}else vfxLast=undefined
-      vfx.forEach((entry,i)=>{const visual=vfxVisuals[i],elapsed=controlledVfx()?Math.max(0,latest.current.effectTimeMs!):effectPlayback.elapsed(visual.id),sample=effectPlayback.sample(visual,reducedMotion,controlledVfx()?elapsed:undefined),time=controlledVfx()?elapsed:effectPlayback.presentationMs(visual.id);entry.update({...sample,visible:sample.visible&&effectSettings.current.enabled},reducedMotion?0:time/1000)})
+      vfx.forEach((entry,i)=>{const visual=vfxVisuals[i],elapsed=controlledVfx()?Math.max(0,latest.current.effectTimeMs!):effectPlayback.elapsed(visual.id),sample=effectPlayback.sample(visual,reducedMotion,controlledVfx()?elapsed:undefined),time=controlledVfx()?Math.max(0,elapsed-(visual.presentationOffsetMs??0)):effectPlayback.presentationMs(visual.id);entry.update({...sample,visible:sample.visible&&effectSettings.current.enabled},reducedMotion?0:time/1000)})
       backdrop.update(camera)
       lighting.update(camera,controls.target)
-      const moving=animationValue.current&&document.visibilityState==='visible',visualTime=performance.now()/1000
-      const charactersMoving=characterMotion.current&&document.visibilityState==='visible'
+      const moving=animationValue.current&&document.visibilityState==='visible',visualTime=controlledVfx()?Math.max(0,latest.current.effectTimeMs!)/1000:performance.now()/1000
+      const charactersMoving=!controlledVfx()&&characterMotion.current&&document.visibilityState==='visible'
       if(charactersMoving){if(characterLast!==undefined)characterElapsed+=Math.min(.1,Math.max(0,visualTime-characterLast));characterLast=visualTime}else characterLast=undefined
       const preview=characterPreview.current?.frameId===f.id?characterPreview.current:null
       for(const entry of characters){
         const target=entry.group.userData.selection
         if(preview&&preview.target===target.kind+':'+target.id)entry.rig.sample(preview.seconds,preview.animation,true)
+        else if(controlledVfx())entry.rig.sample(visualTime,entry.animation,entry.group.visible&&!reducedMotion)
         else entry.rig.update(characterElapsed,entry.animation,characterMotion.current&&entry.group.visible)
       }
       for(const outline of outlines)outline.helper.setFromObject(outline.target)
-      if((charactersMoving&&characters.length)||previewDirty){renderer.shadowMap.needsUpdate=true;if(contactShadows)contactShadows.needsUpdate=true}previewDirty=false
+      if(((charactersMoving||controlledVfx())&&characters.length)||previewDirty){renderer.shadowMap.needsUpdate=true;if(contactShadows)contactShadows.needsUpdate=true}previewDirty=false
       updateFlameMaterials(resources,visualTime,moving);lighting.animate(moving?visualTime:null)
       if(composer)composer.render(0);else renderer.render(scene,camera)
       const box = element.getBoundingClientRect()
@@ -741,7 +742,7 @@ export default function Scene3D(props: Props) {
     let motionTimer:ReturnType<typeof setTimeout>|undefined
     const visibleMotionSource=()=>pickables.some(group=>group.userData.liveFlame&&(model.restricted||!latest.current.editorHidden?.includes(group.userData.selection?.id)))
     const wantsMotion=()=>vfxNeedsMotion()||!!liveEmitters&&visibleMotionSource()&&animationValue.current||characterMotion.current&&characters.some(c=>(c.animation!=='rest'||c.rig.transitioning)&&!latest.current.editorHidden?.includes(c.group.userData.selection?.id))
-    const canAnimate=()=>!disposed&&wantsMotion()&&document.visibilityState==='visible'&&!!element.clientWidth&&!!element.clientHeight
+    const canAnimate=()=>!disposed&&!controlledVfx()&&wantsMotion()&&document.visibilityState==='visible'&&!!element.clientWidth&&!!element.clientHeight
     const motionTick=()=>{motionTimer=undefined;if(canAnimate())requestDraw(false)}
     const scheduleMotion=()=>{if(motionTimer===undefined&&canAnimate())motionTimer=setTimeout(motionTick,50)}
     const syncMotion=()=>{clearTimeout(motionTimer);motionTimer=undefined;vfxLast=undefined;characterLast=undefined;scheduleMotion();requestDraw(false)}
@@ -794,7 +795,7 @@ export default function Scene3D(props: Props) {
       <label>Свет <select aria-label="Освещение 3D" value={lightingMode} onChange={e=>{const mode=e.currentTarget.value as LightingMode;setLightingMode(mode);setTuning(defaultLightTuning(mode))}}>{(Object.keys(lightingLabels) as LightingMode[]).map(mode=><option key={mode} value={mode}>{lightingLabels[mode]}</option>)}</select></label>
       <label>Экспозиция <input aria-label="Экспозиция 3D" type="range" min="0.5" max="1.6" step="0.05" value={exposure} onChange={e=>setExposure(Number(e.currentTarget.value))}/></label>
       {tabletop&&<label><input type="checkbox" checked={animated} onChange={e=>setAnimated(e.currentTarget.checked)}/> Живой огонь</label>}
-      <label><input type="checkbox" checked={charactersAnimated} onChange={e=>setCharactersAnimated(e.currentTarget.checked)}/> Анимация персонажей</label>
+      {props.effectTimeMs===undefined&&<label><input type="checkbox" checked={charactersAnimated} onChange={e=>setCharactersAnimated(e.currentTarget.checked)}/> Анимация персонажей</label>}
       <label><input type="checkbox" checked={effectsEnabled} onChange={e=>setEffectsEnabled(e.currentTarget.checked)}/> Эффекты способностей</label>
       {props.effectTimeMs===undefined&&<><button className="w6-button" type="button" disabled={!effectsEnabled||!model.visuals.length} onClick={()=>setEffectsPaused(v=>!v)}>{effectsPaused?'Продолжить эффекты':'Пауза эффектов'}</button>
       <button className="w6-button" type="button" disabled={!effectsEnabled||!model.visuals.some(v=>v.phase==='sequence')} onClick={()=>{setEffectsPaused(false);setEffectReplay(n=>n+1)}}>Повторить эффект</button></>}

@@ -70,7 +70,8 @@ type SlideStatus = Pick<SlideStep, 'objectId' | 'name' | 'point' | 'speedMs'>
 type SlideStop = Omit<SlideStep, 'vxMs' | 'vyMs' | 'stopped' | 'speedMs' | 'traction'> & { atMs:ExactAmount; impact?:StructuralImpactOutcome }
 type WalkTraction = TractionTravel & {actorId:string; speedMs:number; safeSpeedMs:number}
 type SlideTraction = TractionTravel & {moverId:string; moverName:string}
-export type RoundExecutionSummary = { personal?:RoundFeedback; listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
+export type RoundMotionTrace={actorId:string;startMs:number;endMs:number;from:import('./sceneTypes').ScenePosition;to:import('./sceneTypes').ScenePosition;arcM?:number}
+export type RoundExecutionSummary = { presentationMotions?:RoundMotionTrace[]; personal?:RoundFeedback; listeningWindows?:ListeningWindow[]; speech?: (SpeechOutcome & {atMs:ExactAmount})[]; durationSeconds: number; events: RoundExecutionEvent[];
   carried: { id: string; actorId: string; actionKind: string; remaining: ExactAmount; unit: string }[];
   charges?: ChargeOutcome[]; replay?: { sourceReceiptId: string; selections: {key:string;mode:'new'|'preserve';sourceKey?:string}[] }; missingDecisions: RoundExecutionInput['missingDecisions']; warnings: string[]; movements?: MovementChange[];
   movementApprovals?: {actorId:string;reason:string}[]; rules?: (RuleOutcome & {atMs:ExactAmount})[]; water?: WaterRoundChanges; thermal?: ThermalRoundChanges; falls?: RoundFalls;
@@ -168,7 +169,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
       !bodies.every(b => record(b) && scene.tokens.some(t => t.actorId === b.actorId) && typeof b.heightM === 'number' && Number.isFinite(b.heightM) && b.heightM > 1e-6 && b.heightM <= 1e6 &&
         (b.flightReason === undefined || typeof b.flightReason === 'string' && b.flightReason.length <= 2000)) ||
       new Set(bodies.map(b => b.actorId)).size !== bodies.length)) throw Error('Мастер должен подтвердить возможность движения и задать высоту тела каждой отметки сцены для проверки столкновений.')
-  const finished: { work: RoundWorkEntry; at: ExactAmount }[] = [], starts: {work:RoundWorkEntry;at:ExactAmount}[] = [], carried = [...held], movements: MovementPlan[] = []
+  const finished: { work: RoundWorkEntry; at: ExactAmount }[] = [], starts: {work:RoundWorkEntry;at:ExactAmount}[] = [], carried = [...held], movements: MovementPlan[] = [],presentationMotions:RoundMotionTrace[]=[]
   const listeningWindows:ListeningWindow[]=[]
   const planningScene = scene ? structuredClone(scene) : undefined
   let segmentCount = 0
@@ -434,7 +435,11 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
         o.id === step.objectId ? slideSweep(o, step.point) : o) } : current
       advanceMovement(checkedScene, routes, bodies, cursor, at, movementCheck, variableWater ? (actorId, object, kind) => {
         wetRoutes.set(JSON.stringify([actorId, object.id]), { actorId, objectId: object.id, name: object.name, kind })
-      } : undefined, traces ? (id,pieces)=>{traces.set(id,pieces)} : undefined, drySpeeds ? (actorId,contact,speedMs)=>{
+      } : undefined, (actorId,pieces)=>{
+        traces?.set(actorId,pieces)
+        const from=numberOf(cursor),span=numberOf(at)-from
+        for(const piece of pieces){if(presentationMotions.length>=6000)break;presentationMotions.push({actorId,startMs:from+piece.start*span,endMs:from+piece.end*span,from:{...piece.a},to:{...piece.b},...(piece.arcM===undefined?{}:{arcM:piece.arcM})})}
+      }, drySpeeds ? (actorId,contact,speedMs)=>{
         const safeSpeedMs = drySpeeds.get(actorId)!*Math.sqrt(contact.factor)
         if (speedMs > safeSpeedMs+1e-6) {
           throw Error('Сцепление на «'+contact.name+'» ('+tractionLabels[contact.kind].toLowerCase()+') допускает ходьбу до '+
@@ -661,6 +666,7 @@ export function calculateRound(world: World, collection: DeclarationCollection, 
     ...(speechOutcomes.length?{speech:speechOutcomes}:{}),
     ...(input.replay?{replay:{sourceReceiptId:input.replay.sourceReceiptId,selections:input.replay.selections.map(({key,mode,sourceKey})=>({key,mode,...(sourceKey?{sourceKey}:{})}))}}:{}),
     ...(managed.outcomes.length?{charges:managed.outcomes}:{}), carried: carried.map(e => ({ id: e.id, actorId: e.actorId, actionKind: e.action.kind, remaining: e.amount.remaining, unit: e.amount.unit })),
+    ...(presentationMotions.length?{presentationMotions}:{}),
     ...(changes.length ? { movements: changes } : {}), ...(movementApprovals.size ? {movementApprovals:[...movementApprovals].map(([actorId,reason])=>({actorId,reason}))} : {}), ...(ruleOutcomes.length?{rules:ruleOutcomes}:{}), missingDecisions: structuredClone(input.missingDecisions),
     warnings: [...(speechDecisions.size?['Слышимость, преграды и разборчивость подтвердил мастер. Фиксированные радиусы и автоматическое подслушивание не вводились; каждый герой получает только свою запись.']:[]), 'Доступность, расстояние и запирание объектов проверяет мастер. Правила взаимодействия ещё расширяются.',
       ...(hasMovement ? ['Высоту тела и бюджет подтверждает мастер. Полёт без работающих крыльев требует основания мастера; его условия и ресурсные расходы проверяются отдельно. Для ходьбы проверяются отрезки маршрута и опоры.']: []),

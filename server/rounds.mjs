@@ -8,6 +8,7 @@ import { requireLobbyPermission } from './permissions.mjs'
 import { calculateRound, ROUND_EXECUTOR_VERSION } from './generated/roundExecution.mjs'
 import {requireRoundContext,roundRulesToken} from './round-context.mjs'
 import {buildRoundFeedback,isResultNotes,resultNotes} from './generated/roundFeedback.mjs'
+import {captureRoundPresentation} from './round-presentation-storage.mjs'
 const requireMaster = member => { requireLobbyPermission(member, 'rounds'); requireLobbyPermission(member, 'viewSecrets') }
 export const MAX_HISTORY_BYTES = 64 * 1024 * 1024, MAX_PREVIEW_BYTES = 32 * 1024 * 1024
 export async function roundGeneration(tx, lobbyId) { return (await tx.get('SELECT generation FROM round_generations WHERE lobby_id=?', [lobbyId]))?.generation ?? 1 }
@@ -72,6 +73,8 @@ export function roundRoutes(app, { db, auth, updated, lockedMembership, record }
         inputJson=JSON.stringify(Object.keys(notes).length?{...input,resultNotes:notes}:input)
       }
       const receipt = { id: id(), previewId: preview.id, collectionId: c.id, revision: lobby.revision + 1, generation, appliedAt: now(), summary }
+      const presentation=captureRoundPresentation(lobby.world_json,preview.world_json,receipt.revision)
+      if(presentation)receipt.presentation=presentation
       const receiptJson = JSON.stringify(receipt), bytes = Buffer.byteLength(lobby.world_json + receiptJson + inputJson + data.execution_seed)
       await checkHistorySpace(tx,lobby.id,bytes)
       await tx.run('INSERT INTO round_receipts(id,lobby_id,author_id,command_key,request_hash,generation,collection_id,preview_id,before_json,receipt_json,payload_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?)',

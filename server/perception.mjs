@@ -1,5 +1,6 @@
 import {commitWorld} from './world-coordinator.mjs'
 import {personalRoundResults} from './round-feedback.mjs'
+import {personalRoundPresentation} from './round-presentation.mjs'
 import {createHash} from 'node:crypto'
 import {roundGeneration} from './rounds.mjs'
 import {rejectRetiredCommand} from './campaign-retention-state.mjs'
@@ -40,7 +41,14 @@ export function perceptionRoutes(app, { db, auth, updated, lockedMembership, rec
     const result=await db.transaction(async tx=>{
       const {lobby,member}=await lockedMembership(tx,req),context=await heroContext(tx,lobby,req.params.characterId)
       if(context.binding.owner_id!==req.user.id&&context.binding.control.controllerId!==req.user.id)requireDisclosure(member)
-      return {revision:lobby.revision,closed:lobby.status==='closed',...await personalRoundResults(tx,lobby,context.actor.id,req.query.limit)}
+      return {revision:lobby.revision,generation:await roundGeneration(tx,lobby.id),closed:lobby.status==='closed',...await personalRoundResults(tx,lobby,context.actor.id,req.query.limit)}
+    });res.json(result)
+  })
+  app.get('/api/lobbies/:id/characters/:characterId/round-results/:reportId/playback',auth.middleware,async(req,res)=>{
+    const result=await db.transaction(async tx=>{
+      const {lobby,member}=await lockedMembership(tx,req),context=await heroContext(tx,lobby,req.params.characterId)
+      if(context.binding.owner_id!==req.user.id&&context.binding.control.controllerId!==req.user.id)requireDisclosure(member)
+      return personalRoundPresentation(tx,lobby,context.actor.id,req.params.reportId)
     });res.json(result)
   })
   app.get('/api/lobbies/:id/characters/:characterId/perception', auth.middleware, async (req, res) => {

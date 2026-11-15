@@ -3495,6 +3495,21 @@ for(const master of [true,false])test('Очередь диалогов: отка
  }finally{await f.close()}
 })
 
+test('Личные итоги UI: просмотр заменяет карту, блокирует действия и возвращает сохранённый черновик хода',async()=>{
+ const f=await fixture(),id='turn:'+'a'.repeat(24),appliedAt='2026-11-15T12:00:00.000Z'
+ const map={title:'Сцена героя',description:'',frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[],objects:[],contacts:[{id:'self',kind:'self',label:'Hero a',signs:'',x:3,y:3,z:0}]}
+ const report={id,revision:7,appliedAt,coverage:'full',fromSeconds:0,toSeconds:5,note:'Исполненный раунд',actions:[{id:'action:0',label:'Ожидание',status:'completed'}],resources:[]},recording={version:1,id,generation:1,revision:7,appliedAt,coverage:'scene',fromSeconds:0,toSeconds:5,roundDurationMs:5000,durationMs:5000,before:map,after:{...map,title:'Результат раунда'},events:[{id:'wait',atMs:1000,kind:'wait',label:'Ожидание исполнено'}],motions:[],visuals:[]}
+ try{
+  f.perceptions.a=map;f.intercept(url=>url==='/lobbies/a/characters/hero-a/round-results'?{revision:8,generation:1,closed:false,reports:[report],hasMore:false}:url.endsWith('/round-results/'+encodeURIComponent(id)+'/playback')?recording:undefined)
+  await ownActions(f,'a');await waitAction('1');assert(enabledButton('Отправить заявление'))
+  const key=load('lobbyFormDrafts').lobbyFormKey('action-sequence',f.accountId,'a','hero-a'),before=JSON.parse(localStorage.getItem(key)).actions
+  await click('Посмотреть исполнение раунда 0:00–0:05');assert(document.querySelector('.gb-round-review-banner'));assert(!enabledButton('Отправить заявление'))
+  assert([...document.querySelectorAll('.gb-game-actionbar fieldset')].some(fieldset=>fieldset.disabled))
+  await click('Итог раунда');assert(document.body.textContent.includes('Результат раунда'));assert.deepEqual(JSON.parse(localStorage.getItem(key)).actions,before)
+  await click('Вернуться к текущей сцене');assert(!document.querySelector('.gb-round-review-banner'));assert(enabledButton('Отправить заявление'));assert.deepEqual(JSON.parse(localStorage.getItem(key)).actions,before);assert.equal(f.writes.length,0)
+ }finally{await f.close()}
+})
+
 test('Живая игра: подготовка и выпуск добавляются одной правкой, лимит очереди проверяет оба действия',async()=>{
  const f=await fixture()
  try{

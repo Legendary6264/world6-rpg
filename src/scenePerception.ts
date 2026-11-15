@@ -128,7 +128,7 @@ export function prunePerceptions(value: ScenePerceptions, scenes: SceneState | u
     return { ...h, scenes: kept, activeSceneId: kept.some(s => s.sceneId === h.activeSceneId) ? h.activeSceneId : null }
   }); return next
 }
-export function perceivedMap(value: HeroPerception, scenes: SceneState | undefined, actors: (VisualActor & {body?:BodyState})[], seconds=0): PerceivedMap | null {
+export function perceivedMap(value: HeroPerception, scenes: SceneState | undefined, actors: (VisualActor & {body?:BodyState})[], seconds=0,visualReleases?:ReadonlySet<string>): PerceivedMap | null {
   const knowledge = value.scenes.find(s => s.sceneId === value.activeSceneId), live = scenes?.scenes.find(s => s.id === value.activeSceneId)
   if (!knowledge || !live) return null
   const self = live.tokens.find(t => t.actorId === value.actorId), actor = actors.find(a => a.id === value.actorId)
@@ -192,7 +192,8 @@ export function perceivedMap(value: HeroPerception, scenes: SceneState | undefin
     const casts=source.rpg?.casts??[],last=casts.findLast(c=>c.status==='ended'&&!c.interruption)
     for(let index=0;index<casts.length;index++) {
       const cast=casts[index],prepared=cast.status==='preparing'||cast.status==='ready',persistent=cast.status==='maintaining'||cast.status==='ended'&&cast.endsAt!==null&&cast.endsAt>seconds
-      if(cast.status==='interrupted'||cast.spatialRelease&&cast.spatialRelease.sceneId!==live.id||cast.visualRelease&&cast.visualRelease.sceneId!==live.id||!prepared&&!persistent&&(cast!==last||!cast.visualRelease))continue
+      const recorded=!!cast.visualRelease&&visualReleases?.has(JSON.stringify([source.id,cast.id]))
+      if(cast.status==='interrupted'||cast.spatialRelease&&cast.spatialRelease.sceneId!==live.id||cast.visualRelease&&cast.visualRelease.sceneId!==live.id||!prepared&&!persistent&&!recorded&&(cast!==last||!cast.visualRelease))continue
       const target=live.tokens.find(t=>t.actorId===cast.targetId)
       const targetKnown=cast.targetId===value.actorId||(optics||medium.zoned?visibleActors.has(cast.targetId):knowledge.contacts.some(c=>c.actorId===cast.targetId&&c.kind==='identified'&&c.showHeight))
       const origin=!prepared&&(!persistent||!!cast.spatialRelease)?cast.visualRelease?.start??start:start

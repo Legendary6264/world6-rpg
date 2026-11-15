@@ -64,7 +64,7 @@ test('Предпросмотр героя: выбор кадра меняет р
   assert.equal(instances.at(-1),renderer,'Changing heading retains the WebGL renderer')
   assert.equal(renderer.scene.children.find(g=>g.userData.selection?.id===token.actorId),group)
   assert(Math.abs(group.rotation.y+315*Math.PI/180)<1e-8);assert.deepEqual(skeleton.bones.map(b=>b.quaternion.toArray()),pose)
-  await press('Сбросить предпросмотр персонажа');assert(skeleton.bones.every(b=>Math.abs(b.quaternion.w-1)<1e-6))
+  await press('Сбросить предпросмотр персонажа');await flush();assert(skeleton.bones.every(b=>Math.abs(b.quaternion.w-1)<1e-6))
   assert.equal(instances.at(-1),renderer);assert.deepEqual(meshes.map(m=>m.geometry),geometries);assert.deepEqual(model,before)
  }finally{await flush(()=>root.render(null));Object.defineProperty(document,'visibilityState',{configurable:true,value:previous})}
 })
@@ -1005,6 +1005,20 @@ test('VFX в сцене: подготовка и длительное возде
  }finally{await flush(()=>root.render(null));Object.defineProperty(document,'visibilityState',{configurable:true,value:visibility})}
 })
 
+
+test('Просмотр раунда 3D: движение раскрытого героя обновляет позу без пересоздания WebGL и камеры',async()=>{
+ await flush(()=>root.render(null));props={}
+ const map={title:'Раунд',description:'',frame:{id:'recorded-scene',width:20,depth:20,minZ:0,maxZ:6,groundZ:0,view:'top',palette:'stone'},areas:[{id:'known',x:0,y:0,z:0,width:20,depth:20,height:6,visible:true}],objects:[],contacts:[{id:'self',kind:'self',label:'Герой',signs:'',x:2,y:2,z:0,characterModel:'vanguard',characterAnimation:'idle'}]}
+ await mount({model:perceivedRenderModel(map),effectTimeMs:0});const renderer=instances.at(-1),count=instances.length,camera=renderer.camera.position.toArray()
+ const moved=structuredClone(map);Object.assign(moved.contacts[0],{x:6,characterAnimation:'walk',facing:90})
+ await mount({model:perceivedRenderModel(moved),effectTimeMs:2500})
+ assert.equal(instances.length,count);assert.equal(instances.at(-1),renderer);assert.equal(renderer.disposed,false);assert.deepEqual(renderer.camera.position.toArray(),camera)
+ const hero=renderer.scene.children.find(group=>group.userData.selection?.id==='self');assert(hero);assert.equal(hero.position.x,6);assert.equal(hero.position.z,2);assert.equal(hero.rotation.y,-Math.PI/2)
+ const skins=[];hero.traverse(node=>{if(node.isSkinnedMesh)skins.push(node)});assert(skins.length)
+ const skeleton=skins[0].skeleton,pose=skeleton.bones.map(b=>b.quaternion.toArray()),frames=renderer.frames
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,140))});assert.equal(renderer.frames,frames);assert.deepEqual(skeleton.bones.map(b=>b.quaternion.toArray()),pose)
+ await mount({model:perceivedRenderModel(moved),effectTimeMs:3100});assert.notDeepEqual(skeleton.bones.map(b=>b.quaternion.toArray()),pose);assert.equal(instances.at(-1),renderer)
+})
 
 test('VFX в сцене: уменьшенное движение оставляет подготовку неподвижной и не запускает скрытый цикл кадров',async()=>{
  await flush(()=>root.render(null));props={};const {createScene,emptyScenes}=load('scenes'),scene=createScene(emptyScenes(),'reduced-ambient','Тихий эффект','top').scenes[0],visual={id:'reduced-fire',spec:{familyId:'fire'},start:{x:4,y:4,z:0},end:{x:8,y:8,z:0},phase:'preparation',shape:'point',radius:1,coneAngleDeg:45},visibility=document.visibilityState,matchMedia=window.matchMedia

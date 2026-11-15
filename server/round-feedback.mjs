@@ -5,6 +5,7 @@ import {roundGeneration} from './rounds.mjs'
 import {isRoundFeedback,legacyRoundFeedback,publicFeedback} from './generated/roundFeedback.mjs'
 
 const record=value=>!!value&&typeof value==='object'&&!Array.isArray(value)
+export const personalRoundId=(lobbyId,actorId,receiptId)=>'turn:'+createHash('sha256').update(JSON.stringify([lobbyId,actorId,receiptId])).digest('hex').slice(0,24)
 export async function personalRoundResults(tx,lobby,actorId,requestedLimit){
  const limit=requestedLimit===undefined?5:typeof requestedLimit==='string'&&/^\d{1,2}$/.test(requestedLimit)?integer(Number(requestedLimit),1,20):integer(NaN)
  const branch=await roundBranch(tx,lobby.id,await roundGeneration(tx,lobby.id)),ids=branch.slice(-20).toReversed()
@@ -24,7 +25,7 @@ export async function personalRoundResults(tx,lobby,actorId,requestedLimit){
    try{report=legacyRoundFeedback(validateWorld(JSON.parse(saved.before_json)),summary,actorId)}catch{continue}
   }
   if(!report)continue
-  const publicId='turn:'+createHash('sha256').update(JSON.stringify([lobby.id,actorId,id])).digest('hex').slice(0,24)
+  const publicId=personalRoundId(lobby.id,actorId,id)
   reports.push({...publicFeedback(report),id:publicId,appliedAt:receipt.appliedAt,revision:receipt.revision})
   if(reports.length>limit)break
  }

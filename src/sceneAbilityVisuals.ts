@@ -6,7 +6,7 @@ import type { AbilityVisualSpec, AbilityVisualPhase } from './abilityVisuals'
 export type SceneAbilityVisual = {
   id: string; spec: AbilityVisualSpec; start: ScenePosition; end: ScenePosition
   phase: AbilityVisualPhase | 'sequence'; shape: 'point' | 'sphere' | 'beam' | 'cone'
-  radius: number; coneAngleDeg: number; persistent?:boolean
+  radius: number; coneAngleDeg: number; persistent?:boolean; presentationOffsetMs?:number
 }
 export type VisualActor = SceneActor & { rpg?: { casts: Cast[] } }
 export type VisualFrame = Pick<Scene,'id'|'view'|'width'|'depth'|'minZ'|'maxZ'>

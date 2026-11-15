@@ -13,4 +13,12 @@
 .gb-round-note { padding: .75rem; border-left: 3px solid #bea77b; background: #243b2b; }
 .gb-round-note p { margin: .5rem 0 0; }
 .gb-round-results :focus-visible { outline: 2px solid #d2de9b; outline-offset: 3px; }
+.gb-round-playback { margin: .8rem 0 1.2rem; padding: 1rem; border: 1px solid #a1ae7d; border-radius: 8px; background: #202f24; }
+.gb-round-playback header { align-items: center; }.gb-round-playback header p { margin: .35rem 0; color: #bbccab; }
+.gb-round-scrub { display: grid; gap: .5rem; margin: 1rem 0; }.gb-round-scrub input { width: 100%; accent-color: #bcd58f; }
+.gb-round-now { padding: .6rem .8rem; background: #304330; border-radius: 5px; }
+.gb-round-timeline { display: flex; gap: .5rem; overflow-x: auto; list-style: none; padding: .4rem 0; margin: .5rem 0; }
+.gb-round-timeline li { flex: 0 0 11rem; }.gb-round-timeline button { display: grid; text-align: left; gap: .35rem; width: 100%; min-height: 5rem; }
+.gb-round-timeline time,.gb-round-timeline small { color: #bbccab; font-size: .8rem; }.gb-round-timeline [data-current=true] button { background: #3b5034; border-color: #c9d697; }
+.gb-round-review-banner { padding: .75rem 1rem; border: 1px solid #b8b382; border-radius: 5px; color: #eee6b8; background: #3a3926; }
 @media(max-width:650px) { .gb-round-results { padding: .7rem; } .gb-round-actions strong { display: block; margin: .3rem 0 0; } }
