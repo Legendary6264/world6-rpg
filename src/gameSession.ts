@@ -1,10 +1,13 @@
 export type GameSessionResult={id:string;title:string;summary:string;finishedAt:string;sourceRevision:number}
+export type GameFinishReceipt={commandKey:string;generation:number;resultId:string;sourceRevision:number;keepPending:boolean}
 export type GameSessionView={revision:number;status:'open'|'playing'|'closed';paused:boolean;seconds:number;
  phase:'preparing'|'ready'|'planning'|'resolving'|'applied'|'paused'|'finished';
  round:{phase:string;received:number;total:number}|null;result:GameSessionResult|null;
- ready?:{id:string;label:string;done:boolean;section:string}[];canStart?:boolean;pendingWork?:number;finishBlockers?:string[]}
+ ready?:{id:string;label:string;done:boolean;section:string}[];canStart?:boolean;pendingWork?:number;finishBlockers?:string[];generation?:number;finishReceipt?:GameFinishReceipt}
 export const gameSessionLabels:Record<GameSessionView['phase'],string>={preparing:'Подготовка к совместной игре',ready:'Игра идёт · можно открыть раунд',planning:'Игроки составляют ходы',resolving:'Мастер разрешает раунд',applied:'Раунд применён',paused:'Игра на паузе',finished:'Игра завершена'}
-export type FinishGameCommand={revision:number;title:string;summary:string;keepPending:boolean;commandKey:string}
+export type FinishGameCommand={revision:number;title:string;summary:string;keepPending:boolean;commandKey:string;generation?:number}
+export type StartGameCommand={revision:number;generation:number;commandKey:string}
+export type PauseGameCommand={revision:number;paused:boolean;reason:string;commandKey:string;generation?:number}
 // A portable ending includes the 80-character title and 4000-character body.
 export const MAX_GAME_SESSION_SUMMARY=4096
 
@@ -16,7 +19,8 @@ export function isGameSessionView(v:unknown):v is GameSessionView{
  if(!integer(s.revision)||!['open','playing','closed'].includes(s.status)||typeof s.paused!=='boolean'||!Number.isFinite(s.seconds)||s.seconds<0||!Object.hasOwn(gameSessionLabels,s.phase))return false
  if(s.round!==null&&(!s.round||typeof s.round.phase!=='string'||!integer(s.round.received)||!integer(s.round.total)))return false
  if(s.result!==null&&!isGameSessionResult(s.result))return false
- return (s.ready===undefined||Array.isArray(s.ready)&&s.ready.every(r=>!!r&&typeof r.id==='string'&&typeof r.label==='string'&&typeof r.done==='boolean'&&typeof r.section==='string'))&&
+ return (s.generation===undefined||integer(s.generation)&&s.generation>0)&&(s.finishReceipt===undefined||isGameFinishReceipt(s.finishReceipt))&&
+  (s.ready===undefined||Array.isArray(s.ready)&&s.ready.every(r=>!!r&&typeof r.id==='string'&&typeof r.label==='string'&&typeof r.done==='boolean'&&typeof r.section==='string'))&&
   (s.canStart===undefined||typeof s.canStart==='boolean')&&(s.pendingWork===undefined||integer(s.pendingWork))&&(s.finishBlockers===undefined||Array.isArray(s.finishBlockers)&&s.finishBlockers.every(b=>typeof b==='string'))
 }
 
@@ -33,18 +37,29 @@ export function isGameSessionResult(v:unknown):v is GameSessionResult{
  return obj(v)&&id(v.id)&&typeof v.title==='string'&&!!v.title.trim()&&v.title.length<=80&&typeof v.summary==='string'&&!!v.summary.trim()&&v.summary.length<=MAX_GAME_SESSION_SUMMARY&&Number.isSafeInteger(v.sourceRevision)&&Number(v.sourceRevision)>=0&&stamp(v.finishedAt)
 }
 export function isGameFinishAck(v:unknown,command:FinishGameCommand):boolean{
- return obj(v)&&typeof v.duplicate==='boolean'&&isGameSessionResult(v.result)&&v.result.sourceRevision===command.revision&&v.result.title===command.title.trim()&&v.result.summary===command.summary.trim()
+ return obj(v)&&typeof v.duplicate==='boolean'&&isGameSessionResult(v.result)&&v.result.sourceRevision===command.revision&&v.result.title===command.title.trim()&&v.result.summary===command.summary.trim()&&
+  (command.generation===undefined||isGameFinishReceipt(v.receipt)&&v.receipt.commandKey===command.commandKey&&v.receipt.generation===command.generation&&v.receipt.resultId===v.result.id&&v.receipt.sourceRevision===command.revision&&v.receipt.keepPending===command.keepPending)
+}
+function isGameFinishReceipt(v:unknown):v is GameFinishReceipt{
+ return obj(v)&&id(v.commandKey)&&id(v.resultId)&&Number.isSafeInteger(v.generation)&&Number(v.generation)>0&&Number.isSafeInteger(v.sourceRevision)&&Number(v.sourceRevision)>=0&&typeof v.keepPending==='boolean'
+}
+export function isGameFinishState(view:GameSessionView,command:FinishGameCommand):boolean{
+ const r=view.finishReceipt
+ return view.status==='closed'&&!!r&&view.generation===r.generation&&r.commandKey===command.commandKey&&r.sourceRevision===command.revision&&r.keepPending===command.keepPending&&r.resultId===view.result?.id&&
+  isGameFinishAck({result:view.result,receipt:r,duplicate:true},command)
 }
 export function isGameReadyAck(v:unknown,minimumRevision:number):v is {revision:number;duplicate:boolean}{
  return obj(v)&&Number.isSafeInteger(v.revision)&&Number(v.revision)>=minimumRevision&&typeof v.duplicate==='boolean'
 }
-export function isGameStartAck(v:unknown,revision:number):boolean{
- return isGameReadyAck(v,revision)&&(v.duplicate||v.revision===revision+1)
+export function isGameStartAck(v:unknown,command:number|StartGameCommand):boolean{
+ if(typeof command==='number')return isGameReadyAck(v,command)&&(v.duplicate||v.revision===command+1)
+ return obj(v)&&typeof v.duplicate==='boolean'&&obj(v.receipt)&&v.receipt.id===command.commandKey&&v.receipt.operation==='start-game'&&v.receipt.generation===command.generation&&v.receipt.sourceRevision===command.revision&&v.receipt.revision===command.revision+1&&stamp(v.receipt.appliedAt)
 }
-export function isGamePauseAck(v:unknown,command:{revision:number;paused:boolean;reason:string}):boolean{
+export function isGamePauseAck(v:unknown,command:{revision:number;paused:boolean;reason:string;commandKey?:string;generation?:number}):boolean{
  if(!obj(v)||typeof v.duplicate!=='boolean'||!obj(v.receipt))return false
  const r=v.receipt,s=r.summary
- return id(r.id)&&r.revision===command.revision+1&&Number.isSafeInteger(r.generation)&&Number(r.generation)>0&&stamp(r.appliedAt)&&obj(s)&&s.operation==='pause'&&s.paused===command.paused&&s.reason===command.reason.trim()
+ return id(r.id)&&r.revision===command.revision+1&&Number.isSafeInteger(r.generation)&&Number(r.generation)>0&&stamp(r.appliedAt)&&obj(s)&&s.operation==='pause'&&s.paused===command.paused&&s.reason===command.reason.trim()&&
+  (command.commandKey===undefined||r.commandKey===command.commandKey)&&(command.generation===undefined||r.generation===command.generation)
 }
 export function isGameSessionChangeAck(v:unknown,command:{revision:number;operation:string}):boolean{
  return obj(v)&&typeof v.duplicate==='boolean'&&obj(v.receipt)&&v.receipt.revision===command.revision+1&&v.receipt.operation==='game-session-'+command.operation&&stamp(v.receipt.appliedAt)

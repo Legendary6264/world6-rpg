@@ -6,16 +6,18 @@ const Component=load('LobbyGameSession').default,Context=load('onlineContext').O
 const flush=async fn=>act(async()=>{fn?.();await new Promise(r=>setTimeout(r,10))}),button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text),field=label=>document.querySelector('[aria-label="'+label+'"]')
 async function input(label,value){await flush(()=>{const f=field(label),prototype=f.tagName==='TEXTAREA'?dom.window.HTMLTextAreaElement.prototype:dom.window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(f,value);f.dispatchEvent(new dom.window.Event('input',{bubbles:true}));f.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})}
 async function click(text){const b=button(text);assert(b,'Missing '+text);assert(!b.disabled,'Disabled '+text);await flush(()=>b.click())}
-const finishAck=(body,duplicate=false)=>({result:{id:'final',title:body.title.trim(),summary:body.summary.trim(),sourceRevision:body.revision,finishedAt:'2026-10-28T12:00:00.000Z'},duplicate})
+const finishAck=(body,duplicate=false)=>({result:{id:'final',title:body.title.trim(),summary:body.summary.trim(),sourceRevision:body.revision,finishedAt:'2026-10-28T12:00:00.000Z'},receipt:{commandKey:body.commandKey,generation:body.generation??1,resultId:'final',sourceRevision:body.revision,keepPending:body.keepPending},duplicate})
+const startAck=(body,duplicate=false)=>({receipt:{id:body.commandKey,operation:'start-game',generation:body.generation,sourceRevision:body.revision,revision:body.revision+1,appliedAt:'2026-10-28T12:00:00.000Z'},duplicate})
+const pauseAck=(body,duplicate=false)=>({receipt:{id:'pause-receipt',commandKey:body.commandKey,revision:body.revision+1,generation:body.generation,appliedAt:'2026-10-28T12:00:00.000Z',summary:{operation:'pause',paused:body.paused,reason:body.reason.trim()}},duplicate})
 async function fixture(options={}){
  await flush(()=>root.render(null));const id=options.lobbyId??'session-'+crypto.randomUUID(),lobby={id,title:'Переход друзей',myRole:options.role??'GM',status:'playing',members:[]},calls=[],navigation=[]
- let events=0,value={revision:7,status:'playing',paused:false,seconds:10,phase:'applied',round:{phase:'applied',received:2,total:2},result:null,ready:[],canStart:false,pendingWork:0,finishBlockers:[],...options.view}
+ let events=0,value={revision:7,generation:1,status:'playing',paused:false,seconds:10,phase:'applied',round:{phase:'applied',received:2,total:2},result:null,ready:[],canStart:false,pendingWork:0,finishBlockers:[],...options.view}
  const request=async(url,init={})=>{
   const method=init.method??'GET';if(method==='GET')return structuredClone(value)
   const body=JSON.parse(init.body);calls.push({url,body,signal:init.signal});if(options.send)return options.send(url,body,init)
-  if(url.endsWith('/finish')){const ack=finishAck(body);value={...value,revision:body.revision+1,status:'closed',phase:'finished',result:ack.result};return ack}
-  if(url.endsWith('/start'))return {revision:body.revision+1,duplicate:false}
-  return {receipt:{id:'pause-receipt',revision:body.revision+1,generation:1,appliedAt:'2026-10-28T12:00:00.000Z',summary:{operation:'pause',paused:body.paused,reason:body.reason.trim()}},duplicate:false}
+  if(url.endsWith('/finish')){const ack=finishAck(body);value={...value,revision:body.revision+1,status:'closed',phase:'finished',result:ack.result,finishReceipt:ack.receipt};return ack}
+  if(url.endsWith('/start'))return startAck(body)
+  return pauseAck(body)
  }
  let activeRequest=request
  function render(){root.render(React.createElement(Context.Provider,{value:{request:activeRequest,events,refresh:()=>{events++;render()},user:{id:'gm'}}},React.createElement(Component,{key:options.key??id,accountId:options.accountId??'gm',lobby,disabled:!!options.disabled,onHeroes:()=>navigation.push('heroes'),onRound:()=>navigation.push('round'),onSetup:()=>navigation.push('scene'),onMembers:()=>navigation.push('members'),onCopies:()=>navigation.push('copies')})))}
@@ -27,7 +29,7 @@ test.after(async()=>{await flush(()=>root.unmount());dom.window.close()})
 test('Игра: подготовка показывает проверяемые шаги, переходы и блокировку старта',async()=>{
  const h=await fixture({view:{status:'open',phase:'preparing',ready:[{id:'friends',label:'Друг вошёл',done:false,section:'setup'},{id:'heroes',label:'Герой принят',done:false,section:'heroes'},{id:'scene',label:'Сцена открыта',done:false,section:'game'}]}})
  assert(button('Начать совместную игру').disabled);const actions=[...document.querySelectorAll('[aria-label="Готовность к совместной игре"] button')];for(const a of actions)await flush(()=>a.click());assert.deepEqual(h.navigation,['members','heroes','scene']);assert.equal(h.calls.length,0)
- await h.replace({canStart:true,ready:[]});await click('Начать совместную игру');assert.equal(h.calls.length,1);assert.deepEqual(h.calls[0].body,{revision:7});assert(h.calls[0].url.endsWith('/start'))
+ await h.replace({canStart:true,ready:[]});await click('Начать совместную игру');assert.equal(h.calls.length,1);assert.equal(h.calls[0].body.revision,7);assert.equal(h.calls[0].body.generation,1);assert(h.calls[0].body.commandKey);assert(h.calls[0].url.endsWith('/start'))
 })
 test('Игра: явный общий итог, один запрос, общий экран результата и переход к снимку',async()=>{
  const h=await fixture();await click('Завершить игру');assert(button('Сохранить итог и завершить').disabled);await input('Общий итог игры','Герои добрались до переправы.');assert(button('Сохранить итог и завершить').disabled);await flush(()=>field('Подтвердить общий итог и завершение').click());assert(!button('Сохранить итог и завершить').disabled)
@@ -105,7 +107,7 @@ test('Receipt: сохранённый финал подтверждает пот
  let reject
  const h=await fixture({send:()=>new Promise((_resolve,fail)=>reject=fail)})
  await ending();await click('Сохранить итог и завершить');const body=h.calls[0].body
- await h.replace({status:'closed',phase:'finished',result:finishAck(body).result})
+ await h.replace({status:'closed',phase:'finished',result:finishAck(body).result,finishReceipt:finishAck(body).receipt})
  assert(h.calls[0].signal.aborted);assert(!field('Завершение совместной игры'))
  await flush(()=>reject(new NetworkError(0,'Поздняя потеря ответа')))
  assert(!document.body.textContent.includes('Поздняя потеря ответа'));assert(document.body.textContent.includes('Итог совместной игры')||field('Итог совместной игры'))
@@ -114,10 +116,89 @@ test('Receipt: сохранённый финал подтверждает пот
 test('Receipt: старт и пауза не объявляются сохранёнными по пустому ответу API',async()=>{
  const h=await fixture({send:()=>({ok:true}),view:{status:'open',phase:'preparing',canStart:true}})
  await click('Начать совместную игру');assert(!document.body.textContent.includes('Игра начата.'))
+ assert(button('Пауза в игре').disabled);assert(button('Повторить начало игры'));assert.equal(h.calls.length,1)
+ const pause=await fixture({send:()=>({ok:true})})
  await input('Причина перерыва или продолжения','Перерыв');await click('Пауза в игре')
- assert.equal(h.calls.length,2)
+ assert.equal(pause.calls.length,1);assert(button('Подтвердить прежнюю паузу'))
  assert(!document.body.textContent.includes('Игра на паузе. Позиции и черновики сохранены.'))
 })
+for(const paused of [false,true])test('Сессия: потерянный ответ '+(paused?'продолжения':'паузы')+' переживает смену состояния и перезагрузку',async()=>{
+ const options={lobbyId:'pause-retry-'+crypto.randomUUID(),view:{paused},send:()=>{throw new NetworkError(0,'Нет ответа')}}
+ const first=await fixture(options);await input('Причина перерыва или продолжения','Перерыв у ворот')
+ await click(paused?'Продолжить игру':'Пауза в игре');const original=first.calls[0].body
+ options.view={paused:!paused,revision:11};options.send=(_url,body)=>pauseAck(body,true)
+ const second=await fixture(options),retry=paused?'Подтвердить прежнее продолжение':'Подтвердить прежнюю паузу'
+ assert.equal(field('Причина перерыва или продолжения').value,'Перерыв у ворот');assert(button(!paused?'Продолжить игру':'Пауза в игре').disabled)
+ await click(retry);assert.deepEqual(second.calls[0].body,original);assert.equal(second.calls[0].body.paused,!paused)
+ assert(!button(retry));assert(document.body.textContent.includes('Ранее отправленная команда подтверждена'))
+})
+
+test('Сессия: ожидающий старт можно подтвердить после закрытия игры без повторного запуска',async()=>{
+ const options={lobbyId:'start-retry-'+crypto.randomUUID(),view:{status:'open',phase:'preparing',canStart:true},send:()=>({ok:true})}
+ const first=await fixture(options);await click('Начать совместную игру');const original=first.calls[0].body
+ options.view={status:'closed',phase:'finished',revision:19,canStart:false};options.send=(_url,body)=>startAck(body,true)
+ const second=await fixture(options);assert(button('Повторить начало игры'));await click('Повторить начало игры')
+ assert.deepEqual(second.calls[0].body,original);assert(!button('Начать совместную игру'));assert(!button('Повторить начало игры'));assert(!document.body.textContent.includes('Игра начата.'))
+})
+
+for(const kind of ['start','pause','finish'])test('Сессия: отказ хранилища не отправляет '+kind+' и не оставляет ложную команду в памяти',async()=>{
+ const options={lobbyId:'storage-'+crypto.randomUUID(),view:kind==='start'?{status:'open',phase:'preparing',canStart:true}:{}}
+ const h=await fixture(options)
+ if(kind==='finish')await ending()
+ if(kind==='pause')await input('Причина перерыва или продолжения','Сохранившаяся причина')
+ const setItem=dom.window.Storage.prototype.setItem
+ dom.window.Storage.prototype.setItem=function(){throw Error('Storage full')}
+ try{await click(kind==='start'?'Начать совместную игру':kind==='pause'?'Пауза в игре':'Сохранить итог и завершить')}finally{dom.window.Storage.prototype.setItem=setItem}
+ assert.equal(h.calls.length,0);assert(document.body.textContent.includes('Команда не отправлена'))
+ await fixture(options);assert(!document.querySelector('.gb-session-pending'))
+ if(kind==='finish'){await click('Завершить игру');assert.equal(field('Общий итог игры').value,'Друзья открыли ворота.')}
+ if(kind==='pause')assert.equal(field('Причина перерыва или продолжения').value,'Сохранившаяся причина')
+})
+
+for(const mismatch of ['missing','key','generation','result','pending'])test('Сессия: одинаковый текст финала не подтверждает чужую команду · '+mismatch,async()=>{
+ let body
+ const h=await fixture({send:(_url,sent)=>{body=sent;return {ok:true}}});await ending();await click('Сохранить итог и завершить')
+ const ack=finishAck(body),proof={...ack.receipt}
+ if(mismatch==='key')proof.commandKey=crypto.randomUUID()
+ if(mismatch==='generation')proof.generation++
+ if(mismatch==='result')proof.resultId='another-final'
+ if(mismatch==='pending')proof.keepPending=!proof.keepPending
+ await h.replace({status:'closed',phase:'finished',result:ack.result,finishReceipt:mismatch==='missing'?undefined:proof})
+ assert(button('Повторить сохранение итога'));assert(!field('Завершение совместной игры'))
+ h.options.send=(_url,sent)=>finishAck(sent,true);await click('Повторить сохранение итога')
+ assert.deepEqual(h.calls[1].body,body);assert(!button('Повторить сохранение итога'))
+})
+
+for(const kind of ['start','pause','finish'])test('Сессия: чужое подтверждение HTTP оставляет точную команду · '+kind,async()=>{
+ const h=await fixture({view:kind==='start'?{status:'open',phase:'preparing',canStart:true}:{},send:(_url,body)=>{
+  const ack=kind==='start'?startAck(body):kind==='pause'?pauseAck(body):finishAck(body)
+  if(kind==='start')ack.receipt.id=crypto.randomUUID();else ack.receipt.commandKey=crypto.randomUUID()
+  return ack
+ }})
+ if(kind==='finish')await ending()
+ if(kind==='pause')await input('Причина перерыва или продолжения','Привал')
+ await click(kind==='start'?'Начать совместную игру':kind==='pause'?'Пауза в игре':'Сохранить итог и завершить')
+ await click(kind==='start'?'Повторить начало игры':kind==='pause'?'Подтвердить прежнюю паузу':'Повторить сохранение итога')
+ assert.equal(h.calls.length,2);assert.deepEqual(h.calls[0].body,h.calls[1].body)
+})
+
+test('Сессия: смена комнаты и аккаунта отменяет прежний запрос и не переносит причину паузы',async()=>{
+ let release
+ const h=await fixture({key:'same-parent',send:()=>new Promise(r=>release=r)})
+ await input('Причина перерыва или продолжения','Приватный черновик');await click('Пауза в игре')
+ h.lobby.id='another-room';h.options.accountId='another-gm';await h.render()
+ assert(h.calls[0].signal.aborted);assert.equal(field('Причина перерыва или продолжения').value,'');assert(!document.querySelector('.gb-session-pending'))
+ await flush(()=>release(pauseAck(h.calls[0].body)));assert(!document.body.textContent.includes('Позиции и черновики сохранены'))
+})
+
+test('Сессия: старый сохранённый финал повторяется без изменения формата команды',async()=>{
+ const lobbyId='old-final-'+crypto.randomUUID(),command={revision:3,title:'Прежний итог',summary:'Сохранён до обновления',keepPending:false,commandKey:crypto.randomUUID()}
+ const {lobbyFormKey,writeLobbyForm}=load('lobbyFormDrafts')
+ writeLobbyForm(lobbyFormKey('game-finish','gm',lobbyId),{...command,confirmed:true,command})
+ const h=await fixture({lobbyId,view:{status:'closed',phase:'finished'},send:(_url,body)=>({result:finishAck(body).result,duplicate:true})})
+ await click('Повторить сохранение итога');assert.deepEqual(h.calls[0].body,command);assert(!button('Повторить сохранение итога'))
+})
+
 test('Навигация: возвращение в свою кампанию, отдельные аккаунты и приглашение без прежнего lobby',()=>{
  const {readOpenLobby,rememberOpenLobby,lobbyInviteUrl}=load('lobbyNavigation');window.sessionStorage.clear();window.history.replaceState(null,'','/');assert.equal(readOpenLobby('a'),'');rememberOpenLobby('a','room-a');assert.equal(readOpenLobby('a'),'room-a');const invite=new URL(lobbyInviteUrl('new-code'));assert.equal(invite.searchParams.get('invite'),'new-code');assert.equal(invite.searchParams.get('lobby'),null)
  window.history.replaceState(null,'','/?lobby=room-a&code=PRIVATE-LOGIN-CODE#access_token=PRIVATE-TOKEN');const clean=new URL(lobbyInviteUrl('new-code'));assert.equal(clean.search,'?invite=new-code');assert.equal(clean.hash,'');assert(!clean.href.includes('PRIVATE'))

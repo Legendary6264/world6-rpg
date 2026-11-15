@@ -45,16 +45,17 @@ export function roundHistoryRoutes(app,{db,auth,updated,lockedMembership,record}
   });if(!result.duplicate)updated(req.params.id);res.json(result)
  })
  app.post('/api/lobbies/:id/rounds/pause',auth.middleware,async(req,res)=>{
-  const b=req.body;if(!b||Array.isArray(b)||Object.keys(b).length!==4||typeof b.paused!=='boolean'||typeof b.commandKey!=='string'||!/^[a-zA-Z0-9_-]{8,160}$/.test(b.commandKey))fail(400,'Проверь команду паузы.')
-  const reason=text(b.reason,1000),revision=integer(b.revision),hash=fingerprint([revision,b.paused,reason])
+  const b=req.body;if(!b||Array.isArray(b)||Object.keys(b).length!==(b.generation===undefined?4:5)||typeof b.paused!=='boolean'||typeof b.commandKey!=='string'||!/^[a-zA-Z0-9_-]{8,160}$/.test(b.commandKey))fail(400,'Проверь команду паузы.')
+  const reason=text(b.reason,1000),revision=integer(b.revision),expected=b.generation===undefined?undefined:integer(b.generation,1),hash=fingerprint(expected===undefined?[revision,b.paused,reason]:['session-pause-v2',expected,revision,b.paused,reason])
   const result=await db.transaction(async tx=>{
    const {lobby,member}=await lockedMembership(tx,req);master(member);const generation=await roundGeneration(tx,lobby.id)
+   if(expected!==undefined&&expected!==generation)fail(409,'Кампания восстановлена. Проверь её состояние вместо повтора прежней паузы.')
    await rejectRetiredCommand(tx,lobby.id,b.commandKey)
    const previous=await tx.get('SELECT * FROM round_change_receipts WHERE lobby_id=? AND command_key=?',[lobby.id,b.commandKey])
-   if(previous){if(previous.author_id!==req.user.id||previous.request_hash!==hash||previous.result_generation!==generation)fail(409,'Команда относится к другому запросу или продолжению.');return {receipt:JSON.parse(previous.receipt_json),duplicate:true}}
+   if(previous){if(previous.author_id!==req.user.id||previous.request_hash!==hash||previous.result_generation!==generation)fail(409,'Команда относится к другому запросу или продолжению.');return {receipt:{...JSON.parse(previous.receipt_json),commandKey:b.commandKey},duplicate:true}}
    open(lobby);if(lobby.revision!==revision)fail(409,'Кампания изменилась. Обнови историю перед паузой.')
-   for(const table of ['round_receipts','campaign_checkpoints','campaign_archive_receipts'])if(await tx.get('SELECT id FROM '+table+' WHERE lobby_id=? AND command_key=?',[lobby.id,b.commandKey]))fail(409,'Ключ уже связан с другой командой.')
-   const at=now(),receipt={id:id(),revision:revision+1,generation,appliedAt:at,summary:{operation:'pause',paused:b.paused,reason}},json=JSON.stringify(receipt),bytes=Buffer.byteLength(lobby.world_json+json)
+   for(const table of ['round_receipts','campaign_checkpoints','campaign_archive_receipts','campaign_trade_commands'])if(await tx.get('SELECT command_key FROM '+table+' WHERE lobby_id=? AND command_key=?',[lobby.id,b.commandKey]))fail(409,'Ключ уже связан с другой командой.')
+   const at=now(),receipt={id:id(),commandKey:b.commandKey,revision:revision+1,generation,appliedAt:at,summary:{operation:'pause',paused:b.paused,reason}},json=JSON.stringify(receipt),bytes=Buffer.byteLength(lobby.world_json+json)
    await checkHistorySpace(tx,lobby.id,bytes)
    await tx.run('INSERT INTO round_change_receipts(id,lobby_id,author_id,command_key,request_hash,result_generation,before_json,receipt_json,payload_bytes) VALUES(?,?,?,?,?,?,?,?,?)',[receipt.id,lobby.id,req.user.id,b.commandKey,hash,generation,lobby.world_json,json,bytes])
    await tx.run('INSERT INTO campaign_sessions(lobby_id,paused,changed_at,author_id,reason) VALUES(?,?,?,?,?) ON CONFLICT(lobby_id) DO UPDATE SET paused=excluded.paused,changed_at=excluded.changed_at,author_id=excluded.author_id,reason=excluded.reason',[lobby.id,b.paused?1:0,at,req.user.id,reason])

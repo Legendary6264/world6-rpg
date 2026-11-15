@@ -71,7 +71,7 @@ export function lobbyRoutes(app,{db,auth,io}){
  perceptionRoutes(app,{db,auth,updated,lockedMembership,record,...economicCommands})
  entityRoutes(app,{db,auth,lockedMembership})
  gameplayRoutes(app,{db,auth,updated,lockedMembership,record})
- gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembership,record})
+ gameSessionRoutes(app,{db,auth,updated,publicUpdated,lockedMembership,record,...economicCommands})
  declarationRoutes(app,{db,auth,updated,lockedMembership,record,...economicCommands})
  roundRoutes(app,{db,auth,updated,lockedMembership,record})
  roundHistoryRoutes(app,{db,auth,updated,lockedMembership,record})
