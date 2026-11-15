@@ -4,6 +4,7 @@ import {fixture} from './fixtures.mjs'
 import {createDefaultCharacter} from '../generated/characterModel.mjs'
 import {emptyStory,isStoryAck} from '../generated/campaignStory.mjs'
 import {unpackArchive} from '../campaign-archive-format.mjs'
+import {commitWorld} from '../world-coordinator.mjs'
 
 const commandKey=()=> 'story:'+crypto.randomUUID()
 async function party(t,dialect){
@@ -69,6 +70,35 @@ for(const dialect of ['sqlite','postgres'])test('Диалоги: ранняя и
   const after=await world();assert.equal(after.revision,before.revision+1)
   assert.equal(after.campaign.story.messages.find(m=>m.id===messageId).resolved,true)
   assert.equal((await api(story,gm.token)).pending.length,0)
+ })
+ await t.test('Связанный ответ цитирует доступный вопрос и не раскрывает его другим слушателям',async()=>{
+  const secret='PRIVATE-QUESTION: где скрыт проход?',question=await api(route(heroes[0]),players[0].token,'POST',{body:secret,contactId:'',commandKey:commandKey()})
+  const answer=await api(story+'/publish',gm.token,'POST',{kind:'npc',sceneId:scene.id,npcId:npc.id,speaker:'Страж',body:'Пройдите к воротам.',audience:heroes,replyTo:question.receipt.id,commandKey:commandKey()})
+  const mine=await api(route(heroes[0]),players[0].token),heard=await api(route(heroes[1]),players[1].token)
+  const ownAnswer=mine.messages.find(m=>m.id===answer.receipt.id),otherAnswer=heard.messages.find(m=>m.id===answer.receipt.id)
+  assert.deepEqual(ownAnswer.reply,{id:question.receipt.id,speaker:'Герой 0',body:secret,targetLabel:'Мастеру'})
+  assert.equal(mine.messages.find(m=>m.id===question.receipt.id).answerId,answer.receipt.id)
+  assert(otherAnswer);assert(!Object.hasOwn(otherAnswer,'reply'));assert(!Object.hasOwn(otherAnswer,'replyTo'))
+  assert(!JSON.stringify(heard).includes(secret));assert(!JSON.stringify(heard).includes(question.receipt.id))
+  assert(!JSON.stringify(ownAnswer.reply).includes(npc.id));assert(!Object.hasOwn(ownAnswer.reply,'audience'))
+  const w=await world(),parent=w.campaign.story.messages.find(m=>m.id===question.receipt.id)
+  // Paging can hide the parent while retaining the later answer. A safe quote
+  // still comes from the full set of messages this hero is allowed to read.
+  parent.createdAt='1999-01-01T00:00:00.000Z';delete parent.resolution
+  const later=w.campaign.story.messages.find(m=>m.id===answer.receipt.id);later.createdAt='2099-01-01T00:00:00.000Z'
+  w.campaign.story.messages.push(...Array.from({length:110},(_,i)=>narration('between-'+i,scene.id,heroes,'Промежуточная реплика '+i)))
+  // Published dialogue is deliberately protected from editor world uploads.
+  // Seed a paged historical fixture through the same canonical storage boundary.
+  await f.server.db.transaction(async tx=>{
+   const lobby=await tx.get('SELECT * FROM lobbies WHERE id=?',[root.split('/').at(-1)])
+   await commitWorld(tx,lobby,{characters:w.characters,campaign:w.campaign})
+  });await f.restart()
+  const page=await api(route(heroes[0]),players[0].token)
+  assert.equal(page.messages.length,100);assert(!page.messages.some(m=>m.id===question.receipt.id));assert.deepEqual(page.messages.at(-1).reply,ownAnswer.reply)
+  const otherPage=await api(route(heroes[1]),players[1].token);assert(!JSON.stringify(otherPage).includes(secret));assert(!Object.hasOwn(otherPage.messages.at(-1),'reply'))
+  const saved=await world(),archive=await api(root+'/archive',gm.token)
+  assert.deepEqual((await unpackArchive(Buffer.from(archive.data,'base64'))).world.campaign.story,saved.campaign.story)
+  assert(!Object.hasOwn(saved.campaign.story.messages.find(m=>m.id===answer.receipt.id),'reply'))
  })
  await t.test('Прежнее раскрытие сцены не позволяет спрашивать удалённым с неё героем',async()=>{
   const w=await world(),s=w.campaign.scenes.scenes.find(s=>s.id===scene.id);s.tokens=s.tokens.filter(token=>token.actorId!==heroes[0])

@@ -12,7 +12,10 @@ export type StoryMessage = {
   resolution?:{kind:'answered'|'dismissed'|'withdrawn';note:string;at:string}
 }
 export type CampaignStory = {version:1; planVersion:number; beats:StoryBeat[]; messages:StoryMessage[]}
-export type PublicStoryMessage = Pick<StoryMessage,'id'|'kind'|'speaker'|'body'|'seconds'|'createdAt'|'resolved'|'targetLabel'|'resolution'>
+export type StoryReplyReference=Pick<StoryMessage,'id'|'speaker'|'body'|'targetLabel'>
+export type PublicStoryMessage = Pick<StoryMessage,'id'|'kind'|'speaker'|'body'|'seconds'|'createdAt'|'resolved'|'targetLabel'|'resolution'>&{
+  reply?:StoryReplyReference;answerId?:string
+}
 export type StoryPlayerView = {closed:boolean; paused:boolean; sceneId:string; canAsk:boolean; canWithdraw:boolean; totalMessages:number; contacts:{id:string;label:string}[]; messages:PublicStoryMessage[]}
 export type StoryMasterView = {
   revision:number;closed:boolean;paused:boolean;planVersion:number;totalMessages:number;beats:StoryBeat[];messages:StoryMessage[];pending:StoryMessage[]
@@ -68,11 +71,20 @@ export function isStoryAck(value:unknown,operation:string,commandKey:string):boo
     (operation==='story-plan' ? receipt.id==='' && Number(receipt.planVersion)>0 : physicsId(receipt.id))
 }
 export function publicStory(story:CampaignStory,actorId:string,limit=100):PublicStoryMessage[] {
-  return recentStoryMessages(story.messages.filter(message=>message.audience.includes(actorId)),limit).map(message=>({
+  const visible=story.messages.filter(message=>message.audience.includes(actorId)),byId=new Map(visible.map(message=>[message.id,message]))
+  const answers=new Map(visible.filter(message=>message.kind!=='request'&&message.replyTo).map(message=>[message.replyTo,message.id]))
+  return recentStoryMessages(visible,limit).map(message=>{
+   const parent=byId.get(message.replyTo)
+   return {
     id:message.id,kind:message.kind,speaker:message.speaker,body:message.body,seconds:message.seconds,
     createdAt:message.createdAt,resolved:message.resolved,targetLabel:message.kind==='request' ? message.targetLabel : '',
     ...(message.resolution?{resolution:{...message.resolution}}:{}),
-  }))
+    // A shared answer never discloses a question addressed only to another hero.
+    // Resolve references before paging so an older visible question stays usable.
+    ...(message.kind!=='request'&&parent?.kind==='request'?{reply:{id:parent.id,speaker:parent.speaker,body:parent.body,targetLabel:parent.targetLabel}}:{}),
+    ...(message.kind==='request'&&answers.has(message.id)?{answerId:answers.get(message.id)!}:{}),
+   }
+  })
 }
 export function recentStoryMessages(messages:StoryMessage[],limit=100):StoryMessage[]{
   const activity=(message:StoryMessage)=>Date.parse(message.resolution?.at??message.createdAt)

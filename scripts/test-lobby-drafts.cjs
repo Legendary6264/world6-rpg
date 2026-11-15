@@ -3404,6 +3404,97 @@ function storyView(){
 function storyAck(operation,body,duplicate=false){
  return {receipt:{operation,commandKey:body.commandKey,id:operation==='story-plan'?'':body.messageId??'message-a',revision:8,planVersion:operation==='story-plan'?2:1,appliedAt:'2026-11-13T10:00:00.000Z'},duplicate}
 }
+test('Очередь диалогов: два ответа и отдельная реплика сохраняются при переключении, перезагрузке и потере подтверждения',async()=>{
+ const f=await fixture(),view=storyView(),commands=[]
+ view.pending.push({...view.pending[0],id:'question-friend',actorId:'friend-a',speaker:'Другой герой',body:'Куда ведёт дорога?'})
+ try{
+  f.intercept((url,options)=>{
+   if(url==='/lobbies/a/play/story')return structuredClone(view)
+   if(url==='/lobbies/a/play/story/publish'){
+    const body=JSON.parse(options.body);commands.push(body);view.pending=view.pending.filter(entry=>entry.id!==body.replyTo)
+    if(commands.length===1)throw Error('Ответ записан, подтверждение потеряно')
+    return storyAck('story-publish',body,true)
+   }
+  })
+  await f.open('a');await input('[aria-label="Текст реплики мастера"]','Отдельное описание двора')
+  await click('Ответить Hero a');await input('[aria-label="Текст реплики мастера"]','Первому герою нужен знак.');await input('[aria-label="Имя говорящего для игроков"]','Старший страж')
+  await click('Ответить Другой герой');assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'')
+  await input('[aria-label="Текст реплики мастера"]','Второму герою — к мосту.');await f.mount(false);await f.mount(true);await f.open('a')
+  assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Второму герою — к мосту.')
+  await click('Ответить Hero a');assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Первому герою нужен знак.')
+  assert.equal(document.querySelector('[aria-label="Имя говорящего для игроков"]').value,'Старший страж')
+  assert(document.querySelector('[aria-label="Вопрос к этому ответу"]').textContent.includes('Можно пройти?'))
+  assert.equal(document.activeElement.getAttribute('aria-label'),'Текст реплики мастера')
+  await click('К отдельному черновику');assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Отдельное описание двора')
+  await click('Ответить Другой герой');await click('Опубликовать выбранным героям');assert(document.body.textContent.includes('подтверждение потеряно'))
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Проверить сохранение истории')
+  assert.equal(commands.length,2);assert.deepEqual(commands[0],commands[1]);assert.equal(commands[0].replyTo,'question-friend');assert.deepEqual(commands[0].audience,['friend-a'])
+  assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Отдельное описание двора')
+  await click('Ответить Hero a');assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Первому герою нужен знак.')
+ }finally{await f.close()}
+})
+
+test('Очередь диалогов: сохранённый ответ на снятый вопрос остаётся доступным вне очереди',async()=>{
+ const f=await fixture(),view=storyView()
+ try{
+  f.intercept(url=>url==='/lobbies/a/play/story'?structuredClone(view):undefined)
+  await f.open('a');await click('Ответить Hero a');await input('[aria-label="Текст реплики мастера"]','Сохранённый полезный ответ');await click('К отдельному черновику')
+  view.pending=[];await flush(()=>f.notify());assert(document.body.textContent.includes('Сохранённые ответы вне очереди (1)'))
+  await click('Открыть черновик ответа 1');assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Сохранённый полезный ответ')
+  assert(!enabledButton('Опубликовать выбранным героям'));await click('Отдельная реплика');assert(enabledButton('Опубликовать выбранным героям'))
+  assert(!document.body.textContent.includes('Сохранённые ответы вне очереди (1)'))
+ }finally{await f.close()}
+})
+
+test('Очередь диалогов: ответ требует автора среди слушателей и доступного НПС; исправление сохраняет текст',async()=>{
+ const f=await fixture(),view=storyView(),commands=[]
+ const audience=name=>[...document.querySelectorAll('.gb-story-audience label')].find(label=>label.textContent===name).querySelector('input')
+ try{
+  f.intercept((url,options)=>{if(url==='/lobbies/a/play/story')return structuredClone(view);if(options?.method==='POST'&&url.includes('/story/'))commands.push(url)})
+  await f.open('a');await click('Ответить Hero a');await input('[aria-label="Текст реплики мастера"]','Слова ответа остаются')
+  await flush(()=>audience('Hero a').click());await flush(()=>audience('Другой герой').click())
+  assert(!enabledButton('Опубликовать выбранным героям'));assert(document.body.textContent.includes('Автор вопроса должен получить ответ'))
+  await flush(()=>audience('Hero a').click());view.heroes=view.heroes.filter(hero=>hero.id!=='friend-a');await flush(()=>f.notify())
+  assert(!enabledButton('Опубликовать выбранным героям'));await click('Убрать недоступных слушателей');assert(enabledButton('Опубликовать выбранным героям'))
+  view.npcs=[];await flush(()=>f.notify());assert(!enabledButton('Опубликовать выбранным героям'));assert(document.body.textContent.includes('НПС больше не доступен'))
+  await selectValue('[aria-label="Вид реплики мастера"]','narration');assert(enabledButton('Опубликовать выбранным героям'))
+  assert.equal(document.querySelector('[aria-label="Текст реплики мастера"]').value,'Слова ответа остаются');assert.equal(commands.length,0)
+ }finally{await f.close()}
+})
+
+test('Очередь диалогов: выбор НПС на карте не переадресует уже набранный вопрос',async()=>{
+ const f=await fixture()
+ try{
+  f.perceptions.a={title:'Двор',description:'',frame:{id:'scene-a',width:20,depth:20,minZ:-5,maxZ:20,groundZ:0,view:'top',palette:'stone'},areas:[],objects:[],contacts:[{id:'self-a',kind:'self',label:'Hero a',x:3,y:3,z:0},{id:'known-guard',kind:'identified',label:'Страж у ворот',x:4,y:3,z:0}]}
+  f.intercept(url=>url==='/lobbies/a/characters/hero-a/story'?{closed:false,paused:false,sceneId:'scene-a',canAsk:true,canWithdraw:true,contacts:[{id:'known-guard',label:'Страж у ворот'}],messages:[]}:undefined)
+  await ownActions(f,'a');await click('Разговоры');await input('[aria-label="Вопрос на сцене"]','Приватный вопрос мастеру')
+  await click('Сцена и действия');await flush(()=>document.querySelector('[aria-label="Страж у ворот"]').dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true})));await click('Поговорить с Страж у ворот')
+  assert.equal(document.querySelector('[aria-label="Собеседник на сцене"]').value,'');assert.equal(document.querySelector('[aria-label="Вопрос на сцене"]').value,'Приватный вопрос мастеру')
+  await click('Обратиться к выбранному');assert.equal(document.querySelector('[aria-label="Собеседник на сцене"]').value,'known-guard')
+  assert.equal(document.querySelector('[aria-label="Вопрос на сцене"]').value,'Приватный вопрос мастеру')
+ }finally{await f.close()}
+})
+
+for(const master of [true,false])test('Очередь диалогов: отказ хранилища не отправляет '+(master?'ответ мастера':'вопрос героя')+' и не оставляет ложный повтор',async()=>{
+ const f=await fixture(),view=storyView(),commands=[]
+ try{
+  f.intercept((url,options)=>{
+   if(url==='/lobbies/a/play/story')return structuredClone(view)
+   if(url==='/lobbies/a/characters/hero-a/story'&&options?.method!=='POST')return {closed:false,paused:false,sceneId:'scene-a',canAsk:true,canWithdraw:true,contacts:[],messages:[]}
+   if(url.endsWith('/story/publish')||url==='/lobbies/a/characters/hero-a/story'&&options?.method==='POST'){const body=JSON.parse(options.body);commands.push(body);return storyAck(master?'story-publish':'story-question',body)}
+  })
+  if(master){await f.open('a');await click('Ответить Hero a');await input('[aria-label="Текст реплики мастера"]','Несохранённый ответ')}
+  else{await ownActions(f,'a');await click('Разговоры');await input('[aria-label="Вопрос на сцене"]','Несохранённый вопрос')}
+  const setItem=dom.window.Storage.prototype.setItem;dom.window.Storage.prototype.setItem=function(){throw Error('Full')}
+  try{await click(master?'Опубликовать выбранным героям':'Передать вопрос мастеру')}finally{dom.window.Storage.prototype.setItem=setItem}
+  assert.equal(commands.length,0);assert(!enabledButton(master?'Проверить сохранение истории':'Проверить отправку вопроса'))
+  await f.mount(false);await f.mount(true);await f.open('a');if(!master){await click('Открыть экран героя');await click('Разговоры')}
+  assert.equal(document.querySelector(master?'[aria-label="Текст реплики мастера"]':'[aria-label="Вопрос на сцене"]').value,master?'Несохранённый ответ':'Несохранённый вопрос')
+  assert(!enabledButton(master?'Проверить сохранение истории':'Проверить отправку вопроса'))
+  await click(master?'Опубликовать выбранным героям':'Передать вопрос мастеру');assert.equal(commands.length,1)
+ }finally{await f.close()}
+})
+
 test('Живая игра: подготовка и выпуск добавляются одной правкой, лимит очереди проверяет оба действия',async()=>{
  const f=await fixture()
  try{

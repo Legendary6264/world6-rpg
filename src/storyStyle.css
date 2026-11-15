@@ -55,6 +55,11 @@
 .gb-story-feed article[data-kind=request] { border-color: #bea77b; }
 .gb-story-feed p { margin: .45rem 0; }
 .gb-story-question { border-color: #bea77b; }
+.gb-story-quote { margin: .6rem 0; padding: .6rem .8rem; border-left: 2px solid #8eaa7f; background: #18291e; border-radius: 4px; overflow-wrap: anywhere; }
+.gb-story-quote p { margin: .4rem 0; white-space: pre-wrap; }
+.gb-story-quote small { color: #bccaaa; }
+.gb-story-reply-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: .8rem 0; }
+.gb-story-draft-label { color: #cfbd8a; display: block; margin: .35rem 0; }
 .gb-story-layout { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(0, 3fr); gap: 1.25rem; }
 .gb-story-beats { display: grid; align-content: start; gap: .5rem; margin-top: .75rem; }
 .gb-story-beats button { text-align: left; overflow-wrap: anywhere; }

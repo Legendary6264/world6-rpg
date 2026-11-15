@@ -83,3 +83,28 @@ test('Диалог в игре: запоздавшая вкладка не пе�
  assert.equal(JSON.parse(localStorage.getItem(key)).at,Date.parse(latest.createdAt))
  assert.equal(read.unreadStoryCount(read.storyReadSnapshot(key),read.incomingStoryMessages([latest])),0)
 })
+
+test('Связанный диалог: переход от вопроса к ответу и обратно сохраняет чтение истории',async()=>{
+ const question={...entry('linked-question',1),kind:'request',speaker:'Герой',targetLabel:'Страж',body:'Как открыть ворота?',answerId:'linked-answer'}
+ const answer={...entry('linked-answer',2),body:'Покажите знак.',reply:{id:question.id,speaker:question.speaker,body:question.body,targetLabel:question.targetLabel}}
+ const f=await fixture({messages:[question,answer],active:true})
+ try{
+  assert(document.querySelector('[aria-label="Вопрос к этому ответу"]').textContent.includes(question.body));assert.equal(f.counts.at(-1),0)
+  await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='К ответу').click());assert.equal(document.activeElement.dataset.message,answer.id)
+  await flush(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='К вопросу').click());assert.equal(document.activeElement.dataset.message,question.id)
+  await f.render({messages:[question,answer,entry('later-answer',3)]});assert.equal(f.counts.at(-1),1)
+  assert.equal(document.activeElement.dataset.message,question.id)
+ }finally{await f.close()}
+})
+
+test('Связанный диалог: цитата раннего вопроса доступна без загрузки чужой или полной истории',async()=>{
+ const body='Длинный вопрос. '.repeat(24)+'Уточнение в конце.',answer={...entry('recent-answer',1),reply:{id:'older-question',speaker:'Герой',targetLabel:'Страж',body}}
+ const f=await fixture({messages:[answer],total:200})
+ try{
+  const quote=document.querySelector('[aria-label="Вопрос к этому ответу"]');assert(quote);assert(!quote.textContent.includes('Уточнение в конце.'))
+  assert(![...quote.querySelectorAll('button')].some(b=>b.textContent==='К вопросу'))
+  const expand=[...quote.querySelectorAll('button')].find(b=>b.textContent==='Показать весь вопрос')
+  await flush(()=>expand.click());assert.equal(expand.getAttribute('aria-expanded'),'true');assert(quote.textContent.includes('Уточнение в конце.'))
+  await flush(()=>expand.click());assert(!quote.textContent.includes('Уточнение в конце.'));assert.equal(document.querySelectorAll('article').length,1)
+ }finally{await f.close()}
+})

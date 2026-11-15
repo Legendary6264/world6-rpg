@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react'
+import {useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {useOnline} from './onlineContext'
 import {useRemote} from './onlineHooks'
 import {NetworkError} from './onlineClient'
@@ -20,36 +20,42 @@ const valid=(value:unknown):value is Draft=>{
       (withdrawal(d.command)?typeof d.command.messageId==='string'&&d.command.messageId.length<=160:
         typeof d.command.body==='string'&&d.command.body.length<=4000&&typeof d.command.contactId==='string'))
 }
-export default function LobbyDialogue({accountId,lobbyId,characterId,checkingAccess,contactId='',onSent,active=true,onUnreadChange}:{
+type Props={
   accountId:string;lobbyId:string;characterId:string;checkingAccess:boolean;contactId?:string;onSent?:()=>void;active?:boolean;onUnreadChange?:(count:number)=>void
-}){
+}
+export default function LobbyDialogue(props:Props){return <DialoguePanel key={JSON.stringify([props.accountId,props.lobbyId,props.characterId])} {...props}/>}
+function DialoguePanel({accountId,lobbyId,characterId,checkingAccess,contactId='',onSent,active=true,onUnreadChange}:Props){
   const {request,refresh}=useOnline(),path='/lobbies/'+lobbyId+'/characters/'+characterId+'/story'
   const [historyLimit,setHistoryLimit]=useState(100)
   const remote=useRemote<StoryPlayerView>(checkingAccess?null:path+(historyLimit===100?'':'?limit='+historyLimit)),key=lobbyFormKey('story-question',accountId,lobbyId,characterId)
   const [draft,setDraft]=useState<Draft>(()=>{
     const saved=readLobbyForm(key,valid)??{body:'',contactId:''}
-    return saved.command?saved:{...saved,contactId:contactId||saved.contactId}
+    return saved.command||saved.body.trim()?saved:{...saved,contactId:contactId||saved.contactId}
   })
-  const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[warning,setWarning]=useState('')
+  const [busySource,setBusySource]=useState<{request:typeof request}|null>(null),[message,setMessage]=useState(''),[warning,setWarning]=useState('')
   const pending=useRef<AbortController|null>(null),mounted=useRef(false)
+  const latest=useRef({request,key,draft,checkingAccess,loading:remote.loading,value:remote.value})
+  useLayoutEffect(()=>{latest.current={request,key,draft,checkingAccess,loading:remote.loading,value:remote.value}})
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;pending.current?.abort()}},[])
-  useEffect(()=>()=>{pending.current?.abort()},[request,key])
+  useEffect(()=>()=>{pending.current?.abort();pending.current=null},[request,key])
+  const busy=busySource?.request===request
   const value=checkingAccess?null:remote.value,locked=checkingAccess||remote.loading||busy||!!draft.command||!!value?.closed
   function remember(next:Draft){setDraft(next);const ok=writeLobbyForm(key,next);setWarning(ok?'':'Черновик доступен до закрытия страницы.');return ok}
   async function send(messageId?:string){
-    if(checkingAccess||remote.loading||pending.current||!value||!draft.command&&(value.closed||(messageId?!value.canWithdraw:!value.canAsk||!draft.body.trim())))return
+    const l=latest.current
+    if(!mounted.current||pending.current||l.request!==request||l.key!==key||l.draft!==draft||l.checkingAccess||l.loading||l.value!==remote.value||!value||!draft.command&&(value.closed||(messageId?!value.canWithdraw:!value.canAsk||!draft.body.trim())))return
     const command=draft.command??(messageId?{operation:'withdraw' as const,messageId,commandKey:'story:'+crypto.randomUUID()}:{body:draft.body,contactId:draft.contactId,commandKey:'story:'+crypto.randomUUID()})
-    if(!remember({...draft,command})){setMessage('Освободи место на устройстве перед отправкой вопроса.');return}
-    const abort=new AbortController();pending.current=abort;setBusy(true)
+    if(!remember({...draft,command})){writeLobbyForm(key,draft);setDraft(draft);setMessage('Вопрос не отправлен. Освободи место на устройстве, чтобы сохранить безопасный повтор.');return}
+    const abort=new AbortController();pending.current=abort;setBusySource({request})
     try{
       const removing=withdrawal(command),body=removing?{messageId:command.messageId,commandKey:command.commandKey}:command
       const reply=await request<{receipt:{operation:string;id:string};duplicate:boolean}>(path+(removing?'/withdraw':''),{method:'POST',body:JSON.stringify(body),signal:abort.signal})
-      if(!mounted.current||abort.signal.aborted)return
+      if(!mounted.current||abort.signal.aborted||pending.current!==abort||latest.current.request!==request)return
       if(!isStoryAck(reply,removing?'story-withdraw':'story-question',command.commandKey))throw Error('Не получено подтверждение вопроса. Проверь результат повтором.')
       remember(removing?{...draft,command:undefined}:{body:'',contactId:draft.contactId})
       setMessage(removing?'Вопрос снят с очереди мастера.':reply.duplicate?'Прежний вопрос подтверждён.':'Вопрос передан мастеру. Ответ появится здесь.');refresh();onSent?.()
-    }catch(error){if(mounted.current&&!abort.signal.aborted){if(error instanceof NetworkError&&[400,403,404,409,413].includes(error.status))remember({...draft,command:undefined});setMessage((error as Error).message);refresh()}}
-    finally{if(mounted.current&&pending.current===abort){pending.current=null;setBusy(false)}}
+    }catch(error){if(mounted.current&&!abort.signal.aborted&&latest.current.request===request){if(error instanceof NetworkError&&[400,409,413].includes(error.status))remember({...draft,command:undefined});setMessage((error as Error).message);refresh()}}
+    finally{if(mounted.current&&pending.current===abort){pending.current=null;setBusySource(null)}}
   }
   return <section className="gb-story-panel" aria-label="Диалог на сцене">
     <h4>Диалог на сцене</h4>
