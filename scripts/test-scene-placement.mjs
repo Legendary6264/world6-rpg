@@ -1,8 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {createTabletopObject} from '../src/tabletopCatalog.ts'
-import {resolveAssetPlacement,resolveObjectPlacement,canPlaceOnSurface,flatPlacementSurface,surfacePlacementObject,placementSurfaceFootprint} from '../src/sceneEditorPlacement.ts'
-import {surfaceContents,surfaceContentsSelection} from '../src/sceneEditorContents.ts'
+// test:tabletop builds these modules first, resolving the shared physics imports
+// exactly as the server does instead of relying on Node's TS module resolution.
+import {createTabletopObject} from '../server/generated/tabletopCatalog.mjs'
+import {resolveAssetPlacement,resolveObjectPlacement,canPlaceOnSurface,flatPlacementSurface,surfacePlacementObject,placementSurfaceFootprint} from '../server/generated/sceneEditorPlacement.mjs'
+import {surfaceContents,surfaceContentsSelection} from '../server/generated/sceneEditorContents.mjs'
 
 const frame={width:16,depth:16,groundZ:0,maxZ:12},point={x:5,y:5,z:0}
 const table=createTabletopObject('table','table',point),candle=(surfaces,at=point,options={})=>resolveAssetPlacement(frame,surfaces,'candle','new-candle',at,0,{surfaceSnap:true,...options})
