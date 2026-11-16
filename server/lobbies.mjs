@@ -1,5 +1,6 @@
 import {gameSessionRoutes} from './game-session.mjs'
 import {roundPlaybackRoutes} from './round-playback-session.mjs'
+import {questRoutes} from './quests.mjs'
 import {gameSessionRoutes as legacySessionRoutes} from './game-sessions.mjs'
 import {commitWorld} from './world-coordinator.mjs'
 import {entityRoutes} from './entities.mjs'
@@ -67,6 +68,7 @@ export function lobbyRoutes(app,{db,auth,io}){
  campaignAtlasRoutes(app,{db,auth,updated,lockedMembership,record})
  npcRoutes(app,{db,auth,updated,lockedMembership,record})
  campaignStoryRoutes(app,{db,auth,updated,lockedMembership,...economicCommands})
+ questRoutes(app,{db,auth,updated,lockedMembership,...economicCommands})
  lobbyAccessRoutes(app,{db,auth,updated,lockedMembership,record})
  heroReviewRoutes(app,{db,auth,updated,lockedMembership,record})
  perceptionRoutes(app,{db,auth,updated,lockedMembership,record,...economicCommands})

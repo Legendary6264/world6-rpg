@@ -21,6 +21,7 @@ import { isSoundJournalEntry } from './roundSound'
 import type {RoundReviewFrame} from './LobbyRoundResults'
 const LobbyActionDeclarations = lazy(() => import('./LobbyActionDeclarations'))
 const LobbyRoundResults = lazy(() => import('./LobbyRoundResults'))
+const QuestJournal = lazy(() => import('./QuestJournal'))
 type PlayerView = { closed?:boolean; work?: import('./roundWork').PersonalRoundWork[]; seconds?: number; revision: number; hero: PlayerCharacter; map: PerceivedMap | null; canWriteNotes: boolean;
   knowledge: { journal: Omit<JournalEntry, 'artwork' | 'eventKey'>[]; knownEffects: Omit<KnownEffect, 'createdAt' | 'updatedAt' | 'artwork'>[] }; inventory: { id: string; name: string; description: string; quantity: number }[] }
 type Note = { title: string; text: string; revision?: number;command?:KnowledgeCommand }
@@ -94,6 +95,7 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
             active={tableActive&&playerSection==='conversations'} onUnreadChange={setDialogueUnread} checkingAccess={checkingAccess||remote.loading} />
           <details><summary>Реплики исполненных раундов</summary><LobbyConversations journal={value.knowledge.journal}/></details>
         </>},
+        {id:'quests',label:'Задания',content:<Suspense fallback={<p>Загружаем задания…</p>}><QuestJournal key={JSON.stringify([accountId,lobbyId,character.id,'quests'])} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess} active={tableActive&&playerSection==='quests'} onDialogue={()=>setPlayerSection('conversations')}/></Suspense>},
         {id:'journal',label:'Журнал',content:<div className="gb-player-tabs">
       <details open><summary>Знания и журнал</summary><label className="w6-field"><span>Поиск в журнале героя</span><input aria-label="Поиск в журнале героя" value={query} onChange={e => setQuery(e.currentTarget.value)}/></label>
         <p className="w6-copy">Показаны последние {Math.min(20, entries.length)} из {entries.length} подходящих записей.</p>

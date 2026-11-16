@@ -1,5 +1,7 @@
 import { isTimestamp } from './characterKnowledge'
 import { physicsId, physicsKeys, physicsNumber, physicsRecord } from './physicsUnits'
+import {isQuestLog} from './questLog'
+import type {QuestLog} from './questLog'
 
 export type StoryBeat = {
   id:string; title:string; sceneId:string; status:'planned'|'active'|'done'
@@ -11,7 +13,7 @@ export type StoryMessage = {
   resolved:boolean; seconds:number; createdAt:string
   resolution?:{kind:'answered'|'dismissed'|'withdrawn';note:string;at:string}
 }
-export type CampaignStory = {version:1; planVersion:number; beats:StoryBeat[]; messages:StoryMessage[]}
+export type CampaignStory = {version:1; planVersion:number; beats:StoryBeat[]; messages:StoryMessage[];quests?:QuestLog}
 export type StoryReplyReference=Pick<StoryMessage,'id'|'speaker'|'body'|'targetLabel'>
 export type PublicStoryMessage = Pick<StoryMessage,'id'|'kind'|'speaker'|'body'|'seconds'|'createdAt'|'resolved'|'targetLabel'|'resolution'>&{
   reply?:StoryReplyReference;answerId?:string
@@ -54,7 +56,8 @@ function isStoryMessage(value:unknown):value is StoryMessage {
       text(value.resolution.note,1000) && isTimestamp(value.resolution.at))
 }
 export function isCampaignStory(value:unknown):value is CampaignStory {
-  if (!physicsRecord(value) || !physicsKeys(value,['version','planVersion','beats','messages']) || value.version!==1 ||
+  if (!physicsRecord(value) || !physicsKeys(value,['version','planVersion','beats','messages',...(Object.hasOwn(value,'quests')?['quests']:[])]) || value.version!==1 ||
+    value.quests!==undefined&&!isQuestLog(value.quests) ||
     !Number.isSafeInteger(value.planVersion) || Number(value.planVersion)<0 || !isStoryBeats(value.beats) ||
     !Array.isArray(value.messages) || value.messages.length>MAX_STORY_MESSAGES || !value.messages.every(isStoryMessage)) return false
   const ids=new Set(value.messages.map(message=>message.id))

@@ -1,0 +1,13 @@
+.gb-quests { margin: 1rem 0; color: #d1dcc7; }
+.gb-quest-layout { display: grid; grid-template-columns: minmax(11rem,1fr) minmax(0,3fr); gap: 1rem; margin: 1rem 0; }
+.gb-quest-list { display: flex; flex-direction: column; gap: .5rem; }.gb-quest-list button { display: grid; text-align: left; gap: .35rem; overflow-wrap: anywhere; }.gb-quest-list small { color: #b8c7ab; }
+.gb-quest-list [aria-pressed=true] { background: #354b32; border-color: #bdce98; }.gb-quest-fields { display: grid; gap: .8rem; min-width: 0; }
+.gb-quest-fields,.gb-quest-fields fieldset { border: 1px solid #586c4d; border-radius: 8px; padding: .85rem; background: #1a2d23; min-width: 0; }.gb-quest-fields legend { padding: 0 .3rem; color: #d5dfc4; }
+.gb-quest-fields input:not([type=checkbox]),.gb-quest-fields textarea,.gb-quest-fields select { color: inherit; background: #10221b; border: 1px solid #596c53; border-radius: 5px; padding: .6rem; font: inherit; }.gb-quest-fields input[type=checkbox] { accent-color: #bfd697; }
+.gb-quest-fields textarea,.gb-quest-fields select { width: 100%; max-width: 100%; }.gb-quest-audience { display: flex; flex-wrap: wrap; gap: .65rem; margin-bottom: .8rem; }
+.gb-quest-objective { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: .5rem 0; }.gb-quest-objective > input { flex: 1; min-width: 8rem; }
+.gb-quest-card { padding: 1rem; margin: .8rem 0; border: 1px solid #586c4d; border-radius: 8px; background: #1c3025; overflow-wrap: anywhere; }.gb-quest-card header { display: flex; flex-wrap: wrap; align-items: baseline; gap: .6rem; justify-content: space-between; }.gb-quest-card h4 { margin: 0; }.gb-quest-card header strong { color: #c5d99e; font-size: .85rem; }
+.gb-quest-checklist { padding: 0; list-style: none; display: grid; gap: .5rem; }.gb-quest-checklist [data-done=true] { color: #b6c7a3; }.gb-quest-card blockquote { border-left: 3px solid #a9bb88; padding: .6rem .8rem; margin: .8rem 0 0; background: #283e2c; }
+.gb-quest-conflict { padding: .8rem; border: 1px solid #bcae7b; border-radius: 6px; }.gb-quests :focus-visible { outline: 2px solid #cbdc9a; outline-offset: 3px; }
+.gb-quest-card[data-status=failed] header strong { color: #e7b4a6; }
+@media(max-width:700px) { .gb-quest-layout { grid-template-columns: minmax(0,1fr); }.gb-quest-list { flex-direction: row; overflow-x: auto; padding: .3rem 0; }.gb-quest-list button { flex: 0 0 10rem; }.gb-quest-card { padding: .8rem; } }

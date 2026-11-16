@@ -1,4 +1,4 @@
-import {useEffect,useLayoutEffect,useRef,useState} from 'react'
+import {lazy,Suspense,useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {useOnline} from './onlineContext'
 import {useRemote} from './onlineHooks'
 import {NetworkError} from './onlineClient'
@@ -8,6 +8,7 @@ import type {StoryBeat,StoryMasterView,StoryMessage} from './campaignStory'
 import LobbyWorkbench from './LobbyWorkbench'
 import StoryReplyQuote from './StoryReplyQuote'
 import './storyStyle.css'
+const LobbyQuests=lazy(()=>import('./LobbyQuests'))
 
 type Composer={kind:'narration'|'npc';sceneId:string;npcId:string;speaker:string;body:string;audience:string[];replyTo:string}
 type Operation='plan'|'publish'|'resolve'
@@ -165,6 +166,7 @@ function StoryPanel({accountId,lobbyId,checkingAccess,onNpcs,onRound}:Props){
           {value.messages.filter(entry=>entry.sceneId===sceneId).map(entry=><article key={entry.id}><strong>{entry.speaker}</strong><small> · {entry.seconds} с · получателей {entry.audience.length}</small><p className="w6-prose">{entry.body}</p>{entry.resolution&&<small>{entry.resolution.kind==='dismissed'?'Закрыт: '+entry.resolution.note:entry.resolution.kind==='withdrawn'?'Снят игроком':'Есть ответ'}</small>}</article>)}
         </div>{(value.totalMessages??0)>value.messages.length&&<button type="button" className="w6-button" disabled={locked} onClick={()=>setHistoryLimit(n=>Math.min(1000,n+100))}>Загрузить раннюю историю ({value.messages.length} из {value.totalMessages})</button>}</details>}
       </>},
+      {id:'quests',label:'Задания героям',content:<Suspense fallback={<p>Загружаем задания…</p>}><LobbyQuests accountId={accountId} lobbyId={lobbyId} checkingAccess={checkingAccess} active={section==='quests'}/></Suspense>},
       {id:'plan',label:'План и заготовки',content:<>
         <p className="w6-copy">План и заметки видны ведущим. Вступление и подготовленная реплика попадут к героям после публикации.</p>
         <div className="gb-story-layout"><nav className="gb-story-beats" aria-label="Эпизоды приключения">
