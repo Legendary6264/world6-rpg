@@ -21,4 +21,6 @@
 .gb-round-timeline li { flex: 0 0 11rem; }.gb-round-timeline button { display: grid; text-align: left; gap: .35rem; width: 100%; min-height: 5rem; }
 .gb-round-timeline time,.gb-round-timeline small { color: #bbccab; font-size: .8rem; }.gb-round-timeline [data-current=true] button { background: #3b5034; border-color: #c9d697; }
 .gb-round-review-banner { padding: .75rem 1rem; border: 1px solid #b8b382; border-radius: 5px; color: #eee6b8; background: #3a3926; }
+.gb-table-playback,.gb-table-follow { margin: .8rem 0; padding: .8rem; border: 1px solid #708064; border-radius: 6px; background: #25392a; }
+.gb-round-timeline button:disabled { opacity: 1; cursor: default; }
 @media(max-width:650px) { .gb-round-results { padding: .7rem; } .gb-round-actions strong { display: block; margin: .3rem 0 0; } }

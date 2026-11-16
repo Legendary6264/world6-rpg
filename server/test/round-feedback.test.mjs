@@ -4,6 +4,7 @@ import {fixture} from './fixtures.mjs'
 import {createDefaultCharacter} from '../generated/characterModel.mjs'
 import {emptyAbility} from '../generated/rpgSchema.mjs'
 import {unpackArchive,validateArchive} from '../campaign-archive-format.mjs'
+import {io} from 'socket.io-client'
 
 const fields={region:'torso',distanceM:0,accessible:true,conditionsConfirmed:true,canSpeak:true,armorPath:'covered',gapConfirmed:false,criticalChance:0,dodgeChance:0,criticalContactFactor:1,manualLocal:0,manualSystemic:0,bleedingMlPerSecond:0,injury:'',note:'PRIVATE-RULE'}
 for(const dialect of ['sqlite','postgres'])test('Личные итоги раундов · '+dialect,async t=>{
@@ -20,6 +21,8 @@ for(const dialect of ['sqlite','postgres'])test('Личные итоги рау�
   const hero=(await api(root+'/characters',player.token,'POST',{characterId:character.id},201)).id;heroes.push(hero)
   await api(root+'/characters/'+hero+'/review',gm.token,'POST',{revision:(await world()).revision,decision:'approve',note:''})
  }
+ const helper=await f.register('feedback-helper');await api('/lobbies/join',helper.token,'POST',{code:lobby.inviteCode})
+ await api(root+'/members/'+helper.user.id,gm.token,'PATCH',{role:'ASSISTANT'})
  const initial=await world(),scene=initial.campaign.scenes.scenes[0],npc=(await api(root+'/npcs',gm.token)).npcs[0]
  initial.characters.find(a=>a.id===heroes[0]).rpg.abilities[0].approved=true
  initial.characters.find(a=>a.id===npc.id).name='PRIVATE-NPC-NAME';scene.name='PRIVATE-SCENE'
@@ -33,6 +36,8 @@ for(const dialect of ['sqlite','postgres'])test('Личные итоги рау�
  const calc=async(notes,status=200)=>{const w=await world(),c=w.campaign.declarations.active;return api(root+'/rounds/calculate',gm.token,'POST',{revision:w.revision,collectionId:c.id,epoch:c.epoch,input:input(notes)},status)}
  const command=p=>({previewId:p.id,generation:p.generation,commandKey:crypto.randomUUID()}),apply=(body,status=200)=>api(root+'/rounds/apply',gm.token,'POST',body,status)
  const results=(index=0,query='',token=players[index].token)=>api(root+'/characters/'+heroes[index]+'/round-results'+query,token)
+ const tableCommand=async(operation,fields={})=>{const t=(await results()).tablePlayback;return {operation,generation:t.generation,version:t.version,commandKey:'table:'+crypto.randomUUID(),...fields}}
+ const tableApply=(command,status=200,token=gm.token)=>api(root+'/round-playback',token,'POST',command,status)
  await install();await f.restart()
  let preview,receipt,body
  await t.test('Предпросмотр приватен; некорректные адресаты и текст отвергаются',async()=>{
@@ -71,10 +76,53 @@ for(const dialect of ['sqlite','postgres'])test('Личные итоги рау�
   await api(root+'/characters/'+heroes[0]+'/round-results/'+receipt.id+'/playback',players[0].token,'GET',undefined,400)
   assert.deepEqual(await world(),before);await f.restart();assert.deepEqual(await api(url,players[0].token),playback)
  })
+ await t.test('Общий просмотр: мастер запускает две личные сцены, Socket.IO не выдаёт закрытые данные',async()=>{
+  const before=await world(),first=(await results()).reports[0],body=await tableCommand('start',{characterId:heroes[0],reportId:first.id})
+  await tableApply(body,403,players[0].token);await tableApply(body,403,outsider.token)
+  const sockets=players.map(player=>io(f.base,{auth:{token:player.token},transports:['websocket'],reconnection:false,forceNew:true}))
+  try{
+   await Promise.all(sockets.map(socket=>new Promise((resolve,reject)=>{socket.once('connect',()=>socket.emit('subscribeLobby',id,answer=>answer.ok?resolve():reject(Error(answer.message))));socket.once('connect_error',reject)})))
+   const notifications=Promise.all(sockets.map(socket=>new Promise(resolve=>socket.once('lobbyChanged',resolve))))
+   const ack=await tableApply(body);assert.equal(ack.version,body.version+1);assert.equal((await tableApply(body)).duplicate,true)
+   const events=await notifications;for(const event of events)assert.deepEqual(event,{id})
+   await tableApply({...body,reportId:'turn:'+'f'.repeat(24)},409)
+   const a=(await results()).tablePlayback,b=(await results(1)).tablePlayback
+   assert.equal(a.canControl,false);assert.equal((await results(0,'',gm.token)).tablePlayback.canControl,true)
+   assert.deepEqual(a.session,b.session);assert.notEqual(a.report.id,b.report.id);assert.equal(a.report.id,first.id)
+   for(const secret of [receipt.id,preview.id,heroes[1],npc.id,'PRIVATE-RULE','PRIVATE-ACTION','PRIVATE-SECOND-NOTE'])assert(!JSON.stringify(a).includes(secret),secret)
+   assert.deepEqual(await world(),before)
+  }finally{sockets.forEach(socket=>socket.disconnect())}
+ })
+ await t.test('Общий просмотр: пауза, перемотка, повтор, конфликт ведущих и перезапуск',async()=>{
+  const before=await world(),pause=await tableCommand('change',{positionMs:2100,speed:2,playing:false})
+  for(const patch of [{positionMs:-1},{positionMs:99999},{speed:3},{playing:'yes'},{extra:true}])await tableApply({...pause,...patch,commandKey:'table:'+crypto.randomUUID()},400)
+  const ack=await tableApply(pause),saved=(await results()).tablePlayback.session
+  assert.equal(saved.positionMs,2100);assert.equal(saved.playing,false);assert.equal(saved.speed,2)
+  assert.equal((await tableApply(pause)).duplicate,true);await tableApply({...pause,speed:4},409)
+  assert.deepEqual((await results(1)).tablePlayback.session,saved)
+  await f.restart();assert.deepEqual((await results()).tablePlayback.session,saved)
+  const a=await tableCommand('change',{positionMs:1000,speed:1,playing:false}),b={...a,commandKey:'table:'+crypto.randomUUID(),positionMs:3000}
+  const race=await Promise.all([f.request(root+'/round-playback',gm.token,'POST',a),f.request(root+'/round-playback',gm.token,'POST',b)])
+  assert.deepEqual(race.map(r=>r.status).sort(),[200,409]);assert.equal((await results()).tablePlayback.version,ack.version+1)
+  await tableApply(pause,409)
+  const stop=await tableCommand('stop');await tableApply(stop);assert.equal((await results()).tablePlayback.session,null);assert.equal((await tableApply(stop)).duplicate,true)
+  assert.deepEqual(await world(),before)
+ })
+ await t.test('Общий просмотр: отзыв прав помощника закрывает его управление и прежний показ',async()=>{
+  await api(root+'/members/'+helper.user.id+'/permissions',gm.token,'PATCH',{revision:(await world()).revision,permissions:['rounds','scenes','viewSecrets']})
+  const own=(await results()).reports[0],start=await tableCommand('start',{characterId:heroes[0],reportId:own.id})
+  await tableApply(start,200,helper.token);assert((await results()).tablePlayback.session)
+  await api(root+'/members/'+helper.user.id+'/permissions',gm.token,'PATCH',{revision:(await world()).revision,permissions:['scenes','viewSecrets']})
+  assert.equal((await results()).tablePlayback.session,null)
+  await tableApply(await tableCommand('stop'),403,helper.token)
+ })
  await t.test('Старая запись доступна как события; повреждение записи не подменяет текстовый итог',async()=>{
   const own=(await results()).reports[0],url=root+'/characters/'+heroes[0]+'/round-results/'+own.id+'/playback',row=await f.server.db.get('SELECT receipt_json FROM round_receipts WHERE id=?',[receipt.id]),saved=JSON.parse(row.receipt_json),legacy=structuredClone(saved)
   delete legacy.presentation
   try{
+   const sparse=structuredClone(saved);sparse.summary.events=[null,...sparse.summary.events]
+   await f.server.db.run('UPDATE round_receipts SET receipt_json=? WHERE id=?',[JSON.stringify(sparse),receipt.id])
+   assert.equal((await api(url,players[0].token)).coverage,'scene')
    await f.server.db.run('UPDATE round_receipts SET receipt_json=? WHERE id=?',[JSON.stringify(legacy),receipt.id])
    const view=await api(url,players[0].token);assert.equal(view.coverage,'events');assert.equal(view.after,null);assert(view.events.length)
    saved.presentation.data='AAAA';await f.server.db.run('UPDATE round_receipts SET receipt_json=? WHERE id=?',[JSON.stringify(saved),receipt.id])
@@ -90,11 +138,15 @@ for(const dialect of ['sqlite','postgres'])test('Личные итоги рау�
   finally{await f.server.db.run('UPDATE round_receipts SET receipt_json=? WHERE id=?',[row.receipt_json,receipt.id])}
  })
  await t.test('Пагинация, откат и точная переигровка сохраняют личные пояснения',async()=>{
+  await tableApply(await tableCommand('start',{characterId:heroes[0],reportId:(await results()).reports[0].id}))
   await install();const second=await calc({[heroes[0]]:'Второй раунд'}),applied=(await apply(command(second))).receipt
+  assert.equal((await results()).tablePlayback.session,null)
+  await tableApply(await tableCommand('start',{characterId:heroes[0],reportId:(await results()).reports[0].id}))
   assert.equal((await results(0,'?limit=1')).hasMore,true);assert.equal((await results()).reports.length,2)
   const p=await api(root+'/rounds/rollback/calculate',gm.token,'POST',{revision:(await world()).revision,receiptId:applied.id,reason:'Проверка итогов'})
   const previousPublicId=(await results()).reports[0].id
   await api(root+'/rounds/change/apply',gm.token,'POST',command(p))
+  assert.equal((await results()).tablePlayback.session,null)
   await api(root+'/characters/'+heroes[0]+'/round-results/'+previousPublicId+'/playback',players[0].token,'GET',undefined,404)
   assert.equal((await results()).reports.length,1);assert.equal((await results()).reports[0].note,'Вы видите свет щита.')
   const replay=await api(root+'/rounds/replay/calculate',gm.token,'POST',{revision:(await world()).revision,receiptId:applied.id})

@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {pathToFileURL}=require('node:url')
 const dom=new JSDOM('<div id="root"></div>',{url:'https://world6.example.test/'})
 Object.assign(global,{window:dom.window,document:dom.window.document,location:dom.window.location,IS_REACT_ACT_ENVIRONMENT:true})
-const media={matches:true,addEventListener(){},removeEventListener(){}};window.matchMedia=()=>media
+const mediaListeners=new Set(),media={matches:true,addEventListener(_event,fn){mediaListeners.add(fn)},removeEventListener(_event,fn){mediaListeners.delete(fn)}};window.matchMedia=()=>media
 const cache=new Map()
 function load(name){
  name=name.replace(/\.tsx?$/,'');if(name.endsWith('.css'))return {};if(cache.has(name))return cache.get(name).exports
@@ -24,9 +24,9 @@ const play='Посмотреть исполнение раунда 0:00–0:05'
 async function fixture(options={}){
  await flush(()=>root.render(null));media.matches=options.reduced??true
  let events=0,value={revision:9,generation:1,closed:false,reports:[report()],hasMore:false,...options.view},frame=null,activeRequest
- const calls=[],onReviewFrame=next=>{frame=next},request=async(url,init={})=>{calls.push({url,...init});if(url.endsWith('/playback'))return options.playback?options.playback(url,init):recording();if(options.readError)throw options.readError;return structuredClone(value)}
+ const calls=[],onReviewFrame=next=>{frame=next},request=async(url,init={})=>{calls.push({url,...init});if(init.method==='POST'){const command=JSON.parse(init.body);return options.command?options.command(command):{commandKey:command.commandKey,generation:command.generation,version:command.version+1,operation:command.operation,duplicate:false}}if(url.endsWith('/playback'))return options.playback?options.playback(url,init):recording();if(options.readError)throw options.readError;return structuredClone(value)}
  activeRequest=request
- function render(){root.render(React.createElement(Context.Provider,{value:{request:activeRequest,events,user:{id:'gm'}}},React.createElement(Component,{lobbyId:options.lobbyId??'room',characterId:options.characterId??'hero',checkingAccess:!!options.checkingAccess,active:options.active!==false,onReviewFrame:options.inline?undefined:onReviewFrame})))}
+ function render(){root.render(React.createElement(Context.Provider,{value:{request:activeRequest,events,user:{id:'gm'},refresh:()=>{events++;render()}}},React.createElement(Component,{lobbyId:options.lobbyId??'room',characterId:options.characterId??'hero',checkingAccess:!!options.checkingAccess,sharedEnabled:!!options.sharedEnabled,active:options.active!==false,onReviewFrame:options.inline?undefined:onReviewFrame})))}
  await flush(render);await flush()
  return {options,calls,get frame(){return frame},render:()=>flush(render),replace:async patch=>{value={...value,...patch};events++;await flush(render);await flush()},changeRequest:async next=>{activeRequest=next;await flush(render);await flush()},request,unmount:()=>flush(()=>root.render(null))}
 }
@@ -112,4 +112,74 @@ test('Запись раунда: сжатые изменения пережив�
  const reordered=JSON.stringify(before,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).reverse()):v)
  assert.deepEqual(restoreRoundPresentation(reordered,source,8),after)
  const changed=structuredClone(before);changed.characters[0].name='Другой герой';assert.throws(()=>restoreRoundPresentation(JSON.stringify(changed),source,8));assert.throws(()=>restoreRoundPresentation(JSON.stringify(before),{...source,data:'AAAA'},8))
+})
+
+function tableView(patch={}){
+ return {generation:1,version:1,canControl:false,serverNow:Date.now(),session:{id:'screen:'+'b'.repeat(24),durationMs:5000,positionMs:2500,speed:1,playing:false,changedAt:new Date().toISOString()},report:report(),...patch}
+}
+test('Общий просмотр: часы используют серверное время и монотонный отсчёт, независимы от часов устройства',()=>{
+ const {tablePlaybackPosition,isTableRoundPlayback}=load('tableRoundPlayback'),view=tableView()
+ view.session.playing=true;view.session.speed=2;view.serverNow=Date.parse(view.session.changedAt)+100
+ assert(isTableRoundPlayback(view))
+ assert.equal(tablePlaybackPosition({view,receivedAt:100,latencyMs:40},200),2940)
+ assert.equal(tablePlaybackPosition({view,receivedAt:9100,latencyMs:40},9200),2940)
+ assert.equal(tablePlaybackPosition({view,receivedAt:100,latencyMs:40},10000),5000)
+ view.session.playing=false;assert.equal(tablePlaybackPosition({view,receivedAt:100,latencyMs:40},10000),2500)
+ for(const patch of [{generation:0},{version:-1},{report:{...report(),actions:[{}]}},{session:{...view.session,positionMs:Infinity}},{session:{...view.session,speed:3}}])assert(!isTableRoundPlayback({...view,...patch}))
+})
+test('Общий просмотр UI: игрок присоединяется к личной сцене, пауза и перемотка мастера меняют кадр без повторной загрузки',async()=>{
+ const t=tableView(),f=await fixture({sharedEnabled:true,reduced:false,view:{tablePlayback:t}});await flush()
+ assert.equal(f.frame.map.contacts[0].x,4);assert(document.querySelector('[aria-label="Время просмотра раунда"]').disabled)
+ assert(!document.querySelector('[aria-label="Пульт общего просмотра"]'))
+ await new Promise(r=>setTimeout(r,100));assert.equal(f.frame.map.contacts[0].x,4)
+ await f.replace({tablePlayback:{...t,version:2,session:{...t.session,positionMs:1000}}});assert.equal(f.frame.map.contacts[0].x,2.8)
+ assert.equal(f.calls.filter(c=>c.url.endsWith('/playback')).length,1)
+ assert(f.calls.every(c=>!c.method||c.method==='GET'))
+ await click('Вернуться к текущей сцене');assert.equal(f.frame,null)
+ await click('Смотреть вместе с группой');await flush();assert.equal(f.frame.map.contacts[0].x,2.8)
+})
+test('Общий просмотр UI: уменьшенное движение требует явного присоединения, отсутствующая личная запись не загружается',async()=>{
+ const f=await fixture({sharedEnabled:true,reduced:true,view:{tablePlayback:tableView()}})
+ assert.equal(f.frame,null);assert(button('Смотреть вместе с группой'));await click('Смотреть вместе с группой');await flush();assert(f.frame)
+ await f.replace({tablePlayback:tableView({report:null})});assert.equal(f.frame,null);assert(document.body.textContent.includes('нет личной записи'))
+})
+test('Общий просмотр UI: изменение настройки уменьшенного движения отключает автоматическое следование',async()=>{
+ const f=await fixture({sharedEnabled:true,reduced:false,view:{tablePlayback:tableView()}});await flush();assert(f.frame)
+ await flush(()=>{media.matches=true;for(const fn of mediaListeners)fn()});assert.equal(f.frame,null);assert(button('Смотреть вместе с группой'))
+ await click('Смотреть вместе с группой');await flush();assert(f.frame)
+})
+test('Общий просмотр UI: мастер отправляет версию, паузу и единственную команду после отпускания шкалы',async()=>{
+ const t=tableView({canControl:true}),f=await fixture({sharedEnabled:true,reduced:false,view:{tablePlayback:t}});await flush()
+ assert(document.querySelector('[aria-label="Пульт общего просмотра"]'))
+ const field=document.querySelector('[aria-label="Время общего просмотра"]')
+ await flush(()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set.call(field,'3000');field.dispatchEvent(new dom.window.Event('input',{bubbles:true}));field.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
+ assert.equal(f.calls.filter(c=>c.method==='POST').length,0)
+ await flush(()=>field.dispatchEvent(new dom.window.KeyboardEvent('keyup',{key:'ArrowRight',bubbles:true})));await flush()
+ const command=JSON.parse(f.calls.find(c=>c.method==='POST').body)
+ assert.equal(command.operation,'change');assert.equal(command.positionMs,3000);assert.equal(command.playing,false);assert.equal(command.generation,1);assert.equal(command.version,1)
+ assert.equal(f.calls.filter(c=>c.method==='POST').length,1)
+ await click('Завершить общий просмотр');assert.equal(JSON.parse(f.calls.filter(c=>c.method==='POST').at(-1).body).operation,'stop')
+ await f.replace({tablePlayback:tableView({version:2,session:null,report:null})});assert.equal(f.frame,null)
+})
+test('Общий просмотр UI: старт берёт личный идентификатор, ошибочное подтверждение не считается успехом',async()=>{
+ const f=await fixture({sharedEnabled:true,view:{tablePlayback:tableView({canControl:true,session:null,report:null})},command:async()=>({duplicate:false})})
+ await click('Показать группе 0:00–0:05');await flush()
+ const command=JSON.parse(f.calls.find(c=>c.method==='POST').body)
+ assert.equal(command.operation,'start');assert.equal(command.characterId,'hero');assert.equal(command.reportId,report().id)
+ assert(document.body.textContent.includes('Ответ не подтвердил команду'))
+ assert.equal(f.frame,null)
+})
+test('Общий просмотр UI: новое продолжение отменяет позднюю личную запись и убирает пульт',async()=>{
+ let resolve
+ const f=await fixture({sharedEnabled:true,reduced:false,view:{tablePlayback:tableView()},playback:()=>new Promise(r=>resolve=r)})
+ const request=f.calls.find(c=>c.url.endsWith('/playback'));assert(request)
+ await f.replace({generation:2,tablePlayback:tableView({generation:2,session:null,report:null})});assert(request.signal.aborted)
+ await flush(()=>resolve(recording()));assert.equal(f.frame,null);assert(!document.querySelector('[aria-label="Пульт общего просмотра"]'))
+})
+test('Общий просмотр UI: сбой личной записи допускает повтор без команд изменения мира',async()=>{
+ let attempts=0
+ const f=await fixture({sharedEnabled:true,reduced:false,view:{tablePlayback:tableView()},playback:async()=>{if(!attempts++)throw Error('Связь потеряна');return recording()}})
+ assert(document.body.textContent.includes('Связь потеряна'));assert.equal(f.frame,null)
+ await click('Повторить загрузку общего просмотра');await flush();assert(f.frame)
+ assert.equal(f.calls.filter(c=>c.method==='POST').length,0)
 })

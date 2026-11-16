@@ -8,6 +8,7 @@ import {createServer} from 'vite'
 // Real WebGL/UI smoke check with synthetic, isolated presentation data. API and
 // multiplayer rules are exercised separately by the server regression suite.
 const output=resolve(process.argv[2]??'.tmp/round-browser')
+const sharedCheck=process.argv.includes('--shared')
 await mkdir(output,{recursive:true})
 const profile=await mkdtemp(join(output,'chrome-profile-'))
 assert(resolve(profile).startsWith(output+sep))
@@ -15,14 +16,31 @@ const executable=[process.env.WORLD6_BROWSER,'C:/Program Files/Google/Chrome/App
 if(!executable)throw Error('Укажи путь к Chrome/Chromium через WORLD6_BROWSER.')
 const html=`<!doctype html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Проверка просмотра раунда</title></head><body><main id="root" style="max-width:1100px;margin:auto;padding:12px"></main><script type="module">
 import React from 'react';import {createRoot} from 'react-dom/client';import {OnlineContext} from '/src/onlineContext.ts';import Results from '/src/LobbyRoundResults.tsx';import '/src/index.css';import '/src/world6.css';import '/src/brandStyle.css';
-const id='turn:'+ 'a'.repeat(24),appliedAt='2026-11-15T12:00:00.000Z';
+const id='turn:'+ 'a'.repeat(24),appliedAt='2026-11-15T12:00:00.000Z',totalSeconds=${sharedCheck?30:5};
 const before={title:'У ворот · просмотр раунда',description:'Проверка карты и сохранённого исполнения',frame:{id:'browser-yard',width:16,depth:12,minZ:0,maxZ:6,groundZ:0,view:'top',palette:'stone'},areas:[{id:'known',x:0,y:0,z:0,width:16,depth:12,height:6,visible:true}],objects:[{id:'gate',name:'Ворота',kind:'door',x:10,y:5,z:0,width:2,depth:.3,height:2.5,open:false,visible:true},{id:'crate',name:'Ящик',kind:'crate',x:6,y:8,z:0,width:1,depth:1,height:1,open:false,visible:true}],contacts:[{id:'self',kind:'self',label:'Арканист',signs:'',x:3,y:4,z:0,characterModel:'arcanist',characterAnimation:'idle'},{id:'guard',kind:'identified',label:'Страж',signs:'',x:8,y:4,z:0,characterModel:'vanguard',characterAnimation:'idle'}]};
 const after=structuredClone(before);after.contacts[0].x=6;after.objects[0].open=true;
-const report={id,revision:8,appliedAt,coverage:'full',fromSeconds:0,toSeconds:5,note:'Сцена и результаты сохранены.',actions:[{id:'action:0',label:'Перемещение',status:'completed'},{id:'action:1',label:'Применение способности',status:'completed'}],resources:[{id:'mana',before:'20',after:'17',beforeMaximum:'20',afterMaximum:'20'}]};
+const report={id,revision:8,appliedAt,coverage:'full',fromSeconds:0,toSeconds:totalSeconds,note:'Сцена и результаты сохранены.',actions:[{id:'action:0',label:'Перемещение',status:'completed'},{id:'action:1',label:'Применение способности',status:'completed'}],resources:[{id:'mana',before:'20',after:'17',beforeMaximum:'20',afterMaximum:'20'}]};
 const visual={id:'browser-light',spec:{familyId:'light',durationMs:1800},start:{x:6,y:4,z:1},end:{x:8,y:4,z:1},phase:'sequence',shape:'point',radius:1,coneAngleDeg:45};
-const recording={version:1,id,generation:1,revision:8,appliedAt,coverage:'scene',fromSeconds:0,toSeconds:5,roundDurationMs:5000,durationMs:5000,before,after,events:[{id:'move',atMs:0,kind:'move',label:'Подход к воротам'},{id:'prepare',atMs:2000,kind:'prepare',label:'Подготовка заряда'},{id:'release',atMs:3000,kind:'release',label:'Выпуск способности'},{id:'gate',atMs:4000,kind:'interact',label:'Ворота открыты',object:{id:'gate',open:true}}],motions:[{startMs:0,endMs:2000,from:{x:3,y:4,z:0},to:{x:6,y:4,z:0}}],visuals:[{atMs:3000,untilMs:4800,visual}]};
-const request=async url=>structuredClone(url.endsWith('/playback')?recording:{revision:9,generation:1,closed:false,reports:[report],hasMore:false});
-createRoot(document.getElementById('root')).render(React.createElement(OnlineContext.Provider,{value:{request,events:0,user:{id:'browser-check'},refresh(){}}},React.createElement(Results,{lobbyId:'check',characterId:'hero',checkingAccess:false})));
+const recording={version:1,id,generation:1,revision:8,appliedAt,coverage:'scene',fromSeconds:0,toSeconds:totalSeconds,roundDurationMs:totalSeconds*1000,durationMs:totalSeconds*1000,before,after,events:[{id:'move',atMs:0,kind:'move',label:'Подход к воротам'},{id:'prepare',atMs:2000,kind:'prepare',label:'Подготовка заряда'},{id:'release',atMs:3000,kind:'release',label:'Выпуск способности'},{id:'gate',atMs:4000,kind:'interact',label:'Ворота открыты',object:{id:'gate',open:true}}],motions:[{startMs:0,endMs:2000,from:{x:3,y:4,z:0},to:{x:6,y:4,z:0}}],visuals:[{atMs:3000,untilMs:4800,visual}]};
+const sharedCheck=${sharedCheck},listeners=new Set();window.roundTable={version:0,session:null};
+function Panel({role}){
+ const [events,setEvents]=React.useState(0),refresh=React.useCallback(()=>setEvents(n=>n+1),[]);
+ React.useEffect(()=>{listeners.add(refresh);return()=>listeners.delete(refresh)},[refresh]);
+ const personalReport={...report,id:role==='master'?id:'turn:'+'b'.repeat(24)};
+ const request=React.useMemo(()=>async(url,init={})=>{
+  const t=window.roundTable;
+  if(init.method==='POST'){
+   const b=JSON.parse(init.body);if(role!=='master'||b.version!==t.version)throw Error('Недоступная команда тестового пульта');t.version++;
+   if(b.operation==='start')t.session={id:'screen:'+'c'.repeat(24),durationMs:recording.durationMs,positionMs:0,speed:1,playing:true,changedAt:new Date().toISOString()};
+   else if(b.operation==='change')t.session={...t.session,positionMs:b.positionMs,speed:b.speed,playing:b.playing,changedAt:new Date().toISOString()};else t.session=null;
+   for(const listener of listeners)listener();return {commandKey:b.commandKey,generation:1,version:t.version,operation:b.operation,duplicate:false};
+  }
+  if(url.endsWith('/playback'))return structuredClone({...recording,id:personalReport.id});
+  return structuredClone({revision:9,generation:1,closed:false,reports:[personalReport],hasMore:false,...(sharedCheck?{tablePlayback:{generation:1,version:t.version,canControl:role==='master',serverNow:Date.now(),session:t.session,report:t.session?personalReport:null}}:{})});
+ },[role]);
+ return React.createElement('section',{'data-check':role},React.createElement('h2',null,role==='master'?'Экран мастера':'Экран игрока'),React.createElement(OnlineContext.Provider,{value:{request,events,user:{id:role},refresh}},React.createElement(Results,{lobbyId:'check',characterId:role,checkingAccess:false,sharedEnabled:sharedCheck})));
+}
+createRoot(document.getElementById('root')).render(React.createElement(React.Fragment,null,React.createElement(Panel,{role:'master'}),sharedCheck&&React.createElement(Panel,{role:'player'})));
 </script></body></html>`
 const server=await createServer({server:{host:'127.0.0.1',port:0,strictPort:false},plugins:[{name:'round-browser-fixture',configureServer(vite){vite.middlewares.use('/__round-presentation-check',async(req,res)=>{res.setHeader('Content-Type','text/html; charset=utf-8');res.end(await vite.transformIndexHtml('/__round-presentation-check',html))})}}]})
 let browser,ws,nextId=0,browserErrors=''
@@ -42,6 +60,36 @@ try{
  await new Promise((resolveOpen,reject)=>{ws.addEventListener('open',resolveOpen,{once:true});ws.addEventListener('error',reject,{once:true})})
  await call('Page.enable');await call('Runtime.enable');await call('Emulation.setDeviceMetricsOverride',{width:1280,height:1000,deviceScaleFactor:1,mobile:false})
  await call('Page.navigate',{url:'http://127.0.0.1:'+port+'/__round-presentation-check'})
+ if(sharedCheck){
+  await until(()=>evaluate(`!!Array.from(document.querySelectorAll('[data-check="master"] button')).find(b=>b.textContent.startsWith('Показать группе'))`),'master table UI')
+  await evaluate(`Array.from(document.querySelectorAll('[data-check="master"] button')).find(b=>b.textContent.startsWith('Показать группе')).click()`)
+  await until(()=>evaluate(`document.querySelectorAll('canvas').length===2&&Array.from(document.querySelectorAll('canvas')).every(c=>c.width>0)`),'two WebGL scenes')
+  assert(await evaluate(`Array.from(document.querySelectorAll('canvas')).every(c=>!!c.getContext('webgl2'))`),'Two real WebGL2 contexts required')
+  // Software WebGL may finish mounting after a short recording has ended.
+  // Restart through the real control before checking a running table clock.
+  if(await evaluate(`!!Array.from(document.querySelectorAll('[data-check="master"] button')).find(b=>b.textContent==='Продолжить для группы')`)){
+   await evaluate(`Array.from(document.querySelectorAll('[data-check="master"] button')).find(b=>b.textContent==='Продолжить для группы').click()`)
+   await until(()=>evaluate(`!!Array.from(document.querySelectorAll('[data-check="master"] button')).find(b=>b.textContent==='Пауза для группы'&&!b.disabled)`),'restart group')
+  }
+  await evaluate(`Array.from(document.querySelectorAll('[data-check="master"] button')).find(b=>b.textContent==='Пауза для группы').click()`)
+  await until(()=>evaluate(`!window.roundTable.session.playing&&document.querySelectorAll('[aria-label="Время просмотра раунда"]').length===2`),'group pause')
+  assert(await evaluate(`!document.querySelector('[data-check="player"] [aria-label="Пульт общего просмотра"]')&&document.querySelector('[data-check="player"] [aria-label="Время просмотра раунда"]').disabled`),'Follower must not control the table')
+  // Compare motion/effect seeks while the door topology is unchanged. Opening
+  // or closing a door may legitimately rebuild its scene geometry.
+  await evaluate(`(()=>{const f=document.querySelector('[aria-label="Время общего просмотра"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(f,'1000');f.dispatchEvent(new Event('input',{bubbles:true}));f.dispatchEvent(new Event('change',{bubbles:true}));})()`)
+  await evaluate(`document.querySelector('[aria-label="Время общего просмотра"]').dispatchEvent(new KeyboardEvent('keyup',{key:'ArrowRight',bubbles:true}))`)
+  await until(()=>evaluate(`Array.from(document.querySelectorAll('[aria-label="Время просмотра раунда"]')).every(f=>f.value==='1000')`),'initial shared seek')
+  await delay(300);await evaluate(`window.roundCanvases=Array.from(document.querySelectorAll('canvas'))`)
+  await evaluate(`const f=document.querySelector('[aria-label="Время общего просмотра"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(f,'3500');f.dispatchEvent(new Event('input',{bubbles:true}));f.dispatchEvent(new Event('change',{bubbles:true}));`)
+  await evaluate(`document.querySelector('[aria-label="Время общего просмотра"]').dispatchEvent(new KeyboardEvent('keyup',{key:'ArrowRight',bubbles:true}))`)
+  await until(()=>evaluate(`Array.from(document.querySelectorAll('[aria-label="Время просмотра раунда"]')).every(f=>f.value==='3500')`),'shared seek')
+  await delay(300);assert(await evaluate(`Array.from(document.querySelectorAll('[aria-label="Время просмотра раунда"]')).every(f=>f.value==='3500')`),'Both paused playheads must stay fixed')
+  assert(await evaluate(`Array.from(document.querySelectorAll('canvas')).every((c,i)=>c===window.roundCanvases[i])`),'Shared seek must preserve both canvases')
+  await evaluate(`Array.from(document.querySelectorAll('[data-check="player"] button')).find(b=>b.textContent==='Вернуться к текущей сцене').click()`)
+  await until(()=>evaluate(`!document.querySelector('[data-check="player"] canvas')`),'follower exit')
+  await evaluate(`Array.from(document.querySelectorAll('[data-check="player"] button')).find(b=>b.textContent==='Смотреть вместе с группой').click()`)
+  await until(()=>evaluate(`document.querySelector('[data-check="player"] canvas')&&document.querySelector('[data-check="player"] [aria-label="Время просмотра раунда"]').value==='3500'`),'follower catch-up')
+ }else{
  await until(()=>evaluate(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent.startsWith('Посмотреть исполнение раунда'))`),'results UI')
  await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.startsWith('Посмотреть исполнение раунда')).click()`)
  await until(()=>evaluate(`!!document.querySelector('canvas')&&document.querySelector('canvas').width>0`),'WebGL canvas')
@@ -51,6 +99,7 @@ try{
  await delay(400);assert.equal(await evaluate(`document.querySelector('[aria-label="Время просмотра раунда"]').value`),'3500')
  assert(await evaluate(`document.querySelector('canvas')===window.roundCanvas`),'Seeking must preserve WebGL canvas')
  assert((await evaluate(`document.querySelector('[aria-label="События исполненного раунда"] button[aria-current="step"]').textContent`)).includes('Выпуск способности'))
+ }
  const desktopSize=(await call('Page.getLayoutMetrics')).cssContentSize
  const desktop=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width:1280,height:Math.min(4000,desktopSize.height),scale:1}});await writeFile(join(output,'desktop.png'),Buffer.from(desktop.data,'base64'))
  await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await delay(500)
@@ -58,10 +107,11 @@ try{
  const eventVisible=await evaluate(`(()=>{const list=document.querySelector('[aria-label="События исполненного раунда"]'),item=list.querySelector('[data-current="true"]'),bounds=list.getBoundingClientRect(),selected=item.getBoundingClientRect();return selected.left>=bounds.left-1&&selected.right<=bounds.right+1})()`);assert(eventVisible,'Current event must remain visible after mobile resize')
  const mobileSize=(await call('Page.getLayoutMetrics')).cssContentSize
  const mobile=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width:390,height:Math.min(4000,mobileSize.height),scale:1}});await writeFile(join(output,'mobile.png'),Buffer.from(mobile.data,'base64'))
- await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Вернуться к текущей сцене').click()`)
+ if(sharedCheck)await evaluate(`Array.from(document.querySelectorAll('[data-check="master"] button')).find(b=>b.textContent==='Завершить общий просмотр').click()`)
+ else await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Вернуться к текущей сцене').click()`)
  await until(()=>evaluate(`!document.querySelector('[aria-label="Просмотр исполненного раунда"]')`),'close review')
  assert.deepEqual(exceptions,[])
- const result={webgl2:true,seek:true,pause:true,canvasPreserved:true,mobile:{...dimensions,eventVisible},closed:true,exceptions,desktop:join(output,'desktop.png'),mobileImage:join(output,'mobile.png')}
+ const result={shared:sharedCheck,viewers:sharedCheck?2:1,webgl2:true,seek:true,pause:true,canvasPreserved:true,mobile:{...dimensions,eventVisible},closed:true,exceptions,desktop:join(output,'desktop.png'),mobileImage:join(output,'mobile.png')}
  await writeFile(join(output,'result.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result,null,2))
 }finally{
  if(ws?.readyState===WebSocket.OPEN){try{await call('Browser.close')}catch{ /* Browser may close before acknowledging. */ }ws.close()}

@@ -3,7 +3,7 @@ import { useOnline } from './onlineContext'
 export function useRemote<T>(path:string|null){
  const {request,events,user}=useOnline(),accountId=user?.id??null
  const scope=useMemo(()=>({path,accountId,request}),[path,accountId,request])
- const [result,setResult]=useState<{scope:typeof scope;events:number;value:T|null;error:string;stale:boolean}|null>(null)
+ const [result,setResult]=useState<{scope:typeof scope;events:number;value:T|null;error:string;stale:boolean;receivedAt:number;latencyMs:number}|null>(null)
  const latestEvents=useRef(events),subscription=useRef<{scope:typeof scope;update:(events:number)=>void}|null>(null)
  useLayoutEffect(()=>{
   latestEvents.current=events
@@ -17,17 +17,18 @@ export function useRemote<T>(path:string|null){
    if(!active||running)return
    running=true;clearTimeout(timer);timer=undefined
    const current=new AbortController();abort=current
-   const started=wanted;let settled=started
+   const started=wanted,sentAt=performance.now();let settled=started
    void Promise.resolve().then(()=>{if(!active||current.signal.aborted)throw new DOMException('Read cancelled','AbortError');return request<T>(path!,{signal:current.signal})}).then(value=>{
     if(!active||current.signal.aborted)return
-    delay=1000;setResult({scope,events:started,value,error:'',stale:false})
+    const receivedAt=performance.now()
+    delay=1000;setResult({scope,events:started,value,error:'',stale:false,receivedAt,latencyMs:receivedAt-sentAt})
    }).catch((error:Error&{status?:number})=>{
     if(!active||current.signal.aborted)return
     const retrying=error.status===0||error.status===408||error.status===429||(error.status??0)>=500
     // Keep the visible scene during an outage, while loading keeps all writes
     // blocked. A definite refusal discards cached private data immediately.
     settled=wanted
-    setResult(previous=>({scope,events:settled,value:retrying&&previous?.scope===scope?previous.value:null,error:error.message+(retrying?' Повторяем загрузку…':''),stale:retrying}))
+    setResult(previous=>({scope,events:settled,value:retrying&&previous?.scope===scope?previous.value:null,error:error.message+(retrying?' Повторяем загрузку…':''),stale:retrying,receivedAt:previous?.scope===scope?previous.receivedAt:0,latencyMs:previous?.scope===scope?previous.latencyMs:0}))
     if(retrying){timer=setTimeout(()=>{timer=undefined;read()},delay);delay=Math.min(delay*2,30000)}
    }).finally(()=>{
     running=false
@@ -43,6 +44,6 @@ export function useRemote<T>(path:string|null){
  // Returning to a room creates a new scope even when its URL is the same.
  // An old response never briefly enables actions before the new check.
  const current=!!path&&result?.scope===scope
- return {value:current?result.value:null,error:current?result.error:'',loading:!!path&&(!current||result.stale||result.events!==events)}
+ return {value:current?result.value:null,error:current?result.error:'',loading:!!path&&(!current||result.stale||result.events!==events),receivedAt:current?result.receivedAt:0,latencyMs:current?result.latencyMs:0}
 }
 export function useDebounced(value:string){const [result,setResult]=useState(value);useEffect(()=>{const timer=setTimeout(()=>setResult(value),250);return()=>clearTimeout(timer)},[value]);return result}
