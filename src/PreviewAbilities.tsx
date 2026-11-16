@@ -4,12 +4,13 @@ import type {AbilityVisualShape,AbilityVisualSpec} from './abilityVisuals'
 import type {AbilitySpatial} from './rpgTypes'
 import './sceneStyle.css'
 import './abilityVisuals.css'
+import InterfaceAppearance from './InterfaceAppearance'
 
 export default function PreviewAbilities(){
   const [spec,setSpec]=useState<AbilityVisualSpec|undefined>({familyId:'fire',scale:1.3,intensity:1.2,durationMs:2600}),[shape,setShape]=useState<AbilityVisualShape>('point')
   const [radius,setRadius]=useState(2.5),[length,setLength]=useState(7),[angle,setAngle]=useState(42),[includeCaster,setIncludeCaster]=useState(false)
   const spatial:AbilitySpatial=shape==='point'?{shape,includeCaster}:shape==='sphere'?{shape,includeCaster,radiusM:radius}:shape==='beam'?{shape,includeCaster,radiusM:radius,lengthM:length}:{shape,includeCaster,lengthM:length,angleDeg:angle}
-  return <main className="w6-vfx-gallery"><header><p className="w6-vfx-gallery-eyebrow">Грани Бытия · визуальная мастерская</p><h1>Способности в движении</h1><p>60 направлений магии. Выбери оформление, посмотри полёт и попадание, сравни масштаб с персонажами.</p></header>
+  return <main className="w6-vfx-gallery"><header><div className="realm-preview-appearance"><InterfaceAppearance/></div><p className="w6-vfx-gallery-eyebrow">Грани Бытия · визуальная мастерская</p><h1>Способности в движении</h1><p>60 направлений магии. Выбери оформление, посмотри полёт и попадание, сравни масштаб с персонажами.</p></header>
     <div className="w6-vfx-gallery-shapes" aria-label="Форма пробы">{([['point','Снаряд'],['sphere','Сфера'],['beam','Луч'],['cone','Конус']] as const).map(([id,label])=><button className="w6-button" key={id} type="button" aria-pressed={shape===id} onClick={()=>setShape(id)}>{label}</button>)}</div>
     <fieldset className="w6-vfx-gallery-geometry"><legend>Размеры пробной области</legend>
       {(shape==='sphere'||shape==='beam')&&<label>Радиус <output>{radius} м</output><input aria-label="Радиус пробной области" type="range" min=".25" max="10" step=".25" value={radius} onChange={e=>setRadius(Number(e.currentTarget.value))}/></label>}

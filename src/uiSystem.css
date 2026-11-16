@@ -1,23 +1,27 @@
 /* Shared interface foundation. The root scope keeps lazily loaded legacy
    screen styles from changing the visual hierarchy between sections. */
 :root {
-  --ui-canvas:#10181d;
-  --ui-surface:#172329;
-  --ui-raised:#1d2b32;
-  --ui-inset:#121d23;
-  --ui-line:#34474f;
-  --ui-line-soft:#283a42;
-  --ui-text:#e1e9e8;
-  --ui-muted:#a7b8bf;
-  --ui-accent:#a8cbbd;
-  --ui-accent-surface:#29443c;
-  --ui-accent-text:#e1f0e8;
-  --ui-gold:#d5c39e;
-  --ui-danger:#edb6b2;
-  --ui-danger-surface:#38282b;
-  --ui-focus:#b9d9ce;
-  --ui-radius:12px;
-  --ui-shadow:0 18px 50px #0005;
+  --ui-canvas:#0b101b;
+  --ui-surface:#131d2d;
+  --ui-raised:#1b293d;
+  --ui-inset:#0e1726;
+  --ui-line:#3b4b64;
+  --ui-line-soft:#27374f;
+  --ui-text:#eef1f6;
+  --ui-muted:#a8b5cb;
+  --ui-accent:#e4c78b;
+  --ui-accent-surface:#3b3326;
+  --ui-accent-text:#ffedc9;
+  --ui-gold:#e4c78b;
+  --ui-danger:#ffb4b5;
+  --ui-danger-surface:#3b222c;
+  --ui-focus:#a7dfe3;
+  --ui-radius:16px;
+  --ui-shadow:0 20px 65px #0006;
+  --ui-control-height:44px;
+  --ui-panel-padding:26px;
+  --ui-inset-padding:20px;
+  --ui-field-gap:16px;
   --w6-ink:var(--ui-text);
   --w6-muted:var(--ui-muted);
   --w6-gold:var(--ui-gold);
@@ -26,7 +30,7 @@
   --w6-line:var(--ui-line);
   color-scheme:dark;
   font-family:'Segoe UI',Inter,Arial,sans-serif;
-  font-size:15px;
+  font-size:16px;
   line-height:1.6;
   color:var(--ui-text);
   background:var(--ui-canvas);
@@ -46,7 +50,7 @@ body { background:var(--ui-canvas);min-width:0; }
 #root :where(a) { color:var(--ui-accent);text-underline-offset:3px; }
 #root :where(button,input,textarea,select) { font-family:inherit; }
 #root :where(button,.w6-button) {
-  min-height:40px;max-width:100%;padding:9px 13px;border:1px solid var(--ui-line);
+  min-height:var(--ui-control-height);max-width:100%;padding:10px 15px;border:1px solid var(--ui-line);
   border-radius:8px;background:var(--ui-raised);color:var(--ui-text);
   font-size:.86rem;font-weight:500;line-height:1.4;letter-spacing:0;box-shadow:none;
   text-transform:none;cursor:pointer;transition:background .16s,border-color .16s,color .16s;
@@ -59,7 +63,7 @@ body { background:var(--ui-canvas);min-width:0; }
 #root :where(.w6-danger) { color:var(--ui-danger);border-color:#6d494d;background:var(--ui-danger-surface); }
 #root :where(button,input,select,textarea,a,summary,[tabindex]):focus-visible { outline:2px solid var(--ui-focus);outline-offset:3px;box-shadow:none; }
 #root :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),select,textarea) {
-  min-height:42px;max-width:100%;min-width:0;padding:10px 12px;border:1px solid var(--ui-line);
+  min-height:var(--ui-control-height);max-width:100%;min-width:0;padding:11px 13px;border:1px solid var(--ui-line);
   border-radius:8px;background:var(--ui-inset);color:var(--ui-text);font-size:.9rem;line-height:1.45;
 }
 #root :where(input,textarea)::placeholder { color:#84979f;opacity:1; }
@@ -67,12 +71,12 @@ body { background:var(--ui-canvas);min-width:0; }
 #root :where(input[type=checkbox],input[type=radio]) { width:17px;height:17px;flex:none;accent-color:var(--ui-accent); }
 #root :where(input[type=range]) { accent-color:var(--ui-accent);min-width:0; }
 #root :where(input[type=file]) { max-width:100%;font-size:.83rem; }
-#root :where(.w6-field) { display:grid;gap:7px;min-width:0;margin-bottom:14px;text-align:left; }
+#root :where(.w6-field) { display:grid;gap:8px;min-width:0;margin-bottom:var(--ui-field-gap);text-align:left; }
 #root :where(.w6-field input,.w6-field select,.w6-field textarea) { width:100%; }
 #root :where(.w6-check) { display:flex;align-items:flex-start;gap:9px;min-height:34px;padding:4px 0; }
 #root :where(.w6-form) { gap:15px; }
-#root :where(.panel,.w6-community,.character-workspace) { background:var(--ui-surface);border:1px solid var(--ui-line-soft);border-radius:var(--ui-radius);padding:clamp(18px,2.3vw,32px);box-shadow:none; }
-#root :where(.w6-fieldset,.w6-entry,.w6-player-sheet,.w6-thread,.gb-round-card) { min-width:0;background:var(--ui-inset);border:1px solid var(--ui-line-soft);border-radius:10px;padding:18px;margin:18px 0; }
+#root :where(.panel,.w6-community,.character-workspace) { background:var(--ui-surface);border:1px solid var(--ui-line-soft);border-radius:var(--ui-radius);padding:var(--ui-panel-padding);box-shadow:none; }
+#root :where(.w6-fieldset,.w6-entry,.w6-player-sheet,.w6-thread,.gb-round-card) { min-width:0;background:var(--ui-inset);border:1px solid var(--ui-line-soft);border-radius:12px;padding:var(--ui-inset-padding);margin:20px 0; }
 #root :where(.w6-fieldset .w6-fieldset) { background:transparent;border-color:var(--ui-line-soft); }
 #root :where(.w6-fieldset>h3,.w6-fieldset>h4,.w6-entry>h3,.w6-entry>h4) { margin:0 0 14px; }
 #root :where(.w6-buttons,.w6-modes,.w6-view-controls,.gb-game-modes) { display:flex;align-items:center;flex-wrap:wrap;gap:8px; }

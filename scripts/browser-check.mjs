@@ -6,7 +6,7 @@ import {spawn} from 'node:child_process'
 import {createServer} from 'vite'
 
 // Isolated local UI checks. Never uses the user's browser profile or accounts.
-export async function browserCheck(outputPath,html,check){
+export async function browserCheck(outputPath,html,check,{webgl=false}={}){
  const output=resolve(outputPath),executable=[process.env.WORLD6_BROWSER,'C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(p=>p&&existsSync(p))
  if(!executable)throw Error('Укажи путь к Chrome/Chromium через WORLD6_BROWSER.')
  await mkdir(output,{recursive:true});const profile=await mkdtemp(join(output,'chrome-profile-'));assert(resolve(profile).startsWith(output+sep))
@@ -24,7 +24,7 @@ export async function browserCheck(outputPath,html,check){
  }
  try{
   await server.listen();const port=server.httpServer.address().port
-  browser=spawn(executable,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'--window-size=1280,1000','about:blank'],{windowsHide:true,stdio:['ignore','ignore','pipe']})
+  browser=spawn(executable,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,...(webgl?['--enable-unsafe-swiftshader','--use-angle=swiftshader']:[]),'--window-size=1280,1000','about:blank'],{windowsHide:true,stdio:['ignore','ignore','pipe']})
   browser.stderr.on('data',data=>{diagnostics=(diagnostics+data).slice(-4000)});browser.on('error',e=>exceptions.push(e.message))
   let debug
   await until(async()=>{if(browser.exitCode!==null||exceptions.length)throw Error('Browser failed: '+diagnostics);try{debug=(await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0];return !!debug}catch{return false}},'browser startup')

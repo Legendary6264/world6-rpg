@@ -120,3 +120,81 @@ test('Оформление: текст, подсказки, активные д�
  const luminance=hex=>{const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return c[0]*.2126+c[1]*.7152+c[2]*.0722}
  for(const [foreground,background] of [['ui-text','ui-surface'],['ui-muted','ui-surface'],['ui-accent-text','ui-accent-surface'],['ui-danger','ui-danger-surface']]){const a=luminance(tokens[foreground]),b=luminance(tokens[background]);assert((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5,foreground+' readable on '+background)}
 })
+
+test('Оформление: параметры сохраняются отдельно от героя, повреждённые данные отклоняются',()=>{
+ const p=load('interfacePreferences'),marker='world6.test.hero-draft';localStorage.setItem(marker,'UNSAVED-HERO')
+ for(const bad of [null,{}, {...p.defaultInterfacePreferences,accent:'unknown'},{...p.defaultInterfacePreferences,density:'tiny'},{...p.defaultInterfacePreferences,atmosphere:'yes'},{...p.defaultInterfacePreferences,extra:true}])assert(!p.isInterfacePreferences(bad))
+ assert(p.updateInterfacePreferences({...p.defaultInterfacePreferences,accent:'mana',density:'compact',text:'large'}))
+ assert.equal(document.documentElement.dataset.uiAccent,'mana');assert.equal(document.documentElement.dataset.uiText,'large')
+ assert.equal(JSON.parse(localStorage.getItem(p.INTERFACE_PREFERENCES_KEY)).density,'compact');assert.equal(localStorage.getItem(marker),'UNSAVED-HERO')
+ p.updateInterfacePreferences(p.defaultInterfacePreferences)
+})
+test('Оформление: отказ хранилища сохраняет рабочий интерфейс в памяти',()=>{
+ const p=load('interfacePreferences'),original=dom.window.Storage.prototype.setItem
+ try{dom.window.Storage.prototype.setItem=()=>{throw Error('No storage')};assert.equal(p.updateInterfacePreferences({accent:'shadow'}),false);assert.equal(document.documentElement.dataset.uiAccent,'shadow')}
+ finally{dom.window.Storage.prototype.setItem=original;p.updateInterfacePreferences(p.defaultInterfacePreferences)}
+})
+test('Оформление: настройки из другой вкладки применяются и неверный формат возвращает исходный вид',async()=>{
+ const p=load('interfacePreferences');await mount(p.default)
+ await flush(()=>window.dispatchEvent(new dom.window.StorageEvent('storage',{key:p.INTERFACE_PREFERENCES_KEY,newValue:JSON.stringify({...p.defaultInterfacePreferences,accent:'shadow',atmosphere:false})})))
+ assert.equal(document.documentElement.dataset.uiAccent,'shadow');assert.equal(document.documentElement.dataset.uiAtmosphere,'off')
+ await flush(()=>window.dispatchEvent(new dom.window.StorageEvent('storage',{key:p.INTERFACE_PREFERENCES_KEY,newValue:'not-json'})))
+ assert.equal(document.documentElement.dataset.uiAccent,'gold')
+})
+test('Оформление: выбор не закрывает панель и не отправляет соседнюю форму',async()=>{
+ let submitted=0;const Appearance=load('InterfaceAppearance').default
+ function Wrapper(){return React.createElement('form',{onSubmit:e=>{e.preventDefault();submitted++}},React.createElement(Appearance))}
+ await mount(Wrapper);const summary=document.querySelector('summary');await flush(()=>summary.click())
+ await flush(()=>document.querySelector('[data-accent="mana"] input').click());assert(document.querySelector('details').open);assert.equal(document.documentElement.dataset.uiAccent,'mana')
+ await flush(()=>button('Вернуть исходное оформление').click());assert.equal(document.documentElement.dataset.uiAccent,'gold');assert.equal(submitted,0);assert(document.querySelector('details').open)
+ await flush(()=>summary.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));assert(!document.querySelector('details').open);assert.equal(document.activeElement,summary)
+})
+test('Быстрый переход: фильтрует права, управляется клавиатурой и сохраняет черновик страницы',async()=>{
+ const Quick=load('QuickNavigation').default,selections=[]
+ function Wrapper(){const [open,setOpen]=React.useState(false);return React.createElement('div',null,React.createElement('textarea',{defaultValue:'НЕСОХРАНЁННЫЙ ТЕКСТ'}),React.createElement('button',{onClick:()=>setOpen(true)},'Открыть поиск'),React.createElement(Quick,{open,onClose:()=>setOpen(false),onNavigate:id=>selections.push(id),role:'PLAYER'}))}
+ await mount(Wrapper);const opener=button('Открыть поиск');await flush(()=>{opener.focus();opener.click()})
+ const search=document.querySelector('[aria-label="Найти раздел сайта"]');assert.equal(document.activeElement,search)
+ await input(search,'редактор мира');assert.equal(document.querySelectorAll('.realm-command-results>button').length,0)
+ await input(search,'персонаж');assert.equal(document.querySelectorAll('.realm-command-results>button').length,1)
+ await flush(()=>search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true})));assert.deepEqual(selections,['character']);assert(!document.querySelector('[aria-label="Быстрый переход"]'));assert.equal(document.querySelector('textarea').value,'НЕСОХРАНЁННЫЙ ТЕКСТ')
+})
+
+test('Оформление: панели сайта и развёрнутого редактора независимо группируют переключатели',async()=>{
+ const Appearance=load('InterfaceAppearance').default
+ await mount(()=>React.createElement('div',null,React.createElement(Appearance),React.createElement(Appearance)))
+ const panels=[...document.querySelectorAll('.realm-appearance')]
+ assert.notEqual(panels[0].querySelector('input[type=radio]').name,panels[1].querySelector('input[type=radio]').name)
+ await flush(()=>panels[1].querySelector('[data-accent="shadow"] input').click())
+ for(const panel of panels)assert(panel.querySelector('[data-accent="shadow"] input').checked)
+ await flush(()=>panels[0].querySelector('[data-accent="gold"] input').click())
+ for(const panel of panels)assert(panel.querySelector('[data-accent="gold"] input').checked)
+})
+test('Быстрый переход: Escape возвращает фокус, Tab остаётся внутри диалога',async()=>{
+ const Quick=load('QuickNavigation').default
+ function Wrapper(){const [open,setOpen]=React.useState(false);return React.createElement('div',null,React.createElement('button',{onClick:()=>setOpen(true)},'Поиск раздела'),React.createElement(Quick,{open,onClose:()=>setOpen(false),onNavigate(){},role:'ADMIN'}))}
+ await mount(Wrapper);const opener=button('Поиск раздела');await flush(()=>{opener.focus();opener.click()})
+ const dialog=document.querySelector('[aria-label="Быстрый переход"]'),search=dialog.querySelector('input'),last=[...dialog.querySelectorAll('button')].at(-1)
+ await flush(()=>search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true})));assert.equal(document.activeElement,last)
+ await flush(()=>last.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));assert(!document.querySelector('[aria-label="Быстрый переход"]'));assert.equal(document.activeElement,opener)
+})
+test('Рабочая навигация: поиск сохраняет все инструменты и незавершённый текст',async()=>{
+ const Nav=load('WorkspaceNavigation').default,sections=load('characterSections').characterSections;let selected='editor'
+ function Wrapper(){const [id,setId]=React.useState('editor');React.useEffect(()=>{selected=id},[id]);return React.createElement('div',null,React.createElement('textarea',{defaultValue:'ЧЕРНОВИК'}),React.createElement(Nav,{label:'Инструменты',sections,selectedId:id,onSelect:setId,tabs:true}))}
+ await mount(Wrapper);const search=document.querySelector('[aria-label="Поиск: Инструменты"]');await input(search,'анатом')
+ const buttons=[...document.querySelectorAll('.ui-workspace-groups button')];assert.equal(buttons.length,1);assert.equal(buttons[0].textContent,'Анатомия')
+ assert.equal(document.querySelector('.ui-workspace-select select').options.length,17);assert.equal(document.querySelector('.ui-workspace-select select').value,'editor')
+ await flush(()=>search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true})));assert.equal(document.activeElement,buttons[0]);await flush(()=>buttons[0].click());assert.equal(selected,'body')
+ await input(search,'');assert.equal(document.querySelectorAll('.ui-workspace-groups button').length,17);assert.equal(document.querySelector('textarea').value,'ЧЕРНОВИК')
+})
+test('Приложение: Ctrl+K открывает поиск и сохраняет параметры приглашения при переходе',async()=>{
+ online=context();window.history.replaceState(null,'','/?page=home&invite=keep-invite')
+ const App=appModules()('App').default;await mount(App)
+ await flush(()=>window.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true,cancelable:true})))
+ const search=document.querySelector('[aria-label="Найти раздел сайта"]');assert(search);await input(search,'форум')
+ await flush(()=>search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true})));assert.equal(new URL(location.href).searchParams.get('page'),'forum');assert.equal(new URL(location.href).searchParams.get('invite'),'keep-invite')
+})
+test('Оформление: все акценты сохраняют контраст текста и активного действия',()=>{
+ const luminance=hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0)
+ const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)}
+ for(const [accent,surface,text]of [['#e4c78b','#3b3326','#ffedc9'],['#94dce4','#163b45','#d6f8fc'],['#c3b1f1','#312847','#efe5ff']]){assert(contrast(text,surface)>=4.5);assert(contrast(accent,'#111b28')>=4.5)}
+})

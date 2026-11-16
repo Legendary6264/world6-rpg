@@ -543,7 +543,8 @@ test('P22: название продукта обновлено, имя игро
     assert.equal(document.querySelector('.w6-brand').getAttribute('aria-label'), 'Грани Бытия · главная')
     assert.equal(document.querySelector('.w6-brand strong').textContent, 'Грани Бытия')
     assert(document.querySelector('.w6-site-footer').textContent.includes('Грани Бытия'))
-    assert(document.querySelector('.w6-home-hero').textContent.includes('Создай героя Мира 6'))
+    assert(document.querySelector('.realm-hero').textContent.includes('Мир 6'))
+    assert.equal(document.querySelector('.realm-hero h1').textContent, 'Сила меняет тело.Выбор меняет мир.')
     assert.equal(load('characterStorage').STORAGE_KEY, 'world6.characters.v2')
     assert.equal(load('characterTransfer').ARCHIVE_FORMAT, 'world6-character-archive')
   } finally { await f.close() }
