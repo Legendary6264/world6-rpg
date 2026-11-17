@@ -11,6 +11,7 @@ import type { JournalEntry, KnownEffect } from './characterKnowledge'
 import { journalCategories, certaintyOptions } from './characterKnowledge'
 import PerceivedScene from './PerceivedScene'
 import LobbyWorkbench from './LobbyWorkbench'
+import GameSceneWorkspace from './GameSceneWorkspace'
 import LobbyConversations from './LobbyConversations'
 import LobbyDialogue from './LobbyDialogue'
 import { lobbyFormKey, readLobbyForm, writeLobbyForm } from './lobbyFormDrafts'
@@ -72,16 +73,17 @@ export default function LobbyPlayerScreen({ accountId, lobbyId, character, check
   const shownMap=roundReview?roundReview.map:value?.map
   return <section className="w6-fieldset gb-player-screen"><h4>Экран героя</h4><button className="w6-button" disabled={checkingAccess || busy} onClick={() => setOpened(!opened)}>{opened ? 'Свернуть экран героя' : 'Открыть экран героя'}</button>
     {opened && <><p role="status">{remote.loading ? 'Загружаем доступные герою сведения…' : remote.error}</p>{value && <>
-      <GameHeroHud hero={value.hero} map={value.map} seconds={value.seconds} work={value.work}/><p className="w6-copy">Сведения героя индивидуальны. Мастер управляет раскрытием; выбор отметки не перемещает героя и не тратит время.</p>
+      <GameHeroHud hero={value.hero} map={value.map} seconds={value.seconds} work={value.work}/><details className="realm-player-info"><summary>Что видит герой</summary><p className="w6-copy">Сведения героя индивидуальны. Мастер управляет раскрытием; выбор отметки не перемещает героя и не тратит время.</p></details>
       <LobbyWorkbench label={'Разделы героя '+character.name} selectedId={playerSection} onSelectSection={setPlayerSection} sections={[
-        {id:'actions',label:'Сцена и действия',content:<>
+        {id:'actions',label:'Сцена и действия',content:<GameSceneWorkspace queueCount={queue.length} readOnly={!!roundReview||!!value.closed} board={<>
       {roundReview&&<p className="gb-round-review-banner" role="status">На карте — просмотр сохранённого раунда. Вернись к текущей сцене, чтобы составлять ход.</p>}
       {shownMap ? <PerceivedScene effectTimeMs={roundReview?.elapsedMs} abilityAim={roundReview?null:abilityAim} onObjectMove={value.closed||roundReview?undefined:(id,point)=>{if(checkingAccess||remote.loading)return false;const accepted=appendSceneAction.current?.({kind:'interact',target:{kind:'object',id},operation:'relocate',destination:point,note:''})??false;setMessage(accepted?'Перемещение добавлено в ход. Положение изменится после исполнения раунда.':'Не удалось добавить перемещение. Проверь очередь действий.');return accepted}} map={shownMap} selected={roundReview?'':selected} onSelect={roundReview?undefined:id=>{setSelected(id);setSelectedObject('')}} onObject={roundReview?undefined:id=>{setSelectedObject(id);setSelected('')}} selectedObject={roundReview?'':selectedObject} pickedPoint={roundReview?null:pickedPoint} plannedRoute={roundReview?[]:queue.flatMap(a=>a.kind==='move'?a.route:[])} onPoint={roundReview?undefined:p=>{setPointChoice({sceneId:value.map!.frame.id,point:p})}}/> : <p className="gb-scene-empty">{roundReview?'В этой записи нет доступной герою карты.':'Мастер ещё не открыл этому герою сцену.'}</p>}
       {!!observations.length&&<section className="gb-game-feed" aria-label="Последние наблюдения героя">{observations.map(e=><article key={e.id}><strong>{e.title} · {e.gameTime}</strong><p className="w6-prose">{e.text}</p></article>)}</section>}
       <Suspense fallback={<p>Загружаем итоги…</p>}><LobbyRoundResults sharedEnabled key={JSON.stringify([accountId,lobbyId,character.id,'results'])} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess} active={tableActive&&playerSection==='actions'} onReviewFrame={setRoundReview}/></Suspense>
+        </>} actions={<>
       <Suspense fallback={<p>Загружаем заявления…</p>}><LobbyActionDeclarations key={JSON.stringify([accountId,lobbyId,character.id])} accountId={accountId} lobbyId={lobbyId} characterId={character.id} checkingAccess={checkingAccess||remote.loading||!!value.closed||!!roundReview} selectedContact={selected} pickedPoint={pickedPoint} members={members} map={value.map} selectedObject={selectedObject} onAimChange={setAbilityAim} onQueue={setQueue} sceneActionRef={appendSceneAction}
         onTalk={()=>{setConversationTarget(selected);setPlayerSection('conversations')}}/></Suspense>
-        </>},
+        </>}/>},
         {id:'state',label:'Состояние',content:<div className="gb-player-tabs">
 <details open><summary>Состояние и возможности</summary>
         {value.hero.resources && <p>{Object.entries(value.hero.resources).map(([k, r]) => <span key={k}>{k === 'mana' ? 'Мана' : k === 'shadow' ? 'Тень' : 'Выносливость'}: {r.current} / {r.maximum} · </span>)}</p>}

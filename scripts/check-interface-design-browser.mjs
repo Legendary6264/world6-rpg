@@ -11,7 +11,7 @@ const map={title:'У ворот',description:'Известная герою об
 const request=async url=>{
  if(url.includes('/perception'))return {revision:9,seconds:15,closed:false,hero,map,canWriteNotes:true,knowledge:{journal:[],knownEffects:[]},inventory:[],work:[]};
  if(url.includes('/round-results'))return {revision:9,generation:1,closed:false,reports:[],hasMore:false};
- if(url.endsWith('/play/session'))return {revision:9,generation:1,status:'playing',paused:false,seconds:15,phase:'ready',round:null,result:null,ready:[],canStart:false,participants:[],session:{version:1,status:'playing',objectives:[],startedAt:at,finishedAt:null,outcome:null,summary:''}};
+ if(url.endsWith('/play/session'))return {revision:9,generation:1,status:'playing',paused:false,seconds:15,phase:'ready',round:null,result:null,ready:[],canStart:false};
  if(url.includes('/play/story'))return {revision:9,closed:false,paused:false,planVersion:0,totalMessages:0,beats:[],messages:[],pending:[],activeSceneId:'qa-scene',scenes:[{id:'qa-scene',name:'У ворот'}],npcs:[],heroes:[{id:actor.id,name:actor.name,sceneId:'qa-scene',submitted:false}]};
  if(url.endsWith('/story'))return {closed:false,paused:false,sceneId:'qa-scene',canAsk:true,canWithdraw:true,totalMessages:0,contacts:[],messages:[]};
  if(url.includes('/declarations'))return {collection:null,participating:false,canSubmit:false,controlStamp:'qa',entry:null,options:null,readiness:[]};
@@ -57,8 +57,22 @@ const result=await browserCheck(process.argv[2]??'.tmp/interface-design-browser'
  assert(await evaluate(`(()=>{const panel=document.querySelector('.gb-workspace-placement').getBoundingClientRect();return Array.from(document.querySelectorAll('.gb-workspace-placement select,.gb-workspace-placement label')).every(e=>{const r=e.getBoundingClientRect();return r.left>=panel.left&&r.right<=panel.right+1&&r.bottom<=panel.bottom+1})})()`),'Editor placement controls clipped')
  assert(await evaluate(`document.querySelectorAll('.gb-workspace-tools button').length>0`));
  await navigate('?surface=game');await wait('[aria-label="Игровой стол"]');await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Открыть экран героя').click()`);await wait('.gb-player-screen canvas')
- const gameDesktop=await capture('game-desktop',1440,1000),gameMobile=await capture('game-mobile',390,844)
+ const gameDesktop=await capture('game-desktop',1440,1000)
+ assert(await evaluate(`(()=>{const a=document.querySelector('.realm-scene-board').getBoundingClientRect(),b=document.querySelector('.realm-scene-composer').getBoundingClientRect();return b.left>=a.right&&a.width>0&&b.width>0})()`),'Desktop map and plan must be side by side')
+ const gameMobile=await capture('game-mobile',390,844)
+ assert(await evaluate(`!document.querySelector('.realm-scene-board').hidden&&document.querySelector('.realm-scene-composer').hidden`),'Mobile map pane')
+ await evaluate(`document.querySelector('[data-pane="actions"]').click()`)
+ await evaluate(`Array.from(document.querySelectorAll('.realm-scene-composer button')).find(b=>b.textContent==='Речь').click()`)
+ await evaluate(`(()=>{const e=document.querySelector('[aria-label="Быстрая реплика героя"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'Стражник, пропусти нас.');e.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+ const gameActionsMobile=await capture('game-actions-mobile',390,844)
+ await evaluate(`document.querySelector('[data-pane="map"]').click()`);await evaluate(`document.querySelector('[data-pane="actions"]').click()`)
+ assert.equal(await evaluate(`document.querySelector('[aria-label="Быстрая реплика героя"]').value`),'Стражник, пропусти нас.')
+ await evaluate(`document.querySelector('.realm-master-desk>summary').click()`)
+ await until(()=>evaluate(`!!document.querySelector('.realm-master-desk [aria-label="Ведение приключения"]')`),'master dialogue pane')
+ const gameMasterMobile=await capture('game-master-mobile',390,844)
+ await evaluate(`document.querySelector('.realm-master-desk>summary').click()`)
+ assert.equal(await evaluate(`document.querySelector('[aria-label="Быстрая реплика героя"]').value`),'Стражник, пропусти нас.')
  await navigate('?account=long');await wait('.realm-hero');await evaluate(`document.querySelector('.realm-appearance>summary').click()`);await evaluate(`document.querySelector('.realm-setting-check input').click()`);await evaluate(`document.querySelector('.realm-appearance>summary').click()`)
  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.realm-hero-art')).display`),'none');const calmMobile=await capture('home-calm-mobile',390,844);await headerLayout();assert(await evaluate(`document.querySelector('.ui-account-menu>summary').getBoundingClientRect().height<65`),'Long account name expands the toolbar')
- return {quickNavigation:true,illustrations:true,reducedMotion:true,headerLayout:true,preferencesPersist:true,workspaceSearch:true,editorCanvas:true,atmosphereToggle:true,homeDesktop,homeMobile,forumMobile,comfortMobile,accountMobile,characterMobile,characterDesktop,lobbiesDesktop,lobbiesMobile,editorDesktop,editorMobile,gameDesktop,gameMobile,calmMobile}
+ return {quickNavigation:true,illustrations:true,reducedMotion:true,headerLayout:true,preferencesPersist:true,workspaceSearch:true,editorCanvas:true,atmosphereToggle:true,gameSceneLayout:true,mobilePlanDraft:true,homeDesktop,homeMobile,forumMobile,comfortMobile,accountMobile,characterMobile,characterDesktop,lobbiesDesktop,lobbiesMobile,editorDesktop,editorMobile,gameDesktop,gameMobile,gameActionsMobile,gameMasterMobile,calmMobile}
 },{webgl:true});console.log(JSON.stringify(result,null,2))

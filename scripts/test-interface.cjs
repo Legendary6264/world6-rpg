@@ -198,3 +198,61 @@ test('Оформление: все акценты сохраняют контр�
  const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)}
  for(const [accent,surface,text]of [['#e4c78b','#3b3326','#ffedc9'],['#94dce4','#163b45','#d6f8fc'],['#c3b1f1','#312847','#efe5ff']]){assert(contrast(text,surface)>=4.5);assert(contrast(accent,'#111b28')>=4.5)}
 })
+
+function viewport(initial){
+ const original=window.matchMedia,listeners=new Set();let narrow=initial
+ window.matchMedia=()=>({get matches(){return narrow},addEventListener:(_,fn)=>listeners.add(fn),removeEventListener:(_,fn)=>listeners.delete(fn)})
+ return {resize:async value=>flush(()=>{narrow=value;for(const fn of listeners)fn()}),restore:()=>{window.matchMedia=original}}
+}
+
+test('Игровая сцена: карта и план сохраняют выбор, черновик и DOM при смене ширины',async()=>{
+ const media=viewport(false),Workspace=load('GameSceneWorkspace').default;let mounts=0
+ function Plan(){React.useEffect(()=>{mounts++},[]);return React.createElement('input',{'aria-label':'Черновик хода',defaultValue:''})}
+ function Wrapper(){const [target,setTarget]=React.useState('Без цели');return React.createElement(Workspace,{queueCount:2,board:React.createElement('button',{onClick:()=>setTarget('Выбраны ворота')},target),actions:React.createElement(Plan)})}
+ try{
+  await mount(Wrapper);const field=document.querySelector('[aria-label="Черновик хода"]');await input(field,'Подойти и постучать');await flush(()=>button('Без цели').click())
+  assert(document.querySelector('.realm-scene-switch').hidden);assert(!document.querySelector('.realm-scene-board').hidden);assert(!document.querySelector('.realm-scene-composer').hidden)
+  await media.resize(true);assert(!document.querySelector('.realm-scene-switch').hidden);assert(document.querySelector('.realm-scene-composer').hidden)
+  await flush(()=>document.querySelector('[data-pane="actions"]').click());assert(document.querySelector('.realm-scene-board').hidden);assert(!document.querySelector('.realm-scene-composer').hidden)
+  assert.equal(field.value,'Подойти и постучать');assert.equal(document.querySelector('[aria-label="Черновик хода"]'),field);assert(button('Выбраны ворота'))
+  await media.resize(false);assert(!document.querySelector('.realm-scene-board').hidden);assert(!document.querySelector('.realm-scene-composer').hidden);assert.equal(mounts,1)
+ }finally{await flush(()=>root.render(null));media.restore()}
+})
+
+test('Игровая сцена: переключение панели не отменяет отправку и поддерживает клавиатуру',async()=>{
+ const media=viewport(true),Workspace=load('GameSceneWorkspace').default;let resolve,sends=0
+ const pending=new Promise(done=>{resolve=done})
+ function Plan(){const [status,setStatus]=React.useState('Отправить тестовый ход');return React.createElement('button',{onClick:async()=>{sends++;setStatus('Отправляется');await pending;setStatus('Подтверждён')}},status)}
+ try{
+  await mount(Workspace,{queueCount:1,board:React.createElement('p',null,'Карта'),actions:React.createElement(Plan)})
+  const map=document.querySelector('[data-pane="map"]'),actions=document.querySelector('[data-pane="actions"]')
+  await flush(()=>map.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true})));assert.equal(document.activeElement,actions);assert(!document.querySelector('.realm-scene-composer').hidden)
+  await flush(()=>button('Отправить тестовый ход').click());await flush(()=>map.click());await flush(()=>resolve());await flush(()=>actions.click())
+  assert(button('Подтверждён'));assert.equal(sends,1)
+  await flush(()=>actions.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Home',bubbles:true,cancelable:true})));assert.equal(document.activeElement,map)
+ }finally{await flush(()=>root.render(null));media.restore()}
+})
+
+function gameTableModules(){
+ const component=defaultComponent=>({__esModule:true,default:defaultComponent})
+ return modules({LobbyGameSession:component(({onSetup})=>React.createElement('button',{onClick:onSetup},'Перейти к подготовке')),LobbyPlayerScreen:component(()=>React.createElement('p',null,'Экран игрока')),LobbyStory:component(()=>React.createElement('input',{'aria-label':'Черновик реплики НПС'})),LobbySceneLaunch:component(()=>React.createElement('p',null,'Подготовка открыта')),LobbyRoundResults:component(({active})=>React.createElement('p',{'data-review-active':String(active)},'Сохранённый раунд'))})('LobbyGameTable').default
+}
+function tableProps(role='GM',permissions=[]){return {accountId:'gm',lobby:{id:'qa',title:'Партия',status:'playing',myRole:role,myPermissions:permissions,members:[]},characters:[{id:'hero',name:'Элиан',ownerId:'gm',approved:true}],checkingAccess:false,onHeroes(){},onRound(){},onEditor(){}}}
+
+test('Пульт ведущего: смена инструментов и сворачивание сохраняют реплику и выбранного героя',async()=>{
+ const Table=gameTableModules();await mount(Table,tableProps());await flush();const desk=document.querySelector('.realm-master-desk');assert(!desk.open)
+ await flush(()=>desk.querySelector('summary').click());const field=document.querySelector('[aria-label="Черновик реплики НПС"]');await input(field,'Стражник узнаёт героя')
+ await flush(()=>button('Подготовка сцены').click());await flush(()=>button('Начать игру на сцене').click());await flush();assert(document.body.textContent.includes('Подготовка открыта'))
+ await flush(()=>button('Просмотр раундов').click());assert.equal(document.querySelector('[data-review-active]').dataset.reviewActive,'true')
+ await flush(()=>desk.querySelector('summary').click());assert.equal(document.querySelector('[data-review-active]').dataset.reviewActive,'false')
+ await flush(()=>desk.querySelector('summary').click());await flush(()=>button('Диалоги и задания').click());assert.equal(field.value,'Стражник узнаёт героя');assert.equal(document.querySelector('[aria-label="Черновик реплики НПС"]'),field)
+ assert.equal(document.querySelector('[aria-label="Активный игровой герой"]').value,'hero')
+})
+
+test('Пульт ведущего: подготовка из сессии открывает нужную панель, отзыв прав убирает секретные инструменты',async()=>{
+ const Table=gameTableModules(),props=tableProps();await mount(Table,props);await flush(()=>button('Перейти к подготовке').click());await flush()
+ assert(document.querySelector('.realm-master-desk').open);assert.equal(button('Подготовка сцены').getAttribute('aria-selected'),'true');assert(document.body.textContent.includes('Подготовка открыта'))
+ await flush(()=>root.render(React.createElement(Table,tableProps('ASSISTANT',['npcs','viewSecrets']))));assert(button('Диалоги и задания'));assert(!button('Подготовка сцены'));assert(!button('Просмотр раундов'));assert(!button('Вести раунд'))
+ await flush(()=>root.render(React.createElement(Table,tableProps('ASSISTANT',['npcs']))));assert(!document.querySelector('.realm-master-desk'));assert(!document.querySelector('[aria-label="Черновик реплики НПС"]'))
+ await flush(()=>root.render(React.createElement(Table,tableProps('PLAYER'))));assert(!button('Открыть редактор сцены'));assert(button('Герои кампании'))
+})

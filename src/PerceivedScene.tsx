@@ -118,7 +118,7 @@ export default function PerceivedScene(props: Props) {
           else { props.onSelect?.(s.id); const contact = map.contacts.find(c => c.id === s.id)
             if (contact?.kind === 'sound') props.onPoint?.({ x: contact.x, y: contact.y, z: contact.z ?? map.contacts.find(c => c.kind === 'self')?.z ?? map.frame.groundZ }) }
         }}/></Suspense>
-      <p className="w6-copy">Тёмное пространство не раскрыто. Приглушённые объекты показывают последнее известное состояние. Рост фигур условный; высота без раскрытия обозначается плоской отметкой.</p>
+      <details className="realm-map-legend"><summary>Что означают отметки на карте</summary><p className="w6-copy">Тёмное пространство не раскрыто. Приглушённые объекты показывают последнее известное состояние. Рост фигур условный; высота без раскрытия обозначается плоской отметкой.</p></details>
       <div className="gb-scene-entities">{map.contacts.map(c => <button className={'w6-button' + (props.selected === c.id ? ' w6-active' : '')} type="button" key={c.id} onClick={() => {
         props.onSelect?.(c.id); if (c.kind === 'sound') props.onPoint?.({ x: c.x, y: c.y, z: c.z ?? map.frame.groundZ })
       }}>{c.label}<small>{c.z === undefined ? 'Высота не раскрыта' : (c.falling ? 'Падает · ' : '') + 'Z ' + c.z + ' м'}{c.signs ? ' · ' + c.signs : ''}</small></button>)}</div>

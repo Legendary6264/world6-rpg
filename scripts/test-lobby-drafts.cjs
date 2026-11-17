@@ -4106,3 +4106,21 @@ for(const fault of ['missing','different'])test('Живой раунд UI: не�
   assert(!document.querySelector('[aria-label="Расчёт последствий"]'));assert(!enabledButton('Применить рассчитанный раунд'));assert(document.body.textContent.includes('Расчёт относится к другой версии'))
  }finally{await f.close()}
 })
+
+test('Игровой стол UX: мобильные панели сохраняют реплику, очередь и единственную отправку',async()=>{
+ const original=window.matchMedia;window.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}})
+ const f=await fixture()
+ try{
+  f.worlds.a.characters[0].ownerId=f.accountId;f.declarations.a=readyDeclarations('a')
+  await f.open('a');await click('Открыть экран героя')
+  assert(document.querySelector('.realm-scene-composer').hidden)
+  await flush(()=>document.querySelector('[data-pane="actions"]').click());await quickMode('Речь')
+  await input('[aria-label="Быстрая реплика героя"]','Стражник, открой ворота.')
+  const field=document.querySelector('[aria-label="Быстрая реплика героя"]')
+  await flush(()=>document.querySelector('[data-pane="map"]').click());await flush(()=>document.querySelector('[data-pane="actions"]').click())
+  assert.equal(document.querySelector('[aria-label="Быстрая реплика героя"]'),field);assert.equal(field.value,'Стражник, открой ворота.')
+  await click('Добавить реплику в ход');assert.equal(document.querySelector('.realm-queue-count strong').textContent,'1 / 20')
+  await flush(()=>document.querySelector('[data-pane="map"]').click());await flush(()=>document.querySelector('[data-pane="actions"]').click())
+  await click('Отправить заявление');assert.equal(f.writes.length,1);assert.equal(f.writes[0].actions[0].text,'Стражник, открой ворота.')
+ }finally{await f.close();window.matchMedia=original}
+})
