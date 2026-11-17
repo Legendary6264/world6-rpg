@@ -204,3 +204,11 @@ test('Навигация: возвращение в свою кампанию, �
  window.history.replaceState(null,'','/?lobby=room-a&code=PRIVATE-LOGIN-CODE#access_token=PRIVATE-TOKEN');const clean=new URL(lobbyInviteUrl('new-code'));assert.equal(clean.search,'?invite=new-code');assert.equal(clean.hash,'');assert(!clean.href.includes('PRIVATE'))
  window.history.replaceState(null,'','/');assert.equal(readOpenLobby('b'),'');assert.equal(readOpenLobby('a'),'room-a');window.history.replaceState(null,'','/?invite=new-code');assert.equal(readOpenLobby('a'),'');window.history.replaceState(null,'','/?lobby=%3Cscript%3E');assert.equal(readOpenLobby('b'),'');rememberOpenLobby('a','');assert.equal(readOpenLobby('a'),'')
 })
+
+test('Подготовка: ожидание игроков открывает готовность, приглашение доступно только мастеру',async()=>{
+ const f=await fixture({view:{status:'open',phase:'preparing',canStart:false,ready:[{id:'players',label:'Ждём участников',done:false,section:'game'}],session:load('gameSession').emptyGameSession(),chief:true,myReady:false,participants:[],blockers:[],durationSeconds:5,roundPhase:null}})
+ f.lobby.inviteCode='PRIVATE-INVITE';await f.render()
+ assert(document.querySelector('[aria-label="Ссылка приглашения в партию"]'))
+ await click('Проверить готовность');assert.equal(document.activeElement,document.querySelector('[aria-label="Подготовка участников"]'));assert.deepEqual(f.navigation,[]);assert.equal(f.calls.length,0)
+ f.lobby.myRole='PLAYER';await f.render();assert(!document.querySelector('[aria-label="Ссылка приглашения в партию"]'));assert(!button('Копировать ссылку партии'))
+})

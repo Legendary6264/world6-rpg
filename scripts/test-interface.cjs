@@ -256,3 +256,40 @@ test('Пульт ведущего: подготовка из сессии отк
  await flush(()=>root.render(React.createElement(Table,tableProps('ASSISTANT',['npcs']))));assert(!document.querySelector('.realm-master-desk'));assert(!document.querySelector('[aria-label="Черновик реплики НПС"]'))
  await flush(()=>root.render(React.createElement(Table,tableProps('PLAYER'))));assert(!button('Открыть редактор сцены'));assert(button('Герои кампании'))
 })
+
+test('Начало партии: прогресс обновляется с сервера, готовность ведёт к участникам',async()=>{
+ const Guide=load('SessionStartGuide').default,navigation=[],ready=[{id:'friends',label:'Игрок вошёл',done:true,section:'setup'},{id:'heroes',label:'Герои приняты',done:false,section:'heroes'},{id:'scene',label:'Сцена открыта',done:false,section:'game'},{id:'players',label:'Ждём игроков',done:false,section:'game'}]
+ const props={ready,disabled:false,paused:false,onMembers:()=>navigation.push('members'),onHeroes:()=>navigation.push('heroes'),onScene:()=>navigation.push('scene'),onReadiness:()=>navigation.push('readiness')}
+ await mount(Guide,props);assert.equal(document.querySelector('progress').value,1);assert.equal(document.querySelector('[data-current=true] strong').textContent,'Подготовьте героев');assert.equal(document.querySelectorAll('.realm-start-steps details[open]').length,1)
+ await flush(()=>document.querySelector('.realm-start-steps li:last-child summary').click());assert(document.querySelector('.realm-start-steps li:last-child details').open)
+ await flush(()=>button('Проверить героев').click());await flush(()=>button('Подготовить сцену').click());await flush(()=>button('Проверить готовность').click());assert.deepEqual(navigation,['heroes','scene','readiness'])
+ await flush(()=>root.render(React.createElement(Guide,{...props,ready:ready.map(r=>({...r,done:true}))})));assert.equal(document.querySelector('progress').value,4);assert.equal(document.querySelectorAll('button').length,0)
+ await flush(()=>root.render(React.createElement(Guide,{...props,disabled:true,paused:true})));assert([...document.querySelectorAll('button')].every(b=>b.disabled));assert(document.querySelector('[role=status]').textContent.includes('на паузе'))
+})
+
+test('Приглашение: копируется чистая ссылка, отказ буфера оставляет её выделенной',async()=>{
+ const Invite=load('PartyInvitation').default,original=Object.getOwnPropertyDescriptor(window.navigator,'clipboard'),copied=[]
+ window.history.replaceState(null,'','/world6-rpg/?lobby=old&code=PRIVATE#access_token=PRIVATE')
+ try{
+  Object.defineProperty(window.navigator,'clipboard',{configurable:true,value:{writeText:async text=>copied.push(text)}})
+  await mount(Invite,{code:'new-party'});await flush(()=>button('Копировать ссылку партии').click());assert.equal(copied[0],'https://interface.example.test/world6-rpg/?invite=new-party');assert(document.querySelector('[role=status]').textContent.includes('скопировано'))
+  Object.defineProperty(window.navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('Denied')}}})
+  await flush(()=>button('Копировать ссылку партии').click());const field=document.querySelector('input');assert.equal(document.activeElement,field);assert.equal(field.selectionStart,0);assert.equal(field.selectionEnd,field.value.length);assert(document.querySelector('[role=status]').textContent.includes('вручную'))
+ }finally{if(original)Object.defineProperty(window.navigator,'clipboard',original);else delete window.navigator.clipboard;window.history.replaceState(null,'','/')}
+})
+
+test('Приглашение: поздний ответ копирования не меняет карточку другой партии',async()=>{
+ const Invite=load('PartyInvitation').default,original=Object.getOwnPropertyDescriptor(window.navigator,'clipboard');let resolve
+ try{
+  Object.defineProperty(window.navigator,'clipboard',{configurable:true,value:{writeText:()=>new Promise(done=>{resolve=done})}})
+  await mount(Invite,{code:'first'});await flush(()=>button('Копировать ссылку партии').click());assert(button('Копируем…').disabled)
+  await mount(Invite,{code:'second'});await flush(()=>resolve());assert.equal(document.querySelector('[role=status]').textContent,'');assert(document.querySelector('input').value.endsWith('?invite=second'));assert(!button('Копировать ссылку партии').disabled)
+ }finally{if(original)Object.defineProperty(window.navigator,'clipboard',original);else delete window.navigator.clipboard}
+})
+
+test('Подготовка сцены: пустая кампания ведёт к редактору и героям без записи состояния',async()=>{
+ const calls=[],navigation=[];online={...context(),request:async(url,init={})=>{calls.push({url,method:init.method??'GET'});return {revision:1,scenes:{scenes:[]},actors:[{id:'npc',name:'Страж',approved:true,npc:true}]}}}
+ const Launch=modules({SceneViewport:{__esModule:true,default:()=>null}})('LobbySceneLaunch').default
+ await mount(Launch,{accountId:'gm',lobbyId:'room',disabled:false,onEditor:()=>navigation.push('editor'),onHeroes:()=>navigation.push('heroes')})
+ await flush(()=>button('Создать сцену в редакторе').click());await flush(()=>button('Перейти к героям партии').click());assert.deepEqual(navigation,['editor','heroes']);assert(calls.every(c=>c.method==='GET'));assert(button('Разместить героев и открыть сцену').disabled)
+})

@@ -1,4 +1,6 @@
 import LobbySessionPreparation from './LobbySessionPreparation'
+import SessionStartGuide from './SessionStartGuide'
+import PartyInvitation from './PartyInvitation'
 import {useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {useOnline} from './onlineContext'
 import {useRemote} from './onlineHooks'
@@ -29,7 +31,7 @@ function GameSessionPanel({accountId,lobby,disabled,onHeroes,onRound,onSetup,onM
  const {request,refresh}=useOnline(),path='/lobbies/'+lobby.id+'/play/session',remote=useRemote<GameSessionView>(path),value=isGameSessionView(remote.value)?remote.value:null,invalid=remote.value!==null&&!value,chief=lobby.myRole==='GM'
  const key=lobbyFormKey('game-finish',accountId,lobby.id),[draft,setDraft]=useState<Draft>(()=>readLobbyForm(key,valid)??{title:('Итог · '+lobby.title).slice(0,80),summary:'',confirmed:false,keepPending:false})
  const [busySource,setBusySource]=useState<{request:typeof request}|null>(null),[message,setMessage]=useState(''),[warning,setWarning]=useState(''),[ending,setEnding]=useState(false)
- const pending=useRef<AbortController|null>(null),mounted=useRef(true),latest=useRef({request,disabled,revision:value?.revision,loading:remote.loading,chief,draft})
+ const pending=useRef<AbortController|null>(null),mounted=useRef(true),preparation=useRef<HTMLDivElement>(null),latest=useRef({request,disabled,revision:value?.revision,loading:remote.loading,chief,draft})
  useLayoutEffect(()=>{latest.current={request,disabled,revision:value?.revision,loading:remote.loading,chief,draft}})
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;pending.current?.abort()}},[])
  useEffect(()=>()=>{pending.current?.abort();pending.current=null},[request,accountId,lobby.id])
@@ -90,7 +92,7 @@ function GameSessionPanel({accountId,lobby,disabled,onHeroes,onRound,onSetup,onM
     <p>Герои и их знания сохранены в кампании. Новые ходы закрыты.</p>
     {chief&&<button className="w6-button" onClick={onCopies}>Копии и финальный снимок</button>}
    </div>:<>
-    {chief&&value.status==='open'&&<><ol className="gb-session-ready" aria-label="Готовность к совместной игре">{value.ready?.map(r=><li key={r.id} data-done={r.done}><span aria-label={r.done?'Готово':'Нужно подготовить'}>{r.done?'✓':'○'}</span><span>{r.label}</span>{!r.done&&<button type="button" className="w6-button" onClick={r.section==='heroes'?onHeroes:r.section==='game'?onSetup:onMembers}>Открыть</button>}</li>)}</ol><p>Перед началом пригласи участников: набор закроется после старта.</p><button className="w6-button w6-primary" disabled={unavailable||hasCommand||!value.canStart} onClick={()=>void send('start')}>Начать совместную игру</button></>}
+    {chief&&value.status==='open'&&<>{!disabled&&!remote.loading&&!!lobby.inviteCode&&<PartyInvitation key={lobby.inviteCode} code={lobby.inviteCode}/>}<SessionStartGuide ready={value.ready} disabled={unavailable||hasCommand} paused={value.paused} onMembers={onMembers} onHeroes={onHeroes} onScene={onSetup} onReadiness={()=>{if(preparation.current){preparation.current.scrollIntoView?.({block:'nearest'});preparation.current.focus({preventScroll:true})}else onSetup()}}/><p>Перед началом пригласи участников: набор закроется после старта.</p><button className="w6-button w6-primary" disabled={unavailable||hasCommand||!value.canStart} onClick={()=>void send('start')}>Начать совместную игру</button></>}
     {chief&&<div className="w6-buttons gb-session-actions"><button className="w6-button" onClick={onRound}>{value.phase==='applied'?'Следующий раунд':'Открыть раунд'}</button><button className="w6-button" aria-expanded={ending} onClick={()=>setEnding(!ending)}>{ending?'Скрыть завершение':'Завершить игру'}</button></div>}
     {!chief&&<p className="gb-game-help">{value.paused?'Мастер поставил игру на паузу. Твой план сохранён.':value.phase==='planning'?'Составь ход на карте и нажми «Отправить заявление».':value.phase==='applied'?'Проверь результат на сцене и в журнале. Следующий раунд откроет мастер.':'Выбери принятого героя ниже. Мастер открывает сцену и приём ходов.'}</p>}
     {chief&&<details className="gb-session-pause"><summary>Перерыв и продолжение</summary><label className="w6-field"><span>Причина {value.paused?'продолжения':'паузы'}</span><input aria-label="Причина перерыва или продолжения" maxLength={1000} value={reason} disabled={unavailable||hasCommand} onChange={e=>remember({...draft,pauseReason:e.currentTarget.value})}/></label><button className="w6-button" disabled={unavailable||hasCommand||!reason.trim()} onClick={()=>void send('pause')}>{value.paused?'Продолжить игру':'Пауза в игре'}</button></details>}
@@ -110,7 +112,7 @@ function GameSessionPanel({accountId,lobby,disabled,onHeroes,onRound,onSetup,onM
    </>}
   </>}
   {chief&&hasCommand&&<div className="gb-session-pending" role="status"><p>Ожидается подтверждение {draft.command?'завершения игры':draft.control?.kind==='start'?'начала игры':draft.control?.command.paused?'паузы':'продолжения'}. Повтор отправит сохранённую команду с прежним ключом и версией кампании.</p><button type="button" className="w6-button w6-primary" disabled={unavailable} onClick={()=>void send(draft.command?'finish':draft.control!.kind)}>{draft.command?'Повторить сохранение итога':draft.control?.kind==='start'?'Повторить начало игры':draft.control?.command.paused?'Подтвердить прежнюю паузу':'Подтвердить прежнее продолжение'}</button></div>}
-  {value&&'session' in value&&<LobbySessionPreparation accountId={accountId} lobbyId={lobby.id} disabled={unavailable||hasCommand} onHeroes={onHeroes} onScene={onSetup} showEnding={!value.result}/>}
+  {value&&'session' in value&&<div ref={preparation} tabIndex={-1} role="region" className="realm-party-preparation" aria-label="Подготовка участников"><LobbySessionPreparation accountId={accountId} lobbyId={lobby.id} disabled={unavailable||hasCommand} onHeroes={onHeroes} onScene={onSetup} showEnding={!value.result}/></div>}
   <p role="status">{message}</p>{warning&&<p role="alert">{warning}</p>}
   {(remote.error||invalid)&&<button className="w6-button" disabled={busy} onClick={refresh}>Обновить состояние игры</button>}
  </section>
