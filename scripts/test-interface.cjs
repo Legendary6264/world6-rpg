@@ -293,3 +293,38 @@ test('Подготовка сцены: пустая кампания ведёт 
  await mount(Launch,{accountId:'gm',lobbyId:'room',disabled:false,onEditor:()=>navigation.push('editor'),onHeroes:()=>navigation.push('heroes')})
  await flush(()=>button('Создать сцену в редакторе').click());await flush(()=>button('Перейти к героям партии').click());assert.deepEqual(navigation,['editor','heroes']);assert(calls.every(c=>c.method==='GET'));assert(button('Разместить героев и открыть сцену').disabled)
 })
+
+test('Арсенал: поиск и форма не меняют выбор; явный выбор закрывает каталог и возвращает фокус',async()=>{
+ const Picker=load('GameAbilityPicker').default,chosen=[],options={frame:null,targets:[],items:[],abilities:[{id:'ward',name:'Щит'},{id:'beam',name:'Световой луч',rangeM:12,spatial:{shape:'beam',lengthM:6,radiusM:.3,includeCaster:false}},{id:'sphere',name:'Водная сфера',spatial:{shape:'sphere',radiusM:2,includeCaster:false}}]}
+ await mount(Picker,{options,value:'ward',disabled:false,onChoose:id=>chosen.push(id)})
+ const catalogue=document.querySelector('details');await flush(()=>catalogue.querySelector('summary').click());await input(document.querySelector('[aria-label="Поиск способности"]'),'СВЕТОВОЙ')
+ assert.equal(document.querySelectorAll('.realm-ability-option').length,1);assert.equal(document.querySelector('[aria-label="Быстрая способность"]').value,'ward');assert.equal(chosen.length,0)
+ const filter=document.querySelector('[aria-label="Фильтр формы способности"]');await flush(()=>{filter.value='sphere';filter.dispatchEvent(new dom.window.Event('change',{bubbles:true}))});assert.equal(document.querySelectorAll('.realm-ability-option').length,0);assert(document.querySelector('[aria-label="Выбранная способность"]').textContent.includes('Щит'))
+ await flush(()=>button('Сбросить поиск способностей').click());await flush(()=>document.querySelector('[aria-label="Выбрать способность Световой луч"]').click());assert.deepEqual(chosen,['beam']);assert(!catalogue.open);assert.equal(document.activeElement,document.querySelector('[aria-label="Быстрая способность"]'))
+})
+
+test('Арсенал: карточка использует снимок оплаченного заряда; повторный выбор способности его не сбрасывает',async()=>{
+ const Picker=load('GameAbilityPicker').default,chosen=[],options={frame:null,targets:[],items:[],abilities:[{id:'spell',name:'Новый шаблон',rangeM:1,cost:{mana:99,shadow:0,stamina:0},spatial:{shape:'sphere',radiusM:8,includeCaster:false}}],casts:[{id:'paid',abilityId:'spell',name:'Сохранённый луч',rangeM:10,status:'ready',binding:'unbound',readyAt:0,holdUntil:null,holdCost:{mana:0,shadow:0,stamina:0},spatial:{shape:'beam',lengthM:4,radiusM:.2,includeCaster:false}}]}
+ const props={options,value:'spell',castId:'paid',disabled:false,onChoose:id=>chosen.push(id)};await mount(Picker,props)
+ const card=document.querySelector('[aria-label="Выбранная способность"]');assert(card.textContent.includes('Сохранённый луч'));assert(card.textContent.includes('длина 4 м'));assert(card.textContent.includes('10 м'));assert(!card.textContent.includes('99'));assert(!document.querySelector('[aria-label="Базовый расход подготовки"]'))
+ await flush(()=>document.querySelector('[aria-label="Выбрать способность Новый шаблон"]').click());assert.equal(chosen.length,0)
+ await flush(()=>root.render(React.createElement(Picker,{...props,options:{...options,casts:[]}})));assert(!document.querySelector('[aria-label="Выбранная способность"]'));assert.equal(chosen.length,0)
+})
+
+test('Арсенал: исчезнувшая способность не заменяется, заблокированный выбор не вызывает команду',async()=>{
+ const Picker=load('GameAbilityPicker').default,chosen=[],options={frame:null,targets:[],items:[],abilities:[{id:'other',name:'Другая'}]}
+ await mount(Picker,{options,value:'gone',disabled:true,onChoose:id=>chosen.push(id)});assert(document.querySelector('[role=alert]').textContent.includes('автоматической замены нет'));assert.equal(document.querySelector('[aria-label="Быстрая способность"]').value,'gone')
+ const field=document.querySelector('[aria-label="Быстрая способность"]');await flush(()=>{field.value='other';field.dispatchEvent(new dom.window.Event('change',{bubbles:true}))});await flush(()=>document.querySelector('[aria-label="Выбрать способность Другая"]').click());assert.equal(chosen.length,0)
+})
+
+test('Способности: явный заряд нельзя повторить, пара действий требует двух свободных мест',async()=>{
+ const Bar=load('GameActionBar').default,actions=[],options={frame:null,targets:[],items:[],abilities:[{id:'spell',name:'Щит',cost:{mana:3,shadow:0,stamina:0}}],casts:[{id:'paid',abilityId:'spell',name:'Щит',status:'ready',binding:'unbound',readyAt:0,holdUntil:null,holdCost:{mana:0,shadow:0,stamina:0}}]}
+ const base={map:null,point:null,contactId:'',objectId:'',options,disabled:false,draft:{...load('gameControls').emptyQuickAction(),mode:'ability',ability:'spell',castId:'paid'},onChange:()=>{},onAdd:a=>{actions.push(a);return true},onAddMany:a=>{actions.push(...a);return true}}
+ await mount(Bar,{...base,plannedActions:[{kind:'ability',abilityId:'spell',stage:'release',castId:'paid',target:{kind:'self'},note:''}]});assert(button('Применить способность').disabled);await flush(()=>button('Применить способность').click());assert.equal(actions.length,0);assert(document.querySelector('[aria-label="Проверка применения способности"]').textContent.includes('уже добавлен'))
+ await mount(Bar,{...base,draft:{...base.draft,castId:''},plannedActions:Array.from({length:19},()=>({kind:'wait',seconds:1,note:''}))});assert(button('Подготовить и применить').disabled);assert(document.body.textContent.includes('1 из 20 мест свободно'));assert(!button('Подготовить способность').disabled)
+})
+
+test('Обзор плана показывает состав личной очереди и число действий с замечаниями',async()=>{
+ const Overview=load('GamePlanOverview').default;await mount(Overview,{actions:[{kind:'wait',seconds:1,note:''},{kind:'speak',text:'Стой',volume:'normal',target:{kind:'none'},note:''},{kind:'ability',abilityId:'spell',stage:'prepare',target:{kind:'none'},note:''}],issues:2})
+ const view=document.querySelector('[aria-label="Обзор плана хода"]');assert(view.textContent.includes('3 / 20'));assert(view.textContent.includes('Речь 1'));assert(view.textContent.includes('Способности 1'));assert(view.querySelector('[role=status]').textContent.includes('действий: 2'))
+})

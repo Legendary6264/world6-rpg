@@ -8,6 +8,8 @@ import {objectRelocatable} from './legacyObjectBehavior'
 import {objectActions} from './tabletopInteractions'
 import { quickAbilityTarget } from './gameControls'
 import AbilityChargeSelect from './AbilityChargeSelect'
+import GameAbilityPicker from './GameAbilityPicker'
+import AbilityActionGuide from './AbilityActionGuide'
 import type { QuickActionDraft } from './gameControls'
 import { isMovementMode, isTerrainMovement, movementLabels } from './actionDeclarations'
 import type { DeclaredAction, DeclarationOptions, DeclarationTarget } from './actionDeclarations'
@@ -47,6 +49,8 @@ export default function GameActionBar({ map, point, contactId, objectId, options
   const template=options?.abilities.find(a=>a.id===ability)
   const selectedCharge=options?.casts?.find(c=>c.id===draft.castId&&c.abilityId===ability)
   const selectedAbility=draft.castId?selectedCharge:template
+  const chargeUsed=!!selectedCharge&&plannedActions.some(action=>action.kind==='ability'&&action.stage==='release'&&action.castId===selectedCharge.id)
+  const remaining=Math.max(0,20-plannedActions.length)
   const chooseAbility=(id:string,castId='')=>{const next=castId?options?.casts?.find(c=>c.id===castId&&c.abilityId===id):options?.abilities.find(a=>a.id===id);onChange({...draft,ability:id,castId,aim:next?.spatial?(selectedPoint?'selected':'point'):(selected?.kind==='contact'||selected?.kind==='self'?'selected':'self')})}
   const releaseTarget=quickAbilityTarget(selectedAbility?.spatial,aim,point,selected,selectedPoint)
   const aimPreview=useMemo(()=>{const aim=mode==='ability'?buildSceneAbilityAim(map,selectedAbility,releaseTarget):null;return aim&&resolveAim?resolveAim(aim):aim},[mode,map,selectedAbility,JSON.stringify(releaseTarget),resolveAim])
@@ -110,21 +114,22 @@ export default function GameActionBar({ map, point, contactId, objectId, options
           {!inventoryChoices.length&&<p className="gb-game-help">Для предмета не настроено быстрое действие.{plannedInventoryItem.use?.slot!=='none'&&plannedInventoryItem.quantity>1?' Для экипировки сначала раздели стопку в листе героя.':' Описать использование можно в точных параметрах.'}</p>}
         </>}
       </>}
-      {mode==='ability'&&<><label className="w6-field"><span>{environmentOnly?'Эффект для пробы':'Утверждённая способность'}</span><select aria-label="Быстрая способность" value={ability} onChange={e=>chooseAbility(e.currentTarget.value)}><option value="">Выбери способность</option>{options?.abilities.map(a=><option key={a.id} value={a.id}>{a.name}{a.canPrepare===false?' · только оплаченные заряды':''}</option>)}</select></label>
+      {mode==='ability'&&<><GameAbilityPicker options={options} value={ability} castId={draft.castId} disabled={disabled} onChoose={chooseAbility} preview={environmentOnly}/>
         {!environmentOnly&&ability&&<AbilityChargeSelect options={options} abilityId={ability} value={draft.castId??''} onChange={id=>chooseAbility(ability,id)}/>}
         {draft.castId&&!selectedCharge&&<p role="alert">Этот заряд больше не доступен. Выбери другой заряд; автоматической замены нет.</p>}
-        {!draft.castId&&template?.cost&&<p className="gb-game-help">Базовый расход подготовки: мана {template.cost.mana} · Тень {template.cost.shadow} · выносливость {template.cost.stamina}. Итоговый расход и личное время подтвердит мастер.</p>}
         <label className="w6-field"><span>Цель применения</span><select aria-label="Цель быстрой способности" value={aim} onChange={e=>field('aim',e.currentTarget.value as typeof aim)}><option value="self" disabled={!!selectedAbility?.spatial}>На себя</option><option value="point" disabled={!selectedAbility?.spatial||!point}>Отмеченная точка</option><option value="selected" disabled={selectedAbility?.spatial?!selectedPoint:!(selected?.kind==='contact'||selected?.kind==='self')}>{selectedAbility?.spatial?'Выбранный предмет или существо':'Выбранное существо'}</option></select></label>
         {selectedAbility&&!selectedAbility.spatial&&aim!=='self'&&!releaseTarget&&<p className="gb-game-help">Для этой способности выбери себя или доступное существо.</p>}{selectedAbility?.spatial&&<p className="gb-game-help">{aim==='selected'?'Прицел следует за выбранным предметом или существом. Чтобы навести вручную, нажми на землю или укажи координаты.':<>Отметь {selectedAbility.spatial.shape==='point'?'точку':selectedAbility.spatial.shape==='sphere'?'центр области':'направление от героя'} на карте или укажи координаты. Можно также выбрать предмет или существо.</>}</p>}
         {aim==='selected'&&selectedLabel&&<p className="gb-game-help">{selectedLabel}{object&&!object.visible?' · последняя известная отметка':''}{selectedAbility?.spatial?' · наведение по центру':''}</p>}
         {aimPreview&&<SceneAbilityAimSummary aim={aimPreview} targets={contents}/>}
-        <div className="w6-buttons"><button className="w6-button" disabled={!!draft.castId||!template||template.canPrepare===false} onClick={()=>onAdd({kind:'ability',abilityId:ability,stage:'prepare',target:{kind:'none'},note:''})}>Подготовить способность</button><button className="w6-button" disabled={!selectedAbility||!releaseTarget||aimPreview?.valid===false} onClick={()=>{if(releaseTarget)onAdd({kind:'ability',abilityId:ability,stage:'release',target:releaseTarget,note:'',...(draft.castId?{castId:draft.castId}:{})})}}>Применить способность</button></div></>}
-      {mode==='ability'&&!draft.castId&&onAddMany&&!environmentOnly&&<button type="button" className="w6-button"
-        disabled={!template||template.canPrepare===false||!releaseTarget||aimPreview?.valid===false}
+        {ability&&<AbilityActionGuide source={draft.castId?!selectedCharge?'Выбранный заряд недоступен':chargeUsed?'Этот заряд уже добавлен в очередь':selectedCharge.status==='ready'?'Собственный оплаченный заряд':'Заряд ещё готовится; время выпуска проверит мастер':template?.canPrepare===false?'Новая подготовка недоступна. Существующий заряд подберёт мастер.':'Заряд из очереди или подбор мастером. Можно добавить подготовку отдельно.'} target={!releaseTarget?'Выбери доступную цель применения':aimPreview?.valid===false?aimPreview.message:aim==='self'?'На себя':aim==='selected'?selectedLabel??'Выбранная отметка':releaseTarget&&'point' in releaseTarget?'Точка ('+[releaseTarget.point.x,releaseTarget.point.y,releaseTarget.point.z].join('; ')+') м':'Выбранная цель'} queue={remaining+' из 20 мест свободно'+(!draft.castId&&onAddMany&&!environmentOnly?' · подготовка с выпуском займут два места.':'.')} ready={!disabled&&!!selectedAbility&&!!releaseTarget&&aimPreview?.valid!==false&&!chargeUsed&&remaining>0}/>}
+        {chargeUsed&&<p className="realm-cast-note" role="status">Этот заряд уже запланирован к выпуску в очереди. Каждый заряд выпускается один раз. Убери прежний выпуск или выбери другой заряд.</p>}
+        <div className="w6-buttons realm-cast-actions"><button className="w6-button" disabled={!!draft.castId||!template||template.canPrepare===false} onClick={()=>onAdd({kind:'ability',abilityId:ability,stage:'prepare',target:{kind:'none'},note:''})}>Подготовить способность</button><button className={'w6-button'+(draft.castId?' w6-primary':'')} disabled={!selectedAbility||!releaseTarget||aimPreview?.valid===false||chargeUsed} onClick={()=>{if(releaseTarget&&!chargeUsed)onAdd({kind:'ability',abilityId:ability,stage:'release',target:releaseTarget,note:'',...(draft.castId?{castId:draft.castId}:{})})}}>Применить способность</button></div></>}
+      {mode==='ability'&&!draft.castId&&onAddMany&&!environmentOnly&&<><button type="button" className="w6-button w6-primary realm-cast-combined"
+        disabled={!template||template.canPrepare===false||!releaseTarget||aimPreview?.valid===false||remaining<2}
         onClick={()=>{if(releaseTarget)onAddMany([
           {kind:'ability',abilityId:ability,stage:'prepare',target:{kind:'none'},note:''},
           {kind:'ability',abilityId:ability,stage:'release',target:releaseTarget,note:''},
-        ])}}>Подготовить и применить</button>}
+        ])}}>Подготовить и применить</button>{remaining<2&&<p className="gb-game-help">Освободи место для всей последовательности: подготовка и выпуск занимают два действия.</p>}</>}
     </fieldset>
     <p className="gb-game-help">Кнопки добавляют действия в твой ход. Когда план готов — отправь его мастеру.</p>
   </section>

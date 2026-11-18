@@ -3357,7 +3357,7 @@ test('Способности UI: выбор собственного заряд�
   await ownActions(f,'a');f.declarations.a.options.abilities=[{id:'spell',name:'Прежняя способность',canPrepare:false}];f.declarations.a.options.casts=[{id:'paid-hero-a',abilityId:'spell',name:'Прежняя способность',status:'ready',binding:'unbound',readyAt:0,holdUntil:null,holdCost:{mana:0,shadow:0,stamina:0}}];f.context.events++;await f.render();await flush()
   await click('Способности');await selectValue('[aria-label="Быстрая способность"]','spell');await selectValue('[aria-label="Собственный заряд"]','paid-hero-a')
   await f.mount(false);await f.mount(true);await flush();await f.open('a');await click('Открыть экран героя');assert.equal(document.querySelector('[aria-label="Собственный заряд"]').value,'paid-hero-a')
-  await click('Применить способность');await click('Применить способность');assert(document.body.textContent.includes('Этот заряд уже запланирован'));await click('Отправить заявление');assert.equal(f.writes.at(-1).actions.length,1);assert.equal(f.writes.at(-1).actions[0].castId,'paid-hero-a');assert.equal(f.writes.at(-1).actions[0].stage,'release')
+  await click('Применить способность');assert(!enabledButton('Применить способность'));assert(document.body.textContent.includes('Этот заряд уже запланирован'));await click('Отправить заявление');assert.equal(f.writes.at(-1).actions.length,1);assert.equal(f.writes.at(-1).actions[0].castId,'paid-hero-a');assert.equal(f.writes.at(-1).actions[0].stage,'release')
  }finally{await f.close()}
 })
 
@@ -3518,7 +3518,7 @@ test('Живая игра: подготовка и выпуск добавляю
   await quickMode('Способности');await selectValue('[aria-label="Быстрая способность"]','ward');await click('Подготовить и применить')
   await click('Отменить правку очереди');assert(!enabledButton('Отправить заявление'))
   for(let i=0;i<19;i++)await waitAction('1')
-  await click('Подготовить и применить');assert(document.body.textContent.includes('Освободи место для всей последовательности'))
+  assert(!enabledButton('Подготовить и применить'));assert(document.body.textContent.includes('Освободи место для всей последовательности'))
   const key=load('lobbyFormDrafts').lobbyFormKey('action-sequence',f.accountId,'a','hero-a')
   assert.equal(JSON.parse(localStorage.getItem(key)).actions.length,19)
   await click('Убрать действие 19');await click('Подготовить и применить');await click('Отменить правку очереди')
@@ -4123,4 +4123,28 @@ test('Игровой стол UX: мобильные панели сохраня
   await flush(()=>document.querySelector('[data-pane="map"]').click());await flush(()=>document.querySelector('[data-pane="actions"]').click())
   await click('Отправить заявление');assert.equal(f.writes.length,1);assert.equal(f.writes[0].actions[0].text,'Стражник, открой ворота.')
  }finally{await f.close();window.matchMedia=original}
+})
+
+test('План героя: выбор через арсенал, порядок и отмена сохраняются до единственной отправки',async()=>{
+ const f=await fixture()
+ try{
+  await ownActions(f,'a');f.declarations.a.options.abilities=[{id:'ward',name:'Щит путника',canPrepare:true,cost:{mana:2,shadow:0,stamina:0}}];await flush(()=>f.notify())
+  await quickMode('Способности');await flush(()=>document.querySelector('.realm-ability-catalogue summary').click());await input('[aria-label="Поиск способности"]','ЩИТ')
+  await flush(()=>document.querySelector('[aria-label="Выбрать способность Щит путника"]').click());await click('Подготовить и применить');await quickMode('Речь');await input('[aria-label="Быстрая реплика героя"]','Держимся вместе');await click('Добавить реплику в ход')
+  const key=load('lobbyFormDrafts').lobbyFormKey('action-sequence',f.accountId,'a','hero-a'),saved=()=>JSON.parse(localStorage.getItem(key))
+  await flush(()=>document.querySelector('[aria-label="Переместить действие 3 выше"]').click());assert.deepEqual(saved().actions.map(a=>a.kind),['ability','speak','ability']);assert.equal(saved().quick.ability,'ward')
+  await click('Отменить правку очереди');assert.deepEqual(saved().actions.map(a=>a.kind),['ability','ability','speak']);assert.equal(document.querySelectorAll('.realm-planned-action').length,3)
+  await f.mount(false);await f.mount(true);await f.open('a');await click('Открыть экран героя');await quickMode('Способности');assert.equal(document.querySelector('[aria-label="Быстрая способность"]').value,'ward');assert.equal(document.querySelectorAll('.realm-planned-action').length,3)
+  await click('Отправить заявление');assert.equal(f.writes.length,1);assert.deepEqual(f.writes[0].actions.map(a=>a.kind),['ability','ability','speak']);assert.equal(f.writes[0].actions[2].text,'Держимся вместе')
+ }finally{await f.close()}
+})
+
+test('План героя: отправка объясняет паузу, закрытый приём и пустую очередь без потери черновика',async()=>{
+ const f=await fixture()
+ try{
+  await ownActions(f,'a');await waitAction('1');const hint=()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Отправить заявление');return document.getElementById(button.getAttribute('aria-describedby')).textContent}
+  f.declarations.a.paused=true;f.declarations.a.canSubmit=false;await flush(()=>f.notify());assert(hint().includes('на паузе'));assert(!enabledButton('Отправить заявление'))
+  f.declarations.a.paused=false;f.declarations.a.collection.phase='closed';await flush(()=>f.notify());assert(hint().includes('Приём ходов закрыт'));assert.equal(document.querySelectorAll('.realm-planned-action').length,1)
+  f.declarations.a.collection.phase='open';f.declarations.a.canSubmit=true;await flush(()=>f.notify());assert(enabledButton('Отправить заявление'));await click('Убрать действие 1');assert(hint().includes('хотя бы одно'));assert.equal(f.writes.length,0)
+ }finally{await f.close()}
 })

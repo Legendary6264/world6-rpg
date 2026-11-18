@@ -2,13 +2,14 @@ import type {SceneAbilityAim} from './sceneAbilityAim'
 import { emptyQuickAction, isQuickActionDraft, gameActionLabel, gameTurnStatus } from './gameControls'
 import type { QuickActionDraft } from './gameControls'
 import GameActionBar from './GameActionBar'
+import GamePlanOverview from './GamePlanOverview'
 import {itemPlanIssues} from './plannedInteractions'
 import {reviewDeclaration} from './declarationReview'
 import DeclarationActionReview from './DeclarationActionReview'
 import AbilityChargeSelect from './AbilityChargeSelect'
 import type { PerceivedMap } from './scenePerception'
 import { spatialLabel } from './abilitySpatial'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useOnline } from './onlineContext'
 import { useRemote } from './onlineHooks'
 import { NetworkError } from './onlineClient'
@@ -111,6 +112,8 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       t.kind==='self'?'На себя':t.kind==='none'?'Без конкретной цели':value?.options?.targets.find(x=>x.kind===t.kind&&x.id===t.id)?.label??'Прежняя отметка; требуется проверка'
   }
   const turnStatus=gameTurnStatus(value,draft.actions.length>0)
+  const submitHintId=useId()
+  const submitHint=canSend?'Проверь порядок и цель каждого действия. Отправка передаст план мастеру.':!available?'Проверяем состояние хода или ожидаем ответ сервера.':draft.submission?'Ожидается подтверждение прежней отправки. Используй безопасный повтор ниже.':!draft.actions.length?'Добавь хотя бы одно действие в очередь.':stale?'Сверь черновик с текущей версией кампании и подтверди проверку.':planIssues.length?'Исправь отмеченные действия перед отправкой.':value?.paused?'Сессия на паузе. Черновик сохранён до продолжения игры.':!c?'Мастер ещё не открыл приём ходов. Черновик можно подготовить заранее.':c.phase!=='open'?'Приём ходов закрыт. Черновик сохранён.':!value?.participating?'Этот герой ещё не включён в раунд.':value?.entry?.status==='submitted'&&!c.allowReplace?'Ход уже отправлен. Для замены нужен возврат мастером.':'Отправка доступна действующему управляющему принятого героя.'
   const spatial=(f.stage==='release'&&f.castId?value?.options?.casts?.find(c=>c.id===f.castId&&c.abilityId===f.abilityId):value?.options?.abilities.find(a=>a.id===f.abilityId))?.spatial
   const pointsNeeded = f.kind === 'move' || (f.kind!=='wait'||!!f.listeningMode)&&['point','area','direction'].includes(f.targetKind)
   return <section className="w6-fieldset gb-action-declarations"><h4>Заявление действий</h4><p role="status">{remote.loading ? 'Проверяем приём заявлений…' : remote.error}</p>
@@ -147,14 +150,13 @@ export default function LobbyActionDeclarations({ accountId, lobbyId, characterI
       <button className="w6-button" onClick={addAction}>Добавить действие в последовательность</button>
     </fieldset></details><fieldset disabled={!editable} className="gb-game-queue"><legend>Мой ход · {draft.actions.length} / 20 действий</legend>
       {!!draft.quick?.text.trim()&&<p className="w6-copy">В поле реплики есть текст, который ещё не добавлен в очередь хода.</p>}
-      {!!planIssues.length&&<p role="status">Нужно проверить действий: {new Set(planIssues.map(issue=>issue.index)).size}. Причины показаны в очереди.</p>}
-      {draft.actions.length===0&&<p className="w6-copy">Выбери действие на панели над очередью. После исполнения результат появится на карте.</p>}
-      {draft.actions.map((a, i) => <article className="gb-journal-entry" key={i}><p>{i + 1}. {gameActionLabel(a,value?.options)} · {targetLabel(a)}{a.note && ' · ' + a.note}</p>
+      <GamePlanOverview actions={draft.actions} issues={new Set(planIssues.map(issue=>issue.index)).size}/>
+      {draft.actions.map((a, i) => <article className="gb-journal-entry realm-planned-action" data-issue={planIssues.some(issue=>issue.index===i)} key={i}><header><span className="realm-action-index">{i+1}</span><div><strong>{gameActionLabel(a,value?.options)}</strong>{targetLabel(a)&&<span className="realm-action-target">{targetLabel(a)}</span>}</div>{planIssues.some(issue=>issue.index===i)&&<small>Проверь действие</small>}</header>{a.note&&<p className="w6-prose">{a.note}</p>}
         <DeclarationActionReview action={a} index={i} options={value?.options??null} issues={planIssues.filter(issue=>issue.index===i)} onChange={action=>{editQueue(draft.actions.map((current,index)=>index===i?action:current));setMessage('Действие '+(i+1)+' обновлено. Проверь оставшуюся очередь.')}}/>
-        <button className="w6-button" onClick={() => editQueue(draft.actions.filter((_, n) => n !== i))}>Убрать действие {i + 1}</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' выше'} disabled={i===0} onClick={()=>{const next=[...draft.actions];[next[i-1],next[i]]=[next[i],next[i-1]];editQueue(next)}}>↑</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' ниже'} disabled={i===draft.actions.length-1} onClick={()=>{const next=[...draft.actions];[next[i+1],next[i]]=[next[i],next[i+1]];editQueue(next)}}>↓</button></article>)}
+        <div className="realm-planned-controls"><button className="w6-button" onClick={() => editQueue(draft.actions.filter((_, n) => n !== i))}>Убрать действие {i + 1}</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' выше'} disabled={i===0} onClick={()=>{const next=[...draft.actions];[next[i-1],next[i]]=[next[i],next[i-1]];editQueue(next)}}>↑</button><button type="button" className="w6-button" aria-label={'Переместить действие '+(i+1)+' ниже'} disabled={i===draft.actions.length-1} onClick={()=>{const next=[...draft.actions];[next[i+1],next[i]]=[next[i],next[i+1]];editQueue(next)}}>↓</button></div></article>)}
       <button type="button" className="w6-button" disabled={!undo||undo.base!==JSON.stringify(draft.base)||stale} onClick={()=>{if(undo){remember({...draft,actions:undo.actions});setUndo(null)}}}>Отменить правку очереди</button>
       {stale && <><p role="alert">Изменились приём, управление или моё заявление. Проверь черновик и доступные цели.</p><button className="w6-button" disabled={!c} onClick={() => remember({ ...draft, base: base() })}>Последовательность проверена с текущей версией</button></>}
-      <button className="w6-button" disabled={!canSend} onClick={() => void submit()}>{value?.entry?.status === 'submitted' ? 'Заменить заявление' : 'Отправить заявление'}</button>
+      <div className="realm-plan-submit"><p id={submitHintId} role="status">{submitHint}</p><button className="w6-button w6-primary" aria-describedby={submitHintId} disabled={!canSend} onClick={() => void submit()}>{value?.entry?.status === 'submitted' ? 'Заменить заявление' : 'Отправить заявление'}</button></div>
     </fieldset>{draft.submission&&<div role="status"><p>Подтверждение хода не получено. Повтор подтвердит прежнюю отправку без второго хода.</p><button type="button" className="w6-button" disabled={!available} onClick={()=>void submit()}>Повторить отправку хода</button></div>}{warning && <p role="alert">{warning}</p>}<p role="status">{message}</p>
   </section>
 }

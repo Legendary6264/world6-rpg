@@ -15,7 +15,7 @@ export async function browserCheck(outputPath,html,check,{webgl=false}={}){
  const pending=new Map(),exceptions=[],delay=ms=>new Promise(r=>setTimeout(r,ms))
  const call=(method,params={})=>new Promise((resolveCall,reject)=>{const n=++id,timer=setTimeout(()=>{pending.delete(n);reject(Error(method+' timed out'))},20000);pending.set(n,{resolve:value=>{clearTimeout(timer);resolveCall(value)},reject:error=>{clearTimeout(timer);reject(error)}});ws.send(JSON.stringify({id:n,method,params}))})
  const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description??r.exceptionDetails.text);return r.result.value}
- const until=async(fn,label)=>{const end=Date.now()+40000;while(Date.now()<end){if(await fn())return;await delay(100)}throw Error('Timeout: '+label)}
+ const until=async(fn,label)=>{const end=Date.now()+40000;while(Date.now()<end){try{if(await fn())return}catch(error){if(!/^(Inspected target navigated or closed|Execution context was destroyed)/.test(String(error?.message??error)))throw error}await delay(100)}throw Error('Timeout: '+label)}
  async function capture(name,width,height){
   await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(300)
   const dimensions=await evaluate('({width:innerWidth,scroll:document.documentElement.scrollWidth})');assert(dimensions.scroll<=dimensions.width+1,'Page overflows: '+JSON.stringify(dimensions))

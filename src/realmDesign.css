@@ -153,6 +153,73 @@ body { background:radial-gradient(ellipse at 70% -15%,#31435945,transparent 55%)
 #root .realm-launch-empty { margin:14px 0;padding:15px;border:1px dashed var(--ui-line);border-radius:10px;background:var(--ui-inset); }
 #root .realm-launch-empty p { margin-top:0; }
 
+/* Ability selection and the turn plan share the table's restrained palette. */
+#root .realm-ability-picker { min-width:0;margin:0 0 16px; }
+#root .realm-ability-catalogue { margin:10px 0;border:1px solid var(--ui-line-soft);border-radius:10px;background:var(--ui-inset); }
+#root .realm-ability-catalogue>summary { display:flex;align-items:center;gap:8px;padding:12px;cursor:pointer;font-size:.8rem;list-style:none;color:var(--ui-muted); }
+#root .realm-ability-catalogue>summary::-webkit-details-marker { display:none; }
+#root .realm-ability-catalogue>summary>span { margin-left:auto;color:var(--ui-accent);font-variant-numeric:tabular-nums; }
+#root .realm-ability-catalogue[open]>summary { border-bottom:1px solid var(--ui-line-soft); }
+#root .realm-ability-filters { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px 12px 0; }
+#root .realm-ability-filters .w6-field { min-width:0;margin:0; }
+#root .realm-ability-count { margin:8px 12px;font-size:.75rem;color:var(--ui-muted); }
+#root .realm-ability-results { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:25rem;overflow:auto;overscroll-behavior:contain;padding:3px 12px 12px;scroll-padding:12px; }
+#root .realm-ability-option { text-align:left;white-space:normal;overflow-wrap:anywhere;padding:13px;border:1px solid var(--ui-line-soft);border-radius:9px;background:var(--ui-surface);color:var(--ui-text);font:inherit;cursor:pointer; }
+#root .realm-ability-option:hover { border-color:var(--ui-accent); }
+#root .realm-ability-option[aria-pressed=true] { border-color:var(--ui-accent);background:var(--ui-accent-surface); }
+#root .realm-ability-option strong { display:block;font-size:.85rem;line-height:1.45; }
+#root .realm-ability-option span,#root .realm-ability-option small { display:block;color:var(--ui-muted);font-size:.73rem;margin-top:6px;line-height:1.5; }
+#root .realm-ability-catalogue>button { margin:0 12px 12px; }
+#root .realm-ability-empty { margin:12px;padding:12px;border-left:2px solid var(--ui-line);font-size:.8rem;color:var(--ui-muted); }
+#root .realm-ability-card { margin-top:14px;padding:16px;border:1px solid var(--ui-line);border-radius:12px;background:var(--ui-surface);overflow-wrap:anywhere; }
+#root .realm-ability-card header { display:flex;align-items:center;gap:11px; }
+#root .realm-ability-emblem { display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:12px;background:var(--ui-accent-surface);color:var(--ui-accent); }
+#root .realm-ability-card header small { font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ui-muted); }
+#root .realm-ability-card h5 { margin:4px 0 0;font:400 1.14rem/1.35 Georgia,serif; }
+#root .realm-ability-card>p { margin:13px 0;color:var(--ui-muted);font-size:.8rem; }
+#root .realm-ability-card dl { display:grid;grid-template-columns:minmax(0,.7fr) minmax(0,1.3fr);gap:12px;margin:0; }
+#root .realm-ability-card dt,#root .realm-cast-guide dt { color:var(--ui-muted);font-size:.7rem; }
+#root .realm-ability-card dd { margin:5px 0 0;font-size:.8rem; }
+#root .realm-ability-cost { display:flex;gap:8px 15px;flex-wrap:wrap;border-top:1px solid var(--ui-line-soft);padding-top:12px;margin-top:14px;color:var(--ui-muted);font-size:.72rem; }
+#root .realm-ability-cost strong { color:var(--ui-text);margin-left:4px;font-variant-numeric:tabular-nums; }
+#root .realm-cast-guide { margin:15px 0;padding:14px;border:1px solid var(--ui-line-soft);border-radius:10px;background:var(--ui-inset); }
+#root .realm-cast-guide header { display:flex;align-items:center;gap:8px;font-size:.83rem; }
+#root .realm-cast-guide[data-ready=true] header { color:var(--ui-accent); }
+#root .realm-cast-guide dl { display:grid;gap:10px;margin:12px 0; }
+#root .realm-cast-guide dl>div { display:grid;grid-template-columns:64px minmax(0,1fr);gap:9px; }
+#root .realm-cast-guide dd { margin:0;font-size:.76rem;line-height:1.55;overflow-wrap:anywhere; }
+#root .realm-cast-guide>p { margin:12px 0 0;border-top:1px solid var(--ui-line-soft);padding-top:10px;font-size:.71rem;color:var(--ui-muted); }
+#root .realm-cast-combined { width:100%;margin-top:10px; }
+#root .realm-cast-note { border-left:2px solid var(--ui-accent);background:var(--ui-accent-surface);padding:10px 12px;font-size:.76rem;color:var(--ui-accent-text); }
+#root .gb-game-actionbar .gb-aim-readout { border-color:var(--ui-accent);background:var(--ui-accent-surface);color:var(--ui-text); }
+#root .gb-game-actionbar .gb-aim-readout[data-valid=false] { border-color:#d5ab7e;background:var(--ui-inset);color:var(--ui-text); }
+#root .gb-game-actionbar .gb-aim-counts { display:flex;flex-wrap:wrap;gap:6px;margin:9px 0; }
+#root .gb-game-actionbar .gb-aim-counts>span { border:1px solid var(--ui-line-soft);background:var(--ui-surface);color:var(--ui-muted);border-radius:6px;padding:5px 8px;font-size:.72rem; }
+#root .gb-game-actionbar .gb-aim-counts strong { margin-left:5px;color:var(--ui-text);font-variant-numeric:tabular-nums; }
+#root .realm-plan-overview { margin:4px 0 14px; }
+#root .realm-plan-overview>header { display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:.84rem; }
+#root .realm-plan-overview header>span { flex:none;color:var(--ui-accent);font-variant-numeric:tabular-nums; }
+#root .realm-plan-overview p { margin:10px 0;color:var(--ui-muted);font-size:.76rem; }
+#root .realm-plan-kinds { display:flex;flex-wrap:wrap;gap:7px;margin-top:12px; }
+#root .realm-plan-kinds>span { border:1px solid var(--ui-line-soft);border-radius:6px;padding:5px 8px;font-size:.7rem;color:var(--ui-muted); }
+#root .realm-plan-kinds strong { margin-left:5px;color:var(--ui-text); }
+#root .gb-game-queue .realm-planned-action { display:block;padding:14px;margin:10px 0;border:1px solid var(--ui-line-soft);border-radius:10px;background:var(--ui-surface);overflow-wrap:anywhere; }
+#root .realm-planned-action[data-issue=true] { border-color:var(--ui-accent); }
+#root .realm-planned-action>header { display:flex;align-items:flex-start;gap:10px; }
+#root .realm-action-index { display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:8px;background:var(--ui-inset);color:var(--ui-accent);font-size:.75rem;font-variant-numeric:tabular-nums; }
+#root .realm-planned-action header>div { flex:1;min-width:0; }
+#root .realm-planned-action header strong { display:block;font-size:.82rem;line-height:1.5; }
+#root .realm-action-target { display:block;margin-top:5px;color:var(--ui-muted);font-size:.74rem; }
+#root .realm-planned-action header>small { max-width:65px;color:var(--ui-accent);font-size:.66rem; }
+#root .realm-planned-action>p { color:var(--ui-muted);font-size:.8rem; }
+#root .realm-planned-controls { display:flex;align-items:center;gap:6px;margin-top:13px;border-top:1px solid var(--ui-line-soft);padding-top:10px; }
+#root .realm-planned-controls button { min-height:38px;padding:6px 11px;font-size:.72rem; }
+#root .realm-planned-controls>button:first-child { margin-right:auto; }
+#root .realm-plan-submit { margin-top:16px;padding-top:14px;border-top:1px solid var(--ui-line-soft); }
+#root .realm-plan-submit p { margin:0 0 10px;color:var(--ui-muted);font-size:.76rem; }
+#root .realm-plan-submit>button { width:100%;min-height:44px; }
+@media(max-width:620px) { #root .realm-ability-filters,#root .realm-ability-results { grid-template-columns:minmax(0,1fr); } #root .realm-planned-controls button { min-height:44px; } }
+
 /* A game table keeps the scene close to the player's plan. */
 #root .gb-game-header .ui-disclosure-content { left:auto;right:0;max-width:calc(100vw - 65px); }
 #root .realm-master-desk { margin:18px 0;border:1px solid var(--ui-line);border-radius:14px;background:var(--ui-inset); }
